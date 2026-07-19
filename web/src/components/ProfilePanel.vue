@@ -63,6 +63,18 @@ async function save() {
               <option v-for="device in voice.inputDevices" :key="device.deviceId" :value="device.deviceId">{{ device.label || '麦克风' }}</option>
             </select>
           </label>
+          <label class="audio-level-control">
+            <span><span>麦克风增益</span><strong>{{ Math.round(voice.microphoneGain * 100) }}%</strong></span>
+            <input
+              type="range"
+              min="0"
+              max="3"
+              step="0.05"
+              :value="voice.microphoneGain"
+              aria-label="麦克风增益"
+              @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))"
+            />
+          </label>
         </section>
 
         <section class="settings-section">
@@ -73,6 +85,18 @@ async function save() {
               <option v-if="!voice.outputDevices.length" value="">系统默认</option>
               <option v-for="device in voice.outputDevices" :key="device.deviceId" :value="device.deviceId">{{ device.label || '扬声器' }}</option>
             </select>
+          </label>
+          <label class="audio-level-control">
+            <span><span>扬声器音量</span><strong>{{ Math.round(voice.outputVolume * 100) }}%</strong></span>
+            <input
+              type="range"
+              min="0"
+              max="3"
+              step="0.05"
+              :value="voice.outputVolume"
+              aria-label="扬声器音量"
+              @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))"
+            />
           </label>
         </section>
       </div>

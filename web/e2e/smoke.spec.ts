@@ -37,6 +37,27 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
   expect(Math.abs(verticalLayout.viewport - verticalLayout.composerBottom)).toBeLessThan(2)
 })
 
+test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, isMobile }) => {
+  if (isMobile) await page.getByTitle('频道').click()
+  await page.getByTitle('用户设置').click()
+
+  const microphoneGain = page.getByLabel('麦克风增益')
+  const outputVolume = page.getByLabel('扬声器音量')
+  await expect(microphoneGain).toHaveValue('1')
+  await expect(outputVolume).toHaveValue('1')
+  await expect(microphoneGain).toHaveAttribute('max', '3')
+  await expect(outputVolume).toHaveAttribute('max', '3')
+
+  await microphoneGain.fill('2.5')
+  await outputVolume.fill('1.5')
+  await expect(page.getByText('250%', { exact: true })).toBeVisible()
+  await expect(page.getByText('150%', { exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => ({
+    microphone: localStorage.getItem('cws.microphoneGain'),
+    output: localStorage.getItem('cws.outputVolume'),
+  }))).toEqual({ microphone: '2.5', output: '1.5' })
+})
+
 test('窄屏频道与成员抽屉不溢出', async ({ page, isMobile }) => {
   test.skip(!isMobile, '仅在移动端项目运行')
   await page.getByTitle('频道').click()

@@ -40,6 +40,14 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
       await expect(page.locator('.voice-member').filter({ hasText: accounts[1].displayName })).toBeVisible()
       await expect.poll(() => page.locator('#voice-audio-root audio').count()).toBeGreaterThanOrEqual(1)
     }
+
+    const remoteMember = contexts[0].page.locator('.voice-member').filter({ hasText: accounts[1].displayName })
+    await remoteMember.locator('.voice-member-main').click()
+    const remoteVolume = remoteMember.getByLabel('用户音量')
+    await expect(remoteVolume).toHaveValue('1')
+    await expect(remoteVolume).toHaveAttribute('max', '3')
+    await remoteVolume.fill('3')
+    await expect(remoteMember.getByText('300%', { exact: true })).toBeVisible()
   } finally {
     await Promise.all(contexts.map(({ context }) => context.close()))
   }

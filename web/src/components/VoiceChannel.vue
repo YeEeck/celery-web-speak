@@ -58,7 +58,7 @@ function userFor(participant: VoiceParticipant) {
           <input
             type="range"
             min="0"
-            max="1"
+            max="3"
             step="0.05"
             :value="participant.volume"
             aria-label="用户音量"

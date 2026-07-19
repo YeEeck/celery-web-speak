@@ -12,8 +12,14 @@ import {
   type RemoteTrackPublication,
 } from 'livekit-client'
 import { request } from '../api'
+import { MicrophoneGainProcessor } from '../audio/MicrophoneGainProcessor'
 import type { VoiceCredentials } from '../types'
 import { useAppStore } from './app'
+
+const DEFAULT_VOLUME = 1
+const MAX_VOLUME = 3
+const MICROPHONE_GAIN_KEY = 'cws.microphoneGain'
+const OUTPUT_VOLUME_KEY = 'cws.outputVolume'
 
 export interface VoiceParticipant {
   identity: string
@@ -36,6 +42,9 @@ export const useVoiceStore = defineStore('voice', () => {
   const outputDevices = ref<MediaDeviceInfo[]>([])
   const activeInputId = ref('')
   const activeOutputId = ref('')
+  const microphoneGain = ref(getSavedLevel(MICROPHONE_GAIN_KEY))
+  const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
+  const microphoneGainProcessor = new MicrophoneGainProcessor(microphoneGain.value)
   let room: Room | null = null
 
   const joined = computed(() => status.value !== 'idle' && status.value !== 'error')
@@ -50,6 +59,7 @@ export const useVoiceStore = defineStore('voice', () => {
       const nextRoom = markRaw(new Room({
         adaptiveStream: true,
         dynacast: true,
+        webAudioMix: true,
         audioCaptureDefaults: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -69,6 +79,7 @@ export const useVoiceStore = defineStore('voice', () => {
       await nextRoom.startAudio()
       if (!app.user?.voiceMuted) {
         await nextRoom.localParticipant.setMicrophoneEnabled(true, undefined, publishOptions())
+        await attachMicrophoneGain(nextRoom)
       }
       muted.value = app.user?.voiceMuted ?? false
       status.value = 'connected'
@@ -101,6 +112,7 @@ export const useVoiceStore = defineStore('voice', () => {
     if (app.user?.voiceMuted) return
     const enabled = muted.value
     await room.localParticipant.setMicrophoneEnabled(enabled, undefined, publishOptions())
+    if (enabled) await attachMicrophoneGain(room)
     muted.value = !enabled
     syncParticipants()
   }
@@ -126,17 +138,32 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   function setParticipantVolume(userId: number, volume: number) {
-    const normalized = Math.max(0, Math.min(1, volume))
+    const normalized = clampVolume(volume)
     localStorage.setItem(`cws.volume.${userId}`, String(normalized))
     const participant = participants.value.find((item) => item.userId === userId)
     if (participant) participant.volume = normalized
     applyVolume(userId)
   }
 
+  function setMicrophoneGain(volume: number) {
+    const normalized = clampVolume(volume)
+    microphoneGain.value = normalized
+    localStorage.setItem(MICROPHONE_GAIN_KEY, String(normalized))
+    microphoneGainProcessor.setGain(normalized)
+  }
+
+  function setOutputVolume(volume: number) {
+    const normalized = clampVolume(volume)
+    outputVolume.value = normalized
+    localStorage.setItem(OUTPUT_VOLUME_KEY, String(normalized))
+    applyAllVolumes()
+  }
+
   async function applyBitrateChange() {
     if (!room || muted.value || useAppStore().user?.voiceMuted) return
     await room.localParticipant.setMicrophoneEnabled(false)
     await room.localParticipant.setMicrophoneEnabled(true, undefined, publishOptions())
+    await attachMicrophoneGain(room)
     syncParticipants()
   }
 
@@ -236,9 +263,15 @@ export const useVoiceStore = defineStore('voice', () => {
     }
   }
 
+  async function attachMicrophoneGain(target: Room) {
+    const track = target.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack
+    if (track && track.getProcessor() !== microphoneGainProcessor) {
+      await track.setProcessor(microphoneGainProcessor)
+    }
+  }
+
   function getSavedVolume(userId: number): number {
-    const value = Number(localStorage.getItem(`cws.volume.${userId}`))
-    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 1
+    return getSavedLevel(`cws.volume.${userId}`)
   }
 
   function applyAllVolumes() {
@@ -246,9 +279,12 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   function applyVolume(userId: number) {
-    document.querySelectorAll<HTMLAudioElement>(`#voice-audio-root audio[data-user-id="${userId}"]`).forEach((element) => {
-      element.muted = deafened.value
-      element.volume = getSavedVolume(userId)
+    if (!room) return
+    const gain = deafened.value ? 0 : clampVolume(getSavedVolume(userId) * outputVolume.value)
+    room.remoteParticipants.forEach((participant) => {
+      if (participantUserId(participant) === userId) {
+        participant.setVolume(gain, Track.Source.Microphone)
+      }
     })
   }
 
@@ -262,6 +298,8 @@ export const useVoiceStore = defineStore('voice', () => {
     outputDevices,
     activeInputId,
     activeOutputId,
+    microphoneGain,
+    outputVolume,
     joined,
     join,
     leave,
@@ -270,11 +308,23 @@ export const useVoiceStore = defineStore('voice', () => {
     switchInput,
     switchOutput,
     setParticipantVolume,
+    setMicrophoneGain,
+    setOutputVolume,
     applyBitrateChange,
     syncServerMute,
     refreshDevices,
   }
 })
+
+function clampVolume(value: number) {
+  return Number.isFinite(value) ? Math.max(0, Math.min(MAX_VOLUME, value)) : DEFAULT_VOLUME
+}
+
+function getSavedLevel(key: string) {
+  const saved = localStorage.getItem(key)
+  if (saved === null) return DEFAULT_VOLUME
+  return clampVolume(Number(saved))
+}
 
 async function setAudioSink(element: HTMLAudioElement, deviceId: string) {
   const sinkElement = element as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }
