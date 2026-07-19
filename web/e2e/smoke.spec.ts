@@ -155,6 +155,31 @@ test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ pa
   await expect(page.locator('.member-list.drawer')).toBeHidden()
 })
 
+test('管理控制台外框不随页签内容变化', async ({ page, isMobile }) => {
+  await page.setViewportSize({ width: isMobile ? 412 : 1200, height: 800 })
+  const adminButton = page.getByText('管理控制台', { exact: true })
+  if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
+  await adminButton.click()
+
+  const panel = page.locator('.admin-panel')
+  const panelSize = () => panel.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return { width: rect.width, height: rect.height }
+  })
+  const channelSize = await panelSize()
+
+  await page.getByRole('button', { name: '成员', exact: true }).click()
+  expect(await panelSize()).toEqual(channelSize)
+  await page.getByRole('button', { name: '账号与邀请', exact: true }).click()
+  expect(await panelSize()).toEqual(channelSize)
+
+  if (isMobile) {
+    expect(channelSize).toEqual({ width: 412, height: 800 })
+  } else {
+    expect(channelSize).toEqual({ width: 980, height: 752 })
+  }
+})
+
 test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile }) => {
   await page.route('**/api/bootstrap', async (route) => {
     const response = await route.fetch()

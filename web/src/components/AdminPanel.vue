@@ -28,6 +28,7 @@ const newRole = ref<Role>('member')
 const message = ref('')
 const errorMessage = ref('')
 const busy = ref(false)
+const adminContent = ref<HTMLElement | null>(null)
 const userDetail = ref<HTMLElement | null>(null)
 
 const selectedUser = computed(() => app.users.find((user) => user.id === selectedUserId.value) ?? null)
@@ -232,22 +233,28 @@ function selectUser(userId: number) {
   selectedUserId.value = userId
   nextTick(() => userDetail.value?.scrollTo({ top: 0 }))
 }
+
+function selectTab(nextTab: 'channel' | 'users' | 'invites') {
+  if (tab.value === nextTab) return
+  tab.value = nextTab
+  nextTick(() => adminContent.value?.scrollTo({ top: 0 }))
+}
 </script>
 
 <template>
   <div class="modal-backdrop" @mousedown.self="$emit('close')">
-    <section :class="['admin-panel', { 'users-panel': tab === 'users' }]" role="dialog" aria-modal="true" aria-labelledby="admin-title">
+    <section class="admin-panel" role="dialog" aria-modal="true" aria-labelledby="admin-title">
       <header class="panel-header">
         <div><h2 id="admin-title">管理控制台</h2><p>{{ app.user!.role === 'server_admin' ? '服务器管理员' : '频道管理员' }}</p></div>
         <button class="icon-button" title="关闭" @click="$emit('close')"><X :size="21" /></button>
       </header>
       <nav class="admin-tabs">
-        <button :class="{ active: tab === 'channel' }" @click="tab = 'channel'"><Gauge :size="17" />频道</button>
-        <button :class="{ active: tab === 'users' }" @click="tab = 'users'"><UserCog :size="17" />成员</button>
-        <button v-if="app.isServerAdmin" :class="{ active: tab === 'invites' }" @click="tab = 'invites'"><Ticket :size="17" />账号与邀请</button>
+        <button :class="{ active: tab === 'channel' }" @click="selectTab('channel')"><Gauge :size="17" />频道</button>
+        <button :class="{ active: tab === 'users' }" @click="selectTab('users')"><UserCog :size="17" />成员</button>
+        <button v-if="app.isServerAdmin" :class="{ active: tab === 'invites' }" @click="selectTab('invites')"><Ticket :size="17" />账号与邀请</button>
       </nav>
 
-      <div :class="['admin-content', { 'users-content': tab === 'users' }]">
+      <div ref="adminContent" :class="['admin-content', { 'users-content': tab === 'users' }]">
         <section v-if="tab === 'channel'" class="settings-section channel-settings">
           <h3>语音质量</h3>
           <label class="range-setting">
