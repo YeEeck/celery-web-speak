@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func (s *Store) ListMessages(ctx context.Context, beforeID int64, limit int) ([]Message, error) {
+func (s *Store) ListMessages(ctx context.Context, beforeID int64, limit int) ([]Message, bool, error) {
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
@@ -21,10 +21,10 @@ FROM messages m JOIN users u ON u.id = m.user_id`
 		args = append(args, beforeID)
 	}
 	query += " ORDER BY m.id DESC LIMIT ?"
-	args = append(args, limit)
+	args = append(args, limit+1)
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
 
@@ -33,16 +33,23 @@ FROM messages m JOIN users u ON u.id = m.user_id`
 		var message Message
 		var createdAt string
 		if err := rows.Scan(&message.ID, &message.UserID, &message.Username, &message.DisplayName, &message.Role, &message.Content, &createdAt); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		message.CreatedAt, _ = parseTime(createdAt)
 		reversed = append(reversed, message)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := len(reversed) > limit
+	if hasMore {
+		reversed = reversed[:limit]
 	}
 	messages := make([]Message, len(reversed))
 	for i := range reversed {
 		messages[len(reversed)-1-i] = reversed[i]
 	}
-	return messages, rows.Err()
+	return messages, hasMore, nil
 }
 
 func (s *Store) CreateMessage(ctx context.Context, user User, content string) (Message, error) {

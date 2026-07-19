@@ -23,29 +23,30 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "get settings", err)
 		return
 	}
-	messages, err := s.store.ListMessages(r.Context(), 0, 50)
+	messages, messagesHasMore, err := s.store.ListMessages(r.Context(), 0, 50)
 	if err != nil {
 		s.internalError(w, "list messages", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":      currentUser(r),
-		"users":     users,
-		"settings":  settings,
-		"messages":  messages,
-		"onlineIds": s.hub.OnlineUserIDs(),
+		"user":            currentUser(r),
+		"users":           users,
+		"settings":        settings,
+		"messages":        messages,
+		"messagesHasMore": messagesHasMore,
+		"onlineIds":       s.hub.OnlineUserIDs(),
 	})
 }
 
 func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	messages, err := s.store.ListMessages(r.Context(), before, limit)
+	messages, hasMore, err := s.store.ListMessages(r.Context(), before, limit)
 	if err != nil {
 		s.internalError(w, "list messages", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": messages})
+	writeJSON(w, http.StatusOK, map[string]any{"messages": messages, "hasMore": hasMore})
 }
 
 func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {

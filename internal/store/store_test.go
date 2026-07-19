@@ -89,15 +89,32 @@ func TestMessageRetention(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	messages, err := db.ListMessages(ctx, 0, 100)
+	messages, hasMore, err := db.ListMessages(ctx, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(messages) != 100 {
 		t.Fatalf("message count = %d, want 100", len(messages))
 	}
+	if hasMore {
+		t.Fatal("retained message page unexpectedly has more messages")
+	}
 	if messages[0].ID != 6 {
 		t.Fatalf("oldest message id = %d, want 6", messages[0].ID)
+	}
+	newestPage, hasMore, err := db.ListMessages(ctx, 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(newestPage) != 50 || !hasMore {
+		t.Fatalf("newest page count = %d, hasMore = %v; want 50, true", len(newestPage), hasMore)
+	}
+	olderPage, hasMore, err := db.ListMessages(ctx, newestPage[0].ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(olderPage) != 50 || hasMore {
+		t.Fatalf("older page count = %d, hasMore = %v; want 50, false", len(olderPage), hasMore)
 	}
 }
 
