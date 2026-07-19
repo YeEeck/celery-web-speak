@@ -42,12 +42,17 @@ func (s *Service) JoinCredentials(user store.User) (JoinCredentials, error) {
 	canPublish := !user.VoiceMuted
 	canSubscribe := true
 	canPublishData := false
+	canSubscribeMetrics := true
 	grant := &auth.VideoGrant{
-		RoomJoin:       true,
-		Room:           RoomName,
-		CanPublish:     &canPublish,
-		CanSubscribe:   &canSubscribe,
-		CanPublishData: &canPublishData,
+		RoomJoin:            true,
+		Room:                RoomName,
+		CanPublish:          &canPublish,
+		CanSubscribe:        &canSubscribe,
+		CanPublishData:      &canPublishData,
+		CanSubscribeMetrics: &canSubscribeMetrics,
+	}
+	if canPublish {
+		grant.CanPublishSources = []string{"microphone"}
 	}
 	token, err := auth.NewAccessToken(s.apiKey, s.apiSecret).
 		SetIdentity(Identity(user.ID)).
@@ -67,13 +72,19 @@ func (s *Service) JoinCredentials(user store.User) (JoinCredentials, error) {
 }
 
 func (s *Service) SetCanPublish(ctx context.Context, userID int64, canPublish bool) error {
+	sources := []livekit.TrackSource(nil)
+	if canPublish {
+		sources = []livekit.TrackSource{livekit.TrackSource_MICROPHONE}
+	}
 	_, err := s.room.UpdateParticipant(ctx, &livekit.UpdateParticipantRequest{
 		Room:     RoomName,
 		Identity: Identity(userID),
 		Permission: &livekit.ParticipantPermission{
-			CanSubscribe:   true,
-			CanPublish:     canPublish,
-			CanPublishData: false,
+			CanSubscribe:        true,
+			CanPublish:          canPublish,
+			CanPublishData:      false,
+			CanPublishSources:   sources,
+			CanSubscribeMetrics: true,
 		},
 	})
 	return err
