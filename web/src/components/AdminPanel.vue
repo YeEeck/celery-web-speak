@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { Ban, Check, Clipboard, Gauge, KeyRound, Save, ShieldCheck, Ticket, UserCog, UserPlus, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
@@ -25,6 +25,7 @@ const newRole = ref<Role>('member')
 const message = ref('')
 const errorMessage = ref('')
 const busy = ref(false)
+const userDetail = ref<HTMLElement | null>(null)
 
 const selectedUser = computed(() => app.users.find((user) => user.id === selectedUserId.value) ?? null)
 const manageableUsers = computed(() => app.users.filter((user) => user.id !== app.user!.id))
@@ -174,11 +175,17 @@ async function copyCode() {
 function roleLabel(role: Role) {
   return role === 'server_admin' ? '服务器管理员' : role === 'channel_admin' ? '频道管理员' : '普通成员'
 }
+
+function selectUser(userId: number) {
+  if (selectedUserId.value === userId) return
+  selectedUserId.value = userId
+  nextTick(() => userDetail.value?.scrollTo({ top: 0 }))
+}
 </script>
 
 <template>
   <div class="modal-backdrop" @mousedown.self="$emit('close')">
-    <section class="admin-panel" role="dialog" aria-modal="true" aria-labelledby="admin-title">
+    <section :class="['admin-panel', { 'users-panel': tab === 'users' }]" role="dialog" aria-modal="true" aria-labelledby="admin-title">
       <header class="panel-header">
         <div><h2 id="admin-title">管理控制台</h2><p>{{ app.user!.role === 'server_admin' ? '服务器管理员' : '频道管理员' }}</p></div>
         <button class="icon-button" title="关闭" @click="$emit('close')"><X :size="21" /></button>
@@ -189,7 +196,7 @@ function roleLabel(role: Role) {
         <button v-if="app.isServerAdmin" :class="{ active: tab === 'invites' }" @click="tab = 'invites'"><Ticket :size="17" />账号与邀请</button>
       </nav>
 
-      <div class="admin-content">
+      <div :class="['admin-content', { 'users-content': tab === 'users' }]">
         <section v-if="tab === 'channel'" class="settings-section channel-settings">
           <h3>语音质量</h3>
           <label class="range-setting">
@@ -208,13 +215,13 @@ function roleLabel(role: Role) {
               v-for="member in manageableUsers"
               :key="member.id"
               :class="{ active: selectedUserId === member.id }"
-              @click="selectedUserId = member.id"
+              @click="selectUser(member.id)"
             >
               <UserAvatar :name="member.displayName" :size="32" />
               <span><strong>{{ member.displayName }}</strong><small>{{ roleLabel(member.role) }}</small></span>
             </button>
           </aside>
-          <div v-if="selectedUser" class="user-admin-detail">
+          <div v-if="selectedUser" ref="userDetail" class="user-admin-detail">
             <header><UserAvatar :name="selectedUser.displayName" :size="48" /><div><h3>{{ selectedUser.displayName }}</h3><p>@{{ selectedUser.username }}</p></div></header>
             <template v-if="canModerate(selectedUser)">
               <div class="toggle-list">

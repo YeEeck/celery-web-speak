@@ -155,6 +155,81 @@ test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ pa
   await expect(page.locator('.member-list.drawer')).toBeHidden()
 })
 
+test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile }) => {
+  await page.route('**/api/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    const users = [
+      payload.user,
+      ...Array.from({ length: 40 }, (_, index) => ({
+        id: 10_000 + index,
+        username: `scroll-member-${index + 1}`,
+        displayName: `滚动测试成员 ${String(index + 1).padStart(2, '0')}`,
+        role: 'member',
+        voiceMuted: false,
+        textMuted: false,
+        permanentlyBanned: false,
+        createdAt: new Date().toISOString(),
+      })),
+    ]
+    await route.fulfill({ response, json: { ...payload, users } })
+  })
+
+  await page.setViewportSize({ width: isMobile ? 412 : 1200, height: 600 })
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+  const adminButton = page.getByText('管理控制台', { exact: true })
+  if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
+  await adminButton.click()
+  await page.getByRole('button', { name: '成员', exact: true }).click()
+
+  const content = page.locator('.admin-content')
+  const list = page.locator('.admin-user-list')
+  const detail = page.locator('.user-admin-detail')
+  await expect(list).toBeVisible()
+  await expect(detail).toBeVisible()
+
+  const layout = await page.evaluate(() => {
+    const contentElement = document.querySelector<HTMLElement>('.admin-content')!
+    const listElement = document.querySelector<HTMLElement>('.admin-user-list')!
+    const detailElement = document.querySelector<HTMLElement>('.user-admin-detail')!
+    const listRect = listElement.getBoundingClientRect()
+    const detailRect = detailElement.getBoundingClientRect()
+    return {
+      contentOverflow: getComputedStyle(contentElement).overflowY,
+      listCanScroll: listElement.scrollHeight > listElement.clientHeight,
+      detailCanScroll: detailElement.scrollHeight > detailElement.clientHeight,
+      listOverscroll: getComputedStyle(listElement).overscrollBehaviorY,
+      detailOverscroll: getComputedStyle(detailElement).overscrollBehaviorY,
+      listRect: { top: listRect.top, right: listRect.right, bottom: listRect.bottom },
+      detailRect: { top: detailRect.top, left: detailRect.left, bottom: detailRect.bottom },
+    }
+  })
+  expect(layout.contentOverflow).toBe('hidden')
+  expect(layout.listCanScroll).toBe(true)
+  expect(layout.detailCanScroll).toBe(true)
+  expect(layout.listOverscroll).toBe('contain')
+  expect(layout.detailOverscroll).toBe('contain')
+  if (isMobile) {
+    expect(layout.listRect.bottom).toBeLessThanOrEqual(layout.detailRect.top)
+  } else {
+    expect(layout.listRect.right).toBeLessThanOrEqual(layout.detailRect.left)
+    expect(Math.abs(layout.listRect.top - layout.detailRect.top)).toBeLessThan(2)
+    expect(Math.abs(layout.listRect.bottom - layout.detailRect.bottom)).toBeLessThan(2)
+  }
+
+  await list.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await detail.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  const listScrollTop = await list.evaluate((element) => element.scrollTop)
+  expect(listScrollTop).toBeGreaterThan(0)
+  expect(await detail.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+
+  await page.locator('.admin-user-list button').last().click()
+  await expect.poll(() => detail.evaluate((element) => element.scrollTop)).toBe(0)
+  expect(await list.evaluate((element) => element.scrollTop)).toBeCloseTo(listScrollTop, 0)
+  await expect(content).toHaveClass(/users-content/)
+})
+
 test('窄屏频道与成员抽屉不溢出', async ({ page, isMobile }) => {
   test.skip(!isMobile, '仅在移动端项目运行')
   await page.getByTitle('频道').click()
