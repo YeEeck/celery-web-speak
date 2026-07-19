@@ -311,6 +311,20 @@ test('邀请码列表关联原码、分页并可永久删除', async ({ page }) 
   expect(deleted).toBe(true)
 })
 
+test('空邀请码列表兼容 null 响应', async ({ page }) => {
+  await page.route('**/api/admin/invites**', (route) => route.fulfill({
+    json: { invites: null, hasMore: false, nextCursor: '' },
+  }))
+
+  const adminButton = page.getByText('管理控制台', { exact: true })
+  if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
+  await adminButton.click()
+  await page.getByRole('button', { name: '账号与邀请', exact: true }).click()
+
+  await expect(page.getByText('暂无邀请码', { exact: true })).toBeVisible()
+  await expect(page.locator('.invite-row')).toHaveCount(0)
+})
+
 test('窄屏频道与成员抽屉不溢出', async ({ page, isMobile }) => {
   test.skip(!isMobile, '仅在移动端项目运行')
   await page.getByTitle('频道').click()

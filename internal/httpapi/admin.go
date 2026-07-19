@@ -21,6 +21,9 @@ func (s *Server) handleListInvites(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "list invites", err)
 		return
 	}
+	if invites == nil {
+		invites = []store.Invite{}
+	}
 	nextCursor := ""
 	if next != nil {
 		nextCursor = encodeInviteCursor(next)

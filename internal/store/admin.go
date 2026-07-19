@@ -268,7 +268,7 @@ WHERE NOT (revoked_at IS NULL AND expires_at > ? AND use_count < max_uses)`
 		return nil, err
 	}
 	defer rows.Close()
-	var invites []Invite
+	invites := make([]Invite, 0)
 	for rows.Next() {
 		var invite Invite
 		var code, revokedAt sql.NullString

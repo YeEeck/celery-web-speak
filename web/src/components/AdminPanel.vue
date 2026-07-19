@@ -157,12 +157,13 @@ async function loadInvites(reset = true) {
   loadingInvites.value = true
   try {
     const query = !reset && inviteCursor.value ? `?cursor=${encodeURIComponent(inviteCursor.value)}` : ''
-    const payload = await request<{ invites: Invite[]; hasMore: boolean; nextCursor: string }>(`/api/admin/invites${query}`)
+    const payload = await request<{ invites: Invite[] | null; hasMore: boolean; nextCursor: string }>(`/api/admin/invites${query}`)
+    const pageInvites = Array.isArray(payload.invites) ? payload.invites : []
     if (reset) {
-      invites.value = payload.invites
+      invites.value = pageInvites
     } else {
       const loadedIDs = new Set(invites.value.map((invite) => invite.id))
-      invites.value.push(...payload.invites.filter((invite) => !loadedIDs.has(invite.id)))
+      invites.value.push(...pageInvites.filter((invite) => !loadedIDs.has(invite.id)))
     }
     inviteCursor.value = payload.nextCursor
     invitesHasMore.value = payload.hasMore

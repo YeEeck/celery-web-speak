@@ -53,6 +53,22 @@ func TestInviteRegistrationAndUseLimit(t *testing.T) {
 	}
 }
 
+func TestEmptyInviteListReturnsNonNilSlice(t *testing.T) {
+	db := newTestStore(t)
+	bootstrapAdmin(t, db)
+
+	invites, cursor, err := db.ListInvites(context.Background(), nil, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invites == nil {
+		t.Fatal("empty invite list is nil, want non-nil empty slice")
+	}
+	if len(invites) != 0 || cursor != nil {
+		t.Fatalf("empty invite list length/cursor = %d, %+v", len(invites), cursor)
+	}
+}
+
 func TestInviteListPaginationAndOrdering(t *testing.T) {
 	db := newTestStore(t)
 	admin := bootstrapAdmin(t, db)
