@@ -242,7 +242,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
 </script>
 
 <template>
-  <div class="modal-backdrop" @mousedown.self="$emit('close')">
+  <div class="modal-backdrop admin-backdrop" @mousedown.self="$emit('close')">
     <section class="admin-panel" role="dialog" aria-modal="true" aria-labelledby="admin-title">
       <header class="panel-header">
         <div><h2 id="admin-title">管理控制台</h2><p>{{ app.user!.role === 'server_admin' ? '服务器管理员' : '频道管理员' }}</p></div>

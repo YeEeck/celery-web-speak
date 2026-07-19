@@ -156,7 +156,7 @@ test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ pa
 })
 
 test('管理控制台外框不随页签内容变化', async ({ page, isMobile }) => {
-  await page.setViewportSize({ width: isMobile ? 412 : 1200, height: 800 })
+  await page.setViewportSize({ width: isMobile ? 412 : 1200, height: isMobile ? 800 : 900 })
   const adminButton = page.getByText('管理控制台', { exact: true })
   if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
   await adminButton.click()
@@ -176,7 +176,11 @@ test('管理控制台外框不随页签内容变化', async ({ page, isMobile })
   if (isMobile) {
     expect(channelSize).toEqual({ width: 412, height: 800 })
   } else {
-    expect(channelSize).toEqual({ width: 980, height: 752 })
+    expect(channelSize).toEqual({ width: 980, height: 820 })
+    await page.setViewportSize({ width: 1200, height: 800 })
+    await expect.poll(panelSize).toEqual({ width: 1200, height: 800 })
+    await page.setViewportSize({ width: 1200, height: 900 })
+    await expect.poll(panelSize).toEqual({ width: 980, height: 820 })
   }
 })
 
