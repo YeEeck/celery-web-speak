@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -49,6 +51,146 @@ func TestInviteRegistrationAndUseLimit(t *testing.T) {
 	if !errors.Is(err, ErrInvalidInvite) {
 		t.Fatalf("second use error = %v, want ErrInvalidInvite", err)
 	}
+}
+
+func TestInviteListPaginationAndOrdering(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	base := time.Date(2026, time.July, 20, 8, 0, 0, 0, time.UTC)
+	db.now = func() time.Time { return base }
+
+	expired, err := db.CreateInvite(ctx, admin.ID, 2, base.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.now = func() time.Time { return base.Add(10 * time.Minute) }
+	revoked, err := db.CreateInvite(ctx, admin.ID, 2, base.Add(10*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RevokeInvite(ctx, admin.ID, revoked.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.now = func() time.Time { return base.Add(20 * time.Minute) }
+	used, err := db.CreateInvite(ctx, admin.ID, 1, base.Add(12*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.db.ExecContext(ctx, "UPDATE invites SET use_count = max_uses WHERE id = ?", used.ID); err != nil {
+		t.Fatal(err)
+	}
+	db.now = func() time.Time { return base.Add(30 * time.Minute) }
+	later, err := db.CreateInvite(ctx, admin.ID, 2, base.Add(20*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.now = func() time.Time { return base.Add(40 * time.Minute) }
+	sooner, err := db.CreateInvite(ctx, admin.ID, 2, base.Add(5*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.now = func() time.Time { return base.Add(2 * time.Hour) }
+
+	first, cursor, err := db.ListInvites(ctx, nil, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 2 || first[0].ID != sooner.ID || first[1].ID != later.ID {
+		t.Fatalf("first page ids = %v, want [%d %d]", inviteIDs(first), sooner.ID, later.ID)
+	}
+	if first[0].Code != sooner.Code || cursor == nil || !cursor.Active {
+		t.Fatalf("first page code/cursor = %q, %+v", first[0].Code, cursor)
+	}
+
+	second, cursor, err := db.ListInvites(ctx, cursor, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != 2 || second[0].ID != used.ID || second[1].ID != revoked.ID {
+		t.Fatalf("second page ids = %v, want [%d %d]", inviteIDs(second), used.ID, revoked.ID)
+	}
+	if cursor == nil || cursor.Active {
+		t.Fatalf("second page cursor = %+v, want inactive cursor", cursor)
+	}
+
+	third, cursor, err := db.ListInvites(ctx, cursor, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(third) != 1 || third[0].ID != expired.ID || cursor != nil {
+		t.Fatalf("third page ids/cursor = %v, %+v", inviteIDs(third), cursor)
+	}
+}
+
+func TestDeleteInviteInvalidatesCode(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	invite, err := db.CreateInvite(ctx, admin.ID, 1, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteInvite(ctx, admin.ID, invite.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Register(ctx, invite.Code, "deleted_invite_user", "已删除邀请码", "another-secure-password"); !errors.Is(err, ErrInvalidInvite) {
+		t.Fatalf("register after delete error = %v, want ErrInvalidInvite", err)
+	}
+	if err := db.DeleteInvite(ctx, admin.ID, invite.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second delete error = %v, want ErrNotFound", err)
+	}
+	var auditCount int
+	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_logs WHERE action = 'delete_invite' AND details = ?", "invite_id="+fmt.Sprint(invite.ID)).Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if auditCount != 1 {
+		t.Fatalf("delete audit count = %d, want 1", auditCount)
+	}
+}
+
+func TestInviteCodeColumnMigratesExistingDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec("ALTER TABLE invites DROP COLUMN code"); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrated.Close()
+	var codeColumns int
+	if err := migrated.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('invites') WHERE name = 'code'`).Scan(&codeColumns); err != nil {
+		t.Fatal(err)
+	}
+	if codeColumns != 1 {
+		t.Fatalf("invite code column count = %d, want 1", codeColumns)
+	}
+}
+
+func inviteIDs(invites []Invite) []int64 {
+	ids := make([]int64, len(invites))
+	for index, invite := range invites {
+		ids[index] = invite.ID
+	}
+	return ids
 }
 
 func TestSessionRejectedAfterTemporaryBan(t *testing.T) {

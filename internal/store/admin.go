@@ -184,19 +184,86 @@ func (s *Store) CreateInvite(ctx context.Context, actorID int64, maxUses int, ex
 	hash := hashToken(code)
 	now := s.now()
 	result, err := s.db.ExecContext(ctx, `
-INSERT INTO invites (code_hash, created_by, max_uses, expires_at, created_at)
-VALUES (?, ?, ?, ?, ?)`, hash[:], actorID, maxUses, formatTime(expiresAt), formatTime(now))
+INSERT INTO invites (code_hash, code, created_by, max_uses, expires_at, created_at)
+VALUES (?, ?, ?, ?, ?, ?)`, hash[:], code, actorID, maxUses, formatTime(expiresAt), formatTime(now))
 	if err != nil {
 		return CreatedInvite{}, err
 	}
 	id, _ := result.LastInsertId()
-	return CreatedInvite{Invite: Invite{ID: id, MaxUses: maxUses, ExpiresAt: expiresAt, CreatedAt: now, CreatedBy: actorID}, Code: code}, nil
+	return CreatedInvite{Invite: Invite{ID: id, Code: code, MaxUses: maxUses, ExpiresAt: expiresAt, CreatedAt: now, CreatedBy: actorID}}, nil
 }
 
-func (s *Store) ListInvites(ctx context.Context) ([]Invite, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, created_by, max_uses, use_count, expires_at, revoked_at, created_at
-FROM invites ORDER BY id DESC LIMIT 100`)
+func (s *Store) ListInvites(ctx context.Context, cursor *InviteCursor, limit int) ([]Invite, *InviteCursor, error) {
+	if limit < 1 || limit > 100 {
+		limit = 30
+	}
+	now := formatTime(s.now())
+
+	if cursor == nil || cursor.Active {
+		active, err := s.queryInvites(ctx, true, cursor, limit+1, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(active) > limit {
+			active = active[:limit]
+			return active, inviteCursorFor(active[len(active)-1], true), nil
+		}
+
+		remaining := limit - len(active)
+		inactive, err := s.queryInvites(ctx, false, nil, remaining+1, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(inactive) > remaining {
+			if remaining == 0 {
+				return active, inviteCursorFor(active[len(active)-1], true), nil
+			}
+			active = append(active, inactive[:remaining]...)
+			return active, inviteCursorFor(active[len(active)-1], false), nil
+		}
+		return append(active, inactive...), nil, nil
+	}
+
+	inactive, err := s.queryInvites(ctx, false, cursor, limit+1, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(inactive) > limit {
+		inactive = inactive[:limit]
+		return inactive, inviteCursorFor(inactive[len(inactive)-1], false), nil
+	}
+	return inactive, nil, nil
+}
+
+func (s *Store) queryInvites(ctx context.Context, active bool, cursor *InviteCursor, limit int, now string) ([]Invite, error) {
+	query := `
+SELECT id, code, created_by, max_uses, use_count, expires_at, revoked_at, created_at
+FROM invites
+WHERE revoked_at IS NULL AND expires_at > ? AND use_count < max_uses`
+	args := []any{now}
+	if !active {
+		query = `
+SELECT id, code, created_by, max_uses, use_count, expires_at, revoked_at, created_at
+FROM invites
+WHERE NOT (revoked_at IS NULL AND expires_at > ? AND use_count < max_uses)`
+	}
+	if cursor != nil {
+		if active {
+			query += " AND (expires_at > ? OR (expires_at = ? AND id > ?))"
+		} else {
+			query += " AND (created_at < ? OR (created_at = ? AND id < ?))"
+		}
+		sortTime := formatTime(cursor.SortTime)
+		args = append(args, sortTime, sortTime, cursor.ID)
+	}
+	if active {
+		query += " ORDER BY expires_at ASC, id ASC LIMIT ?"
+	} else {
+		query += " ORDER BY created_at DESC, id DESC LIMIT ?"
+	}
+	args = append(args, limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -204,10 +271,13 @@ FROM invites ORDER BY id DESC LIMIT 100`)
 	var invites []Invite
 	for rows.Next() {
 		var invite Invite
+		var code, revokedAt sql.NullString
 		var expiresAt, createdAt string
-		var revokedAt sql.NullString
-		if err := rows.Scan(&invite.ID, &invite.CreatedBy, &invite.MaxUses, &invite.UseCount, &expiresAt, &revokedAt, &createdAt); err != nil {
+		if err := rows.Scan(&invite.ID, &code, &invite.CreatedBy, &invite.MaxUses, &invite.UseCount, &expiresAt, &revokedAt, &createdAt); err != nil {
 			return nil, err
+		}
+		if code.Valid {
+			invite.Code = code.String
 		}
 		invite.ExpiresAt, _ = parseTime(expiresAt)
 		invite.CreatedAt, _ = parseTime(createdAt)
@@ -220,16 +290,51 @@ FROM invites ORDER BY id DESC LIMIT 100`)
 	return invites, rows.Err()
 }
 
+func inviteCursorFor(invite Invite, active bool) *InviteCursor {
+	sortTime := invite.CreatedAt
+	if active {
+		sortTime = invite.ExpiresAt
+	}
+	return &InviteCursor{Active: active, SortTime: sortTime, ID: invite.ID}
+}
+
 func (s *Store) RevokeInvite(ctx context.Context, actorID, inviteID int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "UPDATE invites SET revoked_at = ? WHERE id = ?", formatTime(s.now()), inviteID); err != nil {
+	result, err := tx.ExecContext(ctx, "UPDATE invites SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?", formatTime(s.now()), inviteID)
+	if err != nil {
 		return err
 	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return ErrNotFound
+	}
 	if err := insertAudit(ctx, tx, actorID, nil, "revoke_invite", fmt.Sprintf("invite_id=%d", inviteID)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) DeleteInvite(ctx context.Context, actorID, inviteID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, "DELETE FROM invites WHERE id = ?", inviteID)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return ErrNotFound
+	}
+	if err := insertAudit(ctx, tx, actorID, nil, "delete_invite", fmt.Sprintf("invite_id=%d", inviteID)); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -9,12 +11,47 @@ import (
 )
 
 func (s *Server) handleListInvites(w http.ResponseWriter, r *http.Request) {
-	invites, err := s.store.ListInvites(r.Context())
+	cursor, ok := decodeInviteCursor(r.URL.Query().Get("cursor"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_cursor", "邀请码分页位置无效")
+		return
+	}
+	invites, next, err := s.store.ListInvites(r.Context(), cursor, 30)
 	if err != nil {
 		s.internalError(w, "list invites", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"invites": invites})
+	nextCursor := ""
+	if next != nil {
+		nextCursor = encodeInviteCursor(next)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"invites": invites, "hasMore": next != nil, "nextCursor": nextCursor})
+}
+
+type inviteCursorPayload struct {
+	Active   bool      `json:"active"`
+	SortTime time.Time `json:"sortTime"`
+	ID       int64     `json:"id"`
+}
+
+func decodeInviteCursor(value string) (*store.InviteCursor, bool) {
+	if value == "" {
+		return nil, true
+	}
+	encoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return nil, false
+	}
+	var payload inviteCursorPayload
+	if err := json.Unmarshal(encoded, &payload); err != nil || payload.ID < 1 || payload.SortTime.IsZero() {
+		return nil, false
+	}
+	return &store.InviteCursor{Active: payload.Active, SortTime: payload.SortTime, ID: payload.ID}, true
+}
+
+func encodeInviteCursor(cursor *store.InviteCursor) string {
+	encoded, _ := json.Marshal(inviteCursorPayload{Active: cursor.Active, SortTime: cursor.SortTime, ID: cursor.ID})
+	return base64.RawURLEncoding.EncodeToString(encoded)
 }
 
 func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request) {
@@ -39,6 +76,18 @@ func (s *Server) handleRevokeInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.RevokeInvite(r.Context(), currentUser(r).ID, id); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteInvite(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	if err := s.store.DeleteInvite(r.Context(), currentUser(r).ID, id); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}

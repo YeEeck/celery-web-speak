@@ -43,6 +43,7 @@ type Message struct {
 
 type Invite struct {
 	ID        int64      `json:"id"`
+	Code      string     `json:"code,omitempty"`
 	MaxUses   int        `json:"maxUses"`
 	UseCount  int        `json:"useCount"`
 	ExpiresAt time.Time  `json:"expiresAt"`
@@ -53,5 +54,10 @@ type Invite struct {
 
 type CreatedInvite struct {
 	Invite
-	Code string `json:"code"`
+}
+
+type InviteCursor struct {
+	Active   bool
+	SortTime time.Time
+	ID       int64
 }

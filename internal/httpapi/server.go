@@ -70,6 +70,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/admin/invites", s.requireServerAdmin(http.HandlerFunc(s.handleListInvites)))
 	mux.Handle("POST /api/admin/invites", s.requireServerAdmin(http.HandlerFunc(s.handleCreateInvite)))
 	mux.Handle("DELETE /api/admin/invites/{id}", s.requireServerAdmin(http.HandlerFunc(s.handleRevokeInvite)))
+	mux.Handle("DELETE /api/admin/invites/{id}/permanent", s.requireServerAdmin(http.HandlerFunc(s.handleDeleteInvite)))
 	mux.Handle("POST /api/admin/users", s.requireServerAdmin(http.HandlerFunc(s.handleCreateUser)))
 	mux.Handle("PATCH /api/admin/users/{id}/mute", s.requireAdmin(http.HandlerFunc(s.handleSetMute)))
 	mux.Handle("PATCH /api/admin/users/{id}/role", s.requireServerAdmin(http.HandlerFunc(s.handleSetRole)))

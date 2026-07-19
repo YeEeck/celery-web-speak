@@ -92,6 +92,7 @@ CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
 CREATE TABLE IF NOT EXISTS invites (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   code_hash BLOB NOT NULL UNIQUE,
+  code TEXT,
   created_by INTEGER NOT NULL REFERENCES users(id),
   max_uses INTEGER NOT NULL,
   use_count INTEGER NOT NULL DEFAULT 0,
@@ -99,6 +100,8 @@ CREATE TABLE IF NOT EXISTS invites (
   revoked_at TEXT,
   created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS invites_active_order ON invites(revoked_at, expires_at, id);
+CREATE INDEX IF NOT EXISTS invites_created_order ON invites(created_at DESC, id DESC);
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL REFERENCES users(id),
@@ -131,6 +134,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate database: %w", err)
 	}
+	if err := s.ensureInviteCodeColumn(ctx); err != nil {
+		return fmt.Errorf("migrate invite codes: %w", err)
+	}
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO settings (id, audio_bitrate_kbps, message_retention, updated_at)
 VALUES (1, 64, 500, ?)
@@ -139,6 +145,34 @@ ON CONFLICT(id) DO NOTHING`, formatTime(s.now()))
 		return fmt.Errorf("initialize settings: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) ensureInviteCodeColumn(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info(invites)")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return err
+		}
+		if name == "code" {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "ALTER TABLE invites ADD COLUMN code TEXT")
+	return err
 }
 
 func (s *Store) EnsureBootstrapAdmin(ctx context.Context, username, password string) error {
