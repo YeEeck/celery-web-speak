@@ -13,7 +13,7 @@ import {
 } from 'livekit-client'
 import { request } from '../api'
 import { MicrophoneGainProcessor } from '../audio/MicrophoneGainProcessor'
-import type { VoiceCredentials } from '../types'
+import type { Role, User, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
 
 const DEFAULT_VOLUME = 1
@@ -30,6 +30,8 @@ export interface VoiceParticipant {
   microphoneEnabled: boolean
   quality: ConnectionQuality
   volume: number
+  role: Role
+  joinedAt: number | null
 }
 
 export const useVoiceStore = defineStore('voice', () => {
@@ -37,7 +39,7 @@ export const useVoiceStore = defineStore('voice', () => {
   const errorMessage = ref('')
   const muted = ref(false)
   const deafened = ref(false)
-  const participants = ref<VoiceParticipant[]>([])
+  const participantStates = ref<VoiceParticipant[]>([])
   const inputDevices = ref<MediaDeviceInfo[]>([])
   const outputDevices = ref<MediaDeviceInfo[]>([])
   const activeInputId = ref('')
@@ -48,6 +50,10 @@ export const useVoiceStore = defineStore('voice', () => {
   let room: Room | null = null
 
   const joined = computed(() => status.value !== 'idle' && status.value !== 'error')
+  const participants = computed(() => {
+    const app = useAppStore()
+    return [...participantStates.value].sort((a, b) => compareParticipants(a, b, app.users))
+  })
 
   async function join() {
     if (room || status.value === 'connecting') return
@@ -100,7 +106,7 @@ export const useVoiceStore = defineStore('voice', () => {
       room = null
     }
     document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove())
-    participants.value = []
+    participantStates.value = []
     status.value = 'idle'
     muted.value = false
     deafened.value = false
@@ -140,7 +146,7 @@ export const useVoiceStore = defineStore('voice', () => {
   function setParticipantVolume(userId: number, volume: number) {
     const normalized = clampVolume(volume)
     localStorage.setItem(`cws.volume.${userId}`, String(normalized))
-    const participant = participants.value.find((item) => item.userId === userId)
+    const participant = participantStates.value.find((item) => item.userId === userId)
     if (participant) participant.volume = normalized
     applyVolume(userId)
   }
@@ -201,7 +207,7 @@ export const useVoiceStore = defineStore('voice', () => {
         if (room === target) {
           room = null
           status.value = 'idle'
-          participants.value = []
+          participantStates.value = []
         }
       })
   }
@@ -231,10 +237,11 @@ export const useVoiceStore = defineStore('voice', () => {
     room.remoteParticipants.forEach((participant) => {
       values.push(toVoiceParticipant(participant, false, participantUserId(participant)))
     })
-    participants.value = values.sort((a, b) => Number(b.isSpeaking) - Number(a.isSpeaking) || a.name.localeCompare(b.name, 'zh-CN'))
+    participantStates.value = values
   }
 
   function toVoiceParticipant(participant: Participant, isLocal: boolean, userId: number): VoiceParticipant {
+    const existing = participantStates.value.find((item) => item.identity === participant.identity)
     return {
       identity: participant.identity,
       userId,
@@ -244,6 +251,8 @@ export const useVoiceStore = defineStore('voice', () => {
       microphoneEnabled: participant.isMicrophoneEnabled,
       quality: participant.connectionQuality,
       volume: getSavedVolume(userId),
+      role: participantRole(participant),
+      joinedAt: existing ? existing.joinedAt : participantJoinedAt(participant),
     }
   }
 
@@ -275,7 +284,7 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   function applyAllVolumes() {
-    participants.value.forEach((participant) => applyVolume(participant.userId))
+    participantStates.value.forEach((participant) => applyVolume(participant.userId))
   }
 
   function applyVolume(userId: number) {
@@ -324,6 +333,33 @@ function getSavedLevel(key: string) {
   const saved = localStorage.getItem(key)
   if (saved === null) return DEFAULT_VOLUME
   return clampVolume(Number(saved))
+}
+
+function compareParticipants(a: VoiceParticipant, b: VoiceParticipant, users: User[]) {
+  const roleDifference = roleRank(currentRole(b, users)) - roleRank(currentRole(a, users))
+  if (roleDifference !== 0) return roleDifference
+  if (a.joinedAt !== null && b.joinedAt !== null && a.joinedAt !== b.joinedAt) return a.joinedAt - b.joinedAt
+  return a.userId - b.userId || a.identity.localeCompare(b.identity)
+}
+
+function currentRole(participant: VoiceParticipant, users: User[]): Role {
+  return users.find((user) => user.id === participant.userId)?.role ?? participant.role
+}
+
+function roleRank(role: Role) {
+  if (role === 'server_admin') return 2
+  if (role === 'channel_admin') return 1
+  return 0
+}
+
+function participantRole(participant: Participant): Role {
+  const role = participant.attributes.role
+  return role === 'server_admin' || role === 'channel_admin' ? role : 'member'
+}
+
+function participantJoinedAt(participant: Participant): number | null {
+  const timestamp = participant.joinedAt?.getTime()
+  return timestamp !== undefined && Number.isFinite(timestamp) ? timestamp : null
 }
 
 async function setAudioSink(element: HTMLAudioElement, deviceId: string) {
