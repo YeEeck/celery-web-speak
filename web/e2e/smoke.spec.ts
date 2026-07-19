@@ -230,6 +230,87 @@ test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile
   await expect(content).toHaveClass(/users-content/)
 })
 
+test('邀请码列表关联原码、分页并可永久删除', async ({ page }) => {
+  const now = Date.now()
+  const activeInvite = {
+    id: 91001,
+    code: 'active-invite-code',
+    maxUses: 5,
+    useCount: 1,
+    expiresAt: new Date(now + 86_400_000).toISOString(),
+    createdAt: new Date(now - 60_000).toISOString(),
+    createdBy: 1,
+  }
+  const legacyInvite = {
+    id: 91000,
+    maxUses: 2,
+    useCount: 0,
+    expiresAt: new Date(now + 86_400_000).toISOString(),
+    revokedAt: new Date(now - 30_000).toISOString(),
+    createdAt: new Date(now - 120_000).toISOString(),
+    createdBy: 1,
+  }
+  const expiredInvite = {
+    id: 90999,
+    code: 'expired-invite-code',
+    maxUses: 1,
+    useCount: 0,
+    expiresAt: new Date(now - 86_400_000).toISOString(),
+    createdAt: new Date(now - 180_000).toISOString(),
+    createdBy: 1,
+  }
+  let listRequests = 0
+  let deleted = false
+
+  await page.route('**/api/admin/invites**', async (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    if (request.method() === 'DELETE') {
+      expect(url.pathname).toBe(`/api/admin/invites/${activeInvite.id}/permanent`)
+      deleted = true
+      await route.fulfill({ status: 204 })
+      return
+    }
+    if (request.method() !== 'GET') {
+      await route.continue()
+      return
+    }
+    listRequests += 1
+    if (deleted) {
+      await route.fulfill({ json: { invites: [legacyInvite], hasMore: false, nextCursor: '' } })
+    } else if (url.searchParams.has('cursor')) {
+      await route.fulfill({ json: { invites: [expiredInvite], hasMore: false, nextCursor: '' } })
+    } else {
+      await route.fulfill({ json: { invites: [activeInvite, legacyInvite], hasMore: true, nextCursor: 'next-page' } })
+    }
+  })
+
+  const adminButton = page.getByText('管理控制台', { exact: true })
+  if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
+  await adminButton.click()
+  await page.getByRole('button', { name: '账号与邀请', exact: true }).click()
+
+  const rows = page.locator('.invite-row')
+  await expect(rows).toHaveCount(2)
+  await expect(rows.first()).toContainText('active-invite-code')
+  await expect(rows.first()).toContainText('有效')
+  await expect(rows.nth(1)).toContainText('旧邀请码 #91000（原码不可恢复）')
+  await expect(rows.nth(1)).toContainText('已撤销')
+  expect(listRequests).toBe(1)
+
+  await page.getByRole('button', { name: '加载更多', exact: true }).click()
+  await expect(rows).toHaveCount(3)
+  await expect(rows.nth(2)).toContainText('expired-invite-code')
+  await expect(rows.nth(2)).toContainText('已过期')
+  expect(listRequests).toBe(2)
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await rows.first().getByTitle('永久删除邀请码').click()
+  await expect(page.getByText('active-invite-code', { exact: true })).toBeHidden()
+  await expect(page.getByText('邀请码已永久删除', { exact: true })).toBeVisible()
+  expect(deleted).toBe(true)
+})
+
 test('窄屏频道与成员抽屉不溢出', async ({ page, isMobile }) => {
   test.skip(!isMobile, '仅在移动端项目运行')
   await page.getByTitle('频道').click()

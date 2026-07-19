@@ -214,7 +214,20 @@ select { appearance: auto; }
 .permission-note { display: flex; align-items: center; gap: 8px; padding: 12px; color: var(--yellow) !important; background: #3a3324; border-radius: 4px; }
 .account-admin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }.account-admin-grid .settings-section { border: 0; }
 .generated-code { min-height: 42px; padding: 5px 7px 5px 11px; border: 1px solid var(--line); border-radius: 4px; display: flex; align-items: center; gap: 8px; background: var(--input); }.generated-code code { flex: 1; overflow-wrap: anywhere; color: #aeb5ff; }
-.invite-list { display: grid; gap: 5px; max-height: 180px; overflow-y: auto; }.invite-list > div { min-height: 40px; padding: 5px 8px; border-radius: 4px; display: flex; align-items: center; gap: 8px; background: var(--main); }.invite-list span { flex: 1; display: grid; }.invite-list small { color: var(--faint); }.invite-list .inactive { opacity: .48; }
+.invite-list { display: grid; gap: 6px; max-height: 320px; padding-right: 3px; overflow-y: auto; overscroll-behavior-y: contain; }
+.invite-row { min-width: 0; padding: 9px 8px; border-radius: 4px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; background: var(--main); }
+.invite-row.inactive { opacity: .62; }
+.invite-row-heading { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.invite-row-heading code, .legacy-invite { min-width: 0; overflow: hidden; color: #aeb5ff; text-overflow: ellipsis; white-space: nowrap; }
+.legacy-invite { color: var(--faint); font-size: 11px; }
+.invite-status { flex: 0 0 auto; padding: 2px 5px; border-radius: 3px; color: var(--muted); background: var(--elevated); font-size: 9px; font-weight: 750; }
+.invite-status.active { color: #66d994; background: #254b37; }
+.invite-status.exhausted { color: #f4c35d; background: #4e4228; }
+.invite-status.expired, .invite-status.revoked { color: #c5c7cc; background: #45464b; }
+.invite-row-details { min-width: 0; display: flex; flex-wrap: wrap; gap: 3px 10px; color: var(--faint); font-size: 10px; }
+.invite-actions { grid-row: 1 / span 2; grid-column: 2; display: flex; align-items: center; }
+.invite-empty { padding: 16px 8px; color: var(--faint); text-align: center; }
+.invite-load-more { width: 100%; }
 .drawer-scrim { display: none; }.mobile-only { display: none; }
 
 @media (min-width: 1101px) {

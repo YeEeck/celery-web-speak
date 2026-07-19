@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { Ban, Check, Clipboard, Gauge, KeyRound, Save, ShieldCheck, Ticket, UserCog, UserPlus, X } from '@lucide/vue'
+import { Ban, Clipboard, Gauge, KeyRound, Save, ShieldCheck, Ticket, Trash2, UserCog, UserPlus, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import type { Invite, Role, User } from '../types'
@@ -15,6 +15,9 @@ const selectedUserId = ref<number | null>(null)
 const kickMinutes = ref(30)
 const resetPassword = ref('')
 const invites = ref<Invite[]>([])
+const inviteCursor = ref('')
+const invitesHasMore = ref(false)
+const loadingInvites = ref(false)
 const generatedCode = ref('')
 const inviteUses = ref(1)
 const inviteDays = ref(7)
@@ -32,7 +35,13 @@ const manageableUsers = computed(() => app.users.filter((user) => user.id !== ap
 
 onMounted(async () => {
   selectedUserId.value = manageableUsers.value[0]?.id ?? null
-  if (app.isServerAdmin) await loadInvites()
+  if (app.isServerAdmin) {
+    try {
+      await loadInvites()
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '邀请码加载失败'
+    }
+  }
 })
 
 async function run(action: () => Promise<void>, success: string) {
@@ -143,9 +152,23 @@ async function createUser() {
   }, '账号已创建')
 }
 
-async function loadInvites() {
-  const payload = await request<{ invites: Invite[] }>('/api/admin/invites')
-  invites.value = payload.invites
+async function loadInvites(reset = true) {
+  if (loadingInvites.value) return
+  loadingInvites.value = true
+  try {
+    const query = !reset && inviteCursor.value ? `?cursor=${encodeURIComponent(inviteCursor.value)}` : ''
+    const payload = await request<{ invites: Invite[]; hasMore: boolean; nextCursor: string }>(`/api/admin/invites${query}`)
+    if (reset) {
+      invites.value = payload.invites
+    } else {
+      const loadedIDs = new Set(invites.value.map((invite) => invite.id))
+      invites.value.push(...payload.invites.filter((invite) => !loadedIDs.has(invite.id)))
+    }
+    inviteCursor.value = payload.nextCursor
+    invitesHasMore.value = payload.hasMore
+  } finally {
+    loadingInvites.value = false
+  }
 }
 
 async function createInvite() {
@@ -156,20 +179,47 @@ async function createInvite() {
       body: JSON.stringify({ maxUses: inviteUses.value, expiresAt }),
     })
     generatedCode.value = payload.invite.code ?? ''
-    await loadInvites()
+    await loadInvites(true)
   }, '邀请码已生成')
 }
 
-async function revokeInvite(id: number) {
+async function loadMoreInvites() {
+  await run(() => loadInvites(false), '更多邀请码已加载')
+}
+
+async function revokeInvite(invite: Invite) {
+  if (!window.confirm(`确定撤销邀请码“${invite.code || `#${invite.id}`}”吗？`)) return
   await run(async () => {
-    await request(`/api/admin/invites/${id}`, { method: 'DELETE' })
-    await loadInvites()
+    await request(`/api/admin/invites/${invite.id}`, { method: 'DELETE' })
+    await loadInvites(true)
   }, '邀请码已撤销')
 }
 
-async function copyCode() {
-  await navigator.clipboard.writeText(generatedCode.value)
+async function deleteInvite(invite: Invite) {
+  if (!window.confirm(`永久删除邀请码“${invite.code || `#${invite.id}`}”？此操作无法恢复。`)) return
+  await run(async () => {
+    await request(`/api/admin/invites/${invite.id}/permanent`, { method: 'DELETE' })
+    await loadInvites(true)
+  }, '邀请码已永久删除')
+}
+
+async function copyCode(code: string) {
+  await navigator.clipboard.writeText(code)
   message.value = '邀请码已复制'
+}
+
+type InviteStatus = 'active' | 'exhausted' | 'expired' | 'revoked'
+
+function inviteStatus(invite: Invite): InviteStatus {
+  if (invite.revokedAt) return 'revoked'
+  if (invite.useCount >= invite.maxUses) return 'exhausted'
+  if (new Date(invite.expiresAt).getTime() <= Date.now()) return 'expired'
+  return 'active'
+}
+
+function inviteStatusLabel(invite: Invite) {
+  const labels = { active: '有效', exhausted: '已用完', expired: '已过期', revoked: '已撤销' }
+  return labels[inviteStatus(invite)]
 }
 
 function roleLabel(role: Role) {
@@ -258,14 +308,28 @@ function selectUser(userId: number) {
               <label><span>有效天数</span><input v-model.number="inviteDays" type="number" min="1" max="365" /></label>
             </div>
             <button class="primary-button" :disabled="busy" @click="createInvite"><Ticket :size="17" />生成邀请码</button>
-            <div v-if="generatedCode" class="generated-code"><code>{{ generatedCode }}</code><button class="icon-button" title="复制邀请码" @click="copyCode"><Clipboard :size="18" /></button></div>
-            <div class="invite-list">
-              <div v-for="invite in invites" :key="invite.id" :class="{ inactive: invite.revokedAt || invite.useCount >= invite.maxUses || new Date(invite.expiresAt) < new Date() }">
-                <span><strong>{{ invite.useCount }} / {{ invite.maxUses }} 次</strong><small>{{ new Date(invite.expiresAt).toLocaleDateString('zh-CN') }} 到期</small></span>
-                <Check v-if="invite.useCount >= invite.maxUses" :size="17" />
-                <button v-else-if="!invite.revokedAt" class="icon-button" title="撤销邀请码" @click="revokeInvite(invite.id)"><X :size="17" /></button>
-              </div>
+            <div v-if="generatedCode" class="generated-code"><code>{{ generatedCode }}</code><button class="icon-button" title="复制新邀请码" @click="copyCode(generatedCode)"><Clipboard :size="18" /></button></div>
+            <div class="invite-list" aria-label="邀请码列表">
+              <article v-for="invite in invites" :key="invite.id" :class="['invite-row', { inactive: inviteStatus(invite) !== 'active' }]">
+                <div class="invite-row-heading">
+                  <code v-if="invite.code">{{ invite.code }}</code>
+                  <span v-else class="legacy-invite">旧邀请码 #{{ invite.id }}（原码不可恢复）</span>
+                  <span :class="['invite-status', inviteStatus(invite)]">{{ inviteStatusLabel(invite) }}</span>
+                </div>
+                <div class="invite-row-details">
+                  <span>{{ invite.useCount }} / {{ invite.maxUses }} 次</span>
+                  <span>{{ new Date(invite.expiresAt).toLocaleString('zh-CN') }} 到期</span>
+                  <span>{{ new Date(invite.createdAt).toLocaleString('zh-CN') }} 创建</span>
+                </div>
+                <div class="invite-actions">
+                  <button v-if="invite.code" class="icon-button" title="复制邀请码" @click="copyCode(invite.code)"><Clipboard :size="17" /></button>
+                  <button v-if="!invite.revokedAt" class="icon-button" title="撤销邀请码" @click="revokeInvite(invite)"><X :size="17" /></button>
+                  <button class="icon-button danger" title="永久删除邀请码" @click="deleteInvite(invite)"><Trash2 :size="17" /></button>
+                </div>
+              </article>
+              <p v-if="!loadingInvites && invites.length === 0" class="invite-empty">暂无邀请码</p>
             </div>
+            <button v-if="invitesHasMore" class="secondary-button invite-load-more" :disabled="loadingInvites" @click="loadMoreInvites">{{ loadingInvites ? '正在加载' : '加载更多' }}</button>
           </section>
         </section>
       </div>
