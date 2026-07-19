@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Hash, Radio, ServerCog, X } from '@lucide/vue'
 import AdminPanel from './AdminPanel.vue'
 import ChatPane from './ChatPane.vue'
@@ -14,8 +14,14 @@ const app = useAppStore()
 const voice = useVoiceStore()
 const channelsOpen = ref(false)
 const membersOpen = ref(false)
+const desktopMembersVisible = ref(true)
+const wideMemberLayout = ref(window.matchMedia('(min-width: 1101px)').matches)
 const profileOpen = ref(false)
 const adminOpen = ref(false)
+let wideMemberQuery: MediaQueryList | null = null
+let mobileQuery: MediaQueryList | null = null
+
+const membersVisible = computed(() => wideMemberLayout.value ? desktopMembersVisible.value : membersOpen.value)
 
 watch(() => app.settings.audioBitrateKbps, (value, oldValue) => {
   if (oldValue !== undefined && value !== oldValue && voice.joined) void voice.applyBitrateChange()
@@ -23,11 +29,39 @@ watch(() => app.settings.audioBitrateKbps, (value, oldValue) => {
 watch(() => app.user?.voiceMuted, (value) => {
   if (value) void voice.syncServerMute(true)
 })
-onBeforeUnmount(() => void voice.leave())
+onMounted(() => {
+  wideMemberQuery = window.matchMedia('(min-width: 1101px)')
+  mobileQuery = window.matchMedia('(max-width: 760px)')
+  wideMemberQuery.addEventListener('change', handleWideMemberLayout)
+  mobileQuery.addEventListener('change', closeTemporaryDrawers)
+})
+onBeforeUnmount(() => {
+  wideMemberQuery?.removeEventListener('change', handleWideMemberLayout)
+  mobileQuery?.removeEventListener('change', closeTemporaryDrawers)
+  void voice.leave()
+})
+
+function toggleMembers() {
+  if (wideMemberLayout.value) {
+    desktopMembersVisible.value = !desktopMembersVisible.value
+  } else {
+    membersOpen.value = !membersOpen.value
+  }
+}
+
+function handleWideMemberLayout(event: MediaQueryListEvent) {
+  wideMemberLayout.value = event.matches
+  closeTemporaryDrawers()
+}
+
+function closeTemporaryDrawers() {
+  channelsOpen.value = false
+  membersOpen.value = false
+}
 </script>
 
 <template>
-  <main class="app-shell">
+  <main :class="['app-shell', { 'members-collapsed': wideMemberLayout && !desktopMembersVisible }]">
     <nav class="server-rail" aria-label="服务器">
       <button class="server-button active" title="Celery Web Speak">C</button>
       <span class="rail-divider" />
@@ -55,7 +89,7 @@ onBeforeUnmount(() => void voice.leave())
       <UserControls @settings="profileOpen = true" />
     </aside>
 
-    <ChatPane @channels="channelsOpen = true" @members="membersOpen = true" />
+    <ChatPane :members-visible="membersVisible" @channels="channelsOpen = true" @members="toggleMembers" />
     <MemberList />
 
     <div v-if="channelsOpen" class="drawer-scrim" @click="channelsOpen = false" />

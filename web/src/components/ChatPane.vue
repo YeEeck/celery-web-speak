@@ -5,6 +5,7 @@ import UserAvatar from './UserAvatar.vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 
+defineProps<{ membersVisible: boolean }>()
 defineEmits<{ channels: []; members: [] }>()
 const app = useAppStore()
 const content = ref('')
@@ -74,7 +75,12 @@ function roleLabel(role: string) {
       <strong>文字聊天</strong>
       <span class="header-divider" />
       <small :class="['socket-state', app.socketStatus]">{{ app.socketStatus === 'online' ? '实时连接正常' : app.socketStatus === 'connecting' ? '正在连接' : '连接已断开' }}</small>
-      <button class="icon-button member-toggle" title="成员列表" @click="$emit('members')"><Users :size="20" /></button>
+      <button
+        :class="['icon-button', 'member-toggle', { active: membersVisible }]"
+        :title="membersVisible ? '隐藏成员列表' : '显示成员列表'"
+        :aria-pressed="membersVisible"
+        @click="$emit('members')"
+      ><Users :size="20" /></button>
     </header>
 
     <div ref="list" class="message-list">

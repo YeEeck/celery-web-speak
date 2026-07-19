@@ -58,12 +58,44 @@ test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, is
   }))).toEqual({ microphone: '2.5', output: '1.5' })
 })
 
+test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ page, isMobile }) => {
+  test.skip(isMobile, '由桌面项目覆盖宽屏和中等宽度布局')
+  const memberButton = page.getByRole('button', { name: /成员列表/ })
+  const permanentList = page.locator('.app-shell > .member-list')
+
+  await expect(permanentList).toBeVisible()
+  await expect(memberButton).toHaveAttribute('aria-pressed', 'true')
+  await memberButton.click()
+  await expect(permanentList).toBeHidden()
+  await expect(memberButton).toHaveAttribute('aria-pressed', 'false')
+  const collapsedLayout = await page.evaluate(() => {
+    const shell = document.querySelector('.app-shell')!.getBoundingClientRect()
+    const chat = document.querySelector('.chat-pane')!.getBoundingClientRect()
+    return { shellRight: shell.right, chatRight: chat.right }
+  })
+  expect(Math.abs(collapsedLayout.shellRight - collapsedLayout.chatRight)).toBeLessThan(2)
+
+  await memberButton.click()
+  await expect(permanentList).toBeVisible()
+  await page.setViewportSize({ width: 900, height: 800 })
+  await expect(page.locator('.app-shell > .channel-sidebar')).toBeVisible()
+  await expect(permanentList).toBeHidden()
+  await expect(memberButton).toHaveAttribute('aria-pressed', 'false')
+  await memberButton.click()
+  await expect(page.locator('.member-list.drawer')).toBeVisible()
+  await expect(page.locator('.drawer-header strong')).toHaveText('成员')
+  const intermediateViewport = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
+  expect(intermediateViewport.width).toBeLessThanOrEqual(intermediateViewport.client)
+  await page.locator('.member-list.drawer').getByTitle('关闭').click()
+  await expect(page.locator('.member-list.drawer')).toBeHidden()
+})
+
 test('窄屏频道与成员抽屉不溢出', async ({ page, isMobile }) => {
   test.skip(!isMobile, '仅在移动端项目运行')
   await page.getByTitle('频道').click()
   await expect(page.getByText('Celery Web Speak', { exact: true }).last()).toBeVisible()
   await page.getByTitle('关闭').click()
-  await page.getByTitle('成员列表').click()
+  await page.getByRole('button', { name: /成员列表/ }).click()
   await expect(page.locator('.drawer-header strong')).toHaveText('成员')
   const viewport = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
   expect(viewport.width).toBeLessThanOrEqual(viewport.client)
