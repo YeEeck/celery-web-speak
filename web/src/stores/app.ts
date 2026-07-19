@@ -10,6 +10,8 @@ export const useAppStore = defineStore('app', () => {
   const user = ref<User | null>(null)
   const users = ref<User[]>([])
   const messages = ref<Message[]>([])
+  const hasEarlierMessages = ref(false)
+  const loadingEarlierMessages = ref(false)
   const settings = ref<ChannelSettings>({ audioBitrateKbps: 64, messageRetention: 500 })
   const onlineIds = ref<number[]>([])
   const socketStatus = ref<'offline' | 'connecting' | 'online'>('offline')
@@ -35,8 +37,10 @@ export const useAppStore = defineStore('app', () => {
     const data = await request<BootstrapData>('/api/bootstrap')
     user.value = data.user
     users.value = data.users
-    messages.value = data.messages
     settings.value = data.settings
+    messages.value = data.messages
+    hasEarlierMessages.value = data.messagesHasMore
+    trimMessagesToRetention()
     onlineIds.value = data.onlineIds ?? []
     if (!socket) connectSocket()
   }
@@ -67,6 +71,8 @@ export const useAppStore = defineStore('app', () => {
       user.value = null
       users.value = []
       messages.value = []
+      hasEarlierMessages.value = false
+      loadingEarlierMessages.value = false
       onlineIds.value = []
     }
   }
@@ -79,11 +85,20 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function loadEarlier() {
-    if (!messages.value.length) return
+    if (!messages.value.length || !hasEarlierMessages.value || loadingEarlierMessages.value) return 0
+    loadingEarlierMessages.value = true
     const before = messages.value[0].id
-    const payload = await request<{ messages: Message[] }>(`/api/messages?before=${before}&limit=50`)
-    const known = new Set(messages.value.map((message) => message.id))
-    messages.value = [...payload.messages.filter((message) => !known.has(message.id)), ...messages.value]
+    try {
+      const payload = await request<{ messages: Message[]; hasMore: boolean }>(`/api/messages?before=${before}&limit=50`)
+      const known = new Set(messages.value.map((message) => message.id))
+      const additions = payload.messages.filter((message) => !known.has(message.id))
+      messages.value = [...additions, ...messages.value]
+      hasEarlierMessages.value = payload.hasMore
+      trimMessagesToRetention()
+      return additions.length
+    } finally {
+      loadingEarlierMessages.value = false
+    }
   }
 
   async function updateProfile(payload: { displayName: string; currentPassword?: string; newPassword?: string }) {
@@ -141,12 +156,16 @@ export const useAppStore = defineStore('app', () => {
       onlineIds.value = data as number[]
     } else if (type === 'message_created') {
       const message = data as Message
-      if (!messages.value.some((item) => item.id === message.id)) messages.value.push(message)
+      if (!messages.value.some((item) => item.id === message.id)) {
+        messages.value.push(message)
+        trimMessagesToRetention()
+      }
     } else if (type === 'message_deleted') {
       const id = (data as { id: number }).id
       messages.value = messages.value.filter((message) => message.id !== id)
     } else if (type === 'settings_updated') {
       settings.value = data as ChannelSettings
+      trimMessagesToRetention()
     } else if (type === 'user_updated') {
       upsertUser(data as Partial<User> & { id: number })
     } else if (type === 'session_revoked') {
@@ -165,11 +184,18 @@ export const useAppStore = defineStore('app', () => {
     if (user.value?.id === update.id) user.value = { ...user.value, ...update }
   }
 
+  function trimMessagesToRetention() {
+    const excess = messages.value.length - settings.value.messageRetention
+    if (excess > 0) messages.value.splice(0, excess)
+  }
+
   return {
     ready,
     user,
     users,
     messages,
+    hasEarlierMessages,
+    loadingEarlierMessages,
     settings,
     onlineIds,
     socketStatus,

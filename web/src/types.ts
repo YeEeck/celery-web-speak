@@ -43,6 +43,7 @@ export interface BootstrapData {
   users: User[]
   settings: ChannelSettings
   messages: Message[]
+  messagesHasMore: boolean
   onlineIds: number[]
 }
 
