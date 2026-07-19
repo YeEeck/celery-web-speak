@@ -1,0 +1,6 @@
+services:
+  app:
+    image: celery-web-speak:dev
+    build:
+      context: .
+      dockerfile: Dockerfile

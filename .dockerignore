@@ -1,0 +1,10 @@
+.git
+.github
+.env
+data
+docs
+web/node_modules
+web/test-results
+web/playwright-report
+README.md
+compose*.yml
