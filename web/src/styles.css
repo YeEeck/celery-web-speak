@@ -196,6 +196,7 @@ select { appearance: auto; }
 .settings-scroll, .admin-content { min-height: 0; overflow-y: auto; padding: 22px; }
 .admin-content.users-content { overflow: hidden; }
 .settings-section { padding-bottom: 22px; border-bottom: 1px solid var(--line); }
+.settings-section + .settings-section { padding-top: 22px; }
 .settings-section:last-child { border-bottom: 0; }
 .settings-section h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

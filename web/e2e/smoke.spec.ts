@@ -59,6 +59,19 @@ test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, is
   }))).toEqual({ microphone: '2.5', output: '1.5' })
 })
 
+test('用户设置分区标题与上方分隔线保持间距', async ({ page, isMobile }) => {
+  if (isMobile) await page.getByTitle('频道').click()
+  await page.getByTitle('用户设置').click()
+
+  const sectionTitleOffsets = await page.locator('.settings-scroll .settings-section').evaluateAll((sections) => (
+    sections.slice(1).map((section) => {
+      const title = section.querySelector('h3')!
+      return Math.round(title.getBoundingClientRect().top - section.getBoundingClientRect().top)
+    })
+  ))
+  expect(sectionTitleOffsets).toEqual([22, 22, 22])
+})
+
 test('操作提示音默认开启并持久化到浏览器', async ({ page, isMobile }) => {
   if (isMobile) await page.getByTitle('频道').click()
   await page.getByTitle('用户设置').click()
