@@ -166,7 +166,7 @@ function setSoundEnabled(sound: NotificationSound, event: Event) {
           <p class="profile-hint">主题与强调色仅保存在当前浏览器。</p>
         </section>
       </div>
-      <footer class="panel-footer"><span class="form-success">用户设置</span></footer>
+      <footer class="panel-footer"><span class="profile-hint">用户设置</span></footer>
     </section>
   </div>
 </template>
