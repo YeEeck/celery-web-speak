@@ -201,6 +201,42 @@ func TestInviteCodeColumnMigratesExistingDatabase(t *testing.T) {
 	}
 }
 
+func TestUserDeletedAtColumnMigratesExistingDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-users.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec("ALTER TABLE users DROP COLUMN deleted_at"); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrated.Close()
+	var columns int
+	if err := migrated.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('users') WHERE name = 'deleted_at'`).Scan(&columns); err != nil {
+		t.Fatal(err)
+	}
+	if columns != 1 {
+		t.Fatalf("deleted_at column count = %d, want 1", columns)
+	}
+}
+
 func inviteIDs(invites []Invite) []int64 {
 	ids := make([]int64, len(invites))
 	for index, invite := range invites {
@@ -282,6 +318,121 @@ func TestCannotDemoteLastServerAdmin(t *testing.T) {
 	err := db.SetRole(context.Background(), admin.ID, admin.ID, RoleMember)
 	if !errors.Is(err, ErrLastServerAdmin) {
 		t.Fatalf("demote error = %v, want ErrLastServerAdmin", err)
+	}
+}
+
+func TestDeleteUserAnonymizesAccountAndPreservesHistory(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	target, err := db.CreateUser(ctx, "delete_target", "待删除管理员", "another-secure-password", RoleServerAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invite, err := db.CreateInvite(ctx, target.ID, 2, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := db.CreateMessage(ctx, target, "删除后保留的消息")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTemporaryBan(ctx, admin.ID, target.ID, time.Now().Add(30*time.Minute), "delete test"); err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := db.CreateSession(ctx, target.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.DeleteUser(ctx, admin.ID, target.ID, "wrong_username"); !errors.Is(err, ErrUsernameConfirm) {
+		t.Fatalf("confirmation error = %v, want ErrUsernameConfirm", err)
+	}
+	if _, err := db.UserByID(ctx, target.ID); err != nil {
+		t.Fatalf("target missing after rejected delete: %v", err)
+	}
+	if err := db.DeleteUser(ctx, admin.ID, target.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.UserByID(ctx, target.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("UserByID after delete error = %v, want ErrNotFound", err)
+	}
+	if _, err := db.Authenticate(ctx, target.Username, "another-secure-password"); !errors.Is(err, ErrInvalidLogin) {
+		t.Fatalf("Authenticate after delete error = %v, want ErrInvalidLogin", err)
+	}
+	if _, err := db.UserBySession(ctx, token); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("session after delete error = %v, want ErrNotFound", err)
+	}
+	var sessionCount int
+	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE user_id = ?", target.ID).Scan(&sessionCount); err != nil {
+		t.Fatal(err)
+	}
+	if sessionCount != 0 {
+		t.Fatalf("session count after delete = %d, want 0", sessionCount)
+	}
+	if err := db.DeleteUser(ctx, admin.ID, target.ID, target.Username); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second delete error = %v, want ErrNotFound", err)
+	}
+
+	users, err := db.ListUsers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range users {
+		if user.ID == target.ID {
+			t.Fatal("deleted user remained in active user list")
+		}
+	}
+	var storedUsername, displayName, passwordHash string
+	var deletedAt sql.NullString
+	if err := db.db.QueryRowContext(ctx, "SELECT username, display_name, password_hash, deleted_at FROM users WHERE id = ?", target.ID).
+		Scan(&storedUsername, &displayName, &passwordHash, &deletedAt); err != nil {
+		t.Fatal(err)
+	}
+	if storedUsername == target.Username || displayName != "已删除用户" || passwordHash != "" || !deletedAt.Valid {
+		t.Fatalf("deleted row = username %q, display %q, password %q, deleted_at %q", storedUsername, displayName, passwordHash, deletedAt.String)
+	}
+	var temporaryBanCount int
+	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM temporary_bans WHERE user_id = ?", target.ID).Scan(&temporaryBanCount); err != nil {
+		t.Fatal(err)
+	}
+	if temporaryBanCount != 0 {
+		t.Fatalf("temporary ban count = %d, want 0", temporaryBanCount)
+	}
+	var inviteCount, auditCount int
+	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM invites WHERE id = ? AND created_by = ?", invite.ID, target.ID).Scan(&inviteCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_logs WHERE action = 'delete_user' AND target_user_id = ? AND details LIKE ?", target.ID, "%username=\"delete_target\"%").Scan(&auditCount); err != nil {
+		t.Fatal(err)
+	}
+	if inviteCount != 1 || auditCount != 1 {
+		t.Fatalf("preserved invite/audit counts = %d/%d, want 1/1", inviteCount, auditCount)
+	}
+	messages, _, err := db.ListMessages(ctx, 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 || messages[0].ID != message.ID || messages[0].Username != "" || messages[0].DisplayName != "已删除用户" || messages[0].Role != RoleMember {
+		t.Fatalf("message after delete = %+v", messages)
+	}
+
+	replacement, err := db.CreateUser(ctx, target.Username, "重新注册用户", "replacement-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement.ID == target.ID {
+		t.Fatal("replacement account reused deleted user ID")
+	}
+}
+
+func TestDeleteUserRejectsSelf(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	err := db.DeleteUser(context.Background(), admin.ID, admin.ID, admin.Username)
+	if !errors.Is(err, ErrSelfAction) {
+		t.Fatalf("self delete error = %v, want ErrSelfAction", err)
 	}
 }
 

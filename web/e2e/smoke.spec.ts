@@ -306,6 +306,65 @@ test('管理控制台外框不随页签内容变化', async ({ page, isMobile })
   }
 })
 
+test('服务器管理员可通过登录名确认删除账号', async ({ page, request, isMobile }, testInfo) => {
+  await request.post('/api/auth/login', { data: { username, password } })
+  const suffix = `${Date.now().toString(36)}_${isMobile ? 'm' : 'd'}_${testInfo.workerIndex}`
+  const account = {
+    username: `delete_${suffix}`,
+    displayName: `待删除账号${suffix.slice(-3)}`,
+    password: 'delete-member-password',
+    role: 'member',
+  }
+  const createResponse = await request.post('/api/admin/users', { data: account })
+  expect(createResponse.ok()).toBeTruthy()
+  const created = await createResponse.json() as { user: { id: number } }
+
+  const target = await createRequestContext.newContext({ baseURL })
+  const historicalMessage = `账号删除消息 ${suffix}`
+  try {
+    const loginResponse = await target.post('/api/auth/login', { data: { username: account.username, password: account.password } })
+    expect(loginResponse.ok()).toBeTruthy()
+    const messageResponse = await target.post('/api/messages', { data: { content: historicalMessage } })
+    expect(messageResponse.ok()).toBeTruthy()
+    await expect(page.getByText(historicalMessage, { exact: true })).toBeVisible()
+
+    const adminButton = page.getByText('管理控制台', { exact: true })
+    if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
+    await adminButton.click()
+    await page.getByRole('button', { name: '成员', exact: true }).click()
+    await page.getByRole('button', { name: new RegExp(account.displayName) }).click()
+    await page.getByRole('button', { name: '删除账号', exact: true }).click()
+
+    const dialog = page.getByRole('alertdialog', { name: '永久删除账号？' })
+    await expect(dialog).toBeVisible()
+    const confirmButton = dialog.getByRole('button', { name: '永久删除', exact: true })
+    await expect(confirmButton).toBeDisabled()
+    const confirmation = dialog.getByRole('textbox')
+    await confirmation.fill(`${account.username}_wrong`)
+    await expect(confirmButton).toBeDisabled()
+    await confirmation.fill(account.username)
+    await expect(confirmButton).toBeEnabled()
+    await confirmButton.click()
+
+    await expect(dialog).toBeHidden()
+    await expect(page.getByRole('button', { name: new RegExp(account.displayName) })).toHaveCount(0)
+    await page.getByTitle('关闭').last().click()
+    const messageRow = page.locator('.message-row').filter({ hasText: historicalMessage })
+    await expect(messageRow.getByText('已删除用户', { exact: true })).toBeVisible()
+
+    const revokedSession = await target.get('/api/me')
+    expect(revokedSession.status()).toBe(401)
+    const deletedLogin = await target.post('/api/auth/login', { data: { username: account.username, password: account.password } })
+    expect(deletedLogin.status()).toBe(401)
+    const replacementResponse = await request.post('/api/admin/users', { data: { ...account, displayName: '同名新账号' } })
+    expect(replacementResponse.ok()).toBeTruthy()
+    const replacement = await replacementResponse.json() as { user: { id: number } }
+    expect(replacement.user.id).not.toBe(created.user.id)
+  } finally {
+    await target.dispose()
+  }
+})
+
 async function installToneCounter(page: import('@playwright/test').Page) {
   await page.evaluate(() => {
     const target = window as typeof window & { __cwsToneCount?: number }
