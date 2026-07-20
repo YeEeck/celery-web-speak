@@ -1,19 +1,24 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import AuthScreen from './components/AuthScreen.vue'
 import AppShell from './components/AppShell.vue'
 import { useAppStore } from './stores/app'
+import { useSoundStore } from './stores/sounds'
 
 const app = useAppStore()
+const sounds = useSoundStore()
 const startupError = ref('')
 
 onMounted(async () => {
+  sounds.installInteractionUnlock()
   try {
     await app.initialize()
   } catch (error) {
     startupError.value = error instanceof Error ? error.message : '应用初始化失败'
   }
 })
+
+onBeforeUnmount(() => sounds.removeInteractionUnlock())
 
 function reload() {
   window.location.reload()

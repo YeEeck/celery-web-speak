@@ -2,6 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, request } from '../api'
 import type { BootstrapData, ChannelSettings, Message, User } from '../types'
+import { useSoundStore } from './sounds'
 
 type AuthPayload = { user: User }
 
@@ -159,6 +160,7 @@ export const useAppStore = defineStore('app', () => {
       if (!messages.value.some((item) => item.id === message.id)) {
         messages.value.push(message)
         trimMessagesToRetention()
+        if (message.userId !== user.value?.id) useSoundStore().play('message')
       }
     } else if (type === 'message_deleted') {
       const id = (data as { id: number }).id

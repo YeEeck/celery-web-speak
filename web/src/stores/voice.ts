@@ -15,6 +15,7 @@ import { request } from '../api'
 import { MicrophoneGainProcessor } from '../audio/MicrophoneGainProcessor'
 import type { Role, User, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
+import { useSoundStore } from './sounds'
 
 const DEFAULT_VOLUME = 1
 const MAX_VOLUME = 3
@@ -48,6 +49,7 @@ export const useVoiceStore = defineStore('voice', () => {
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
   const microphoneGainProcessor = new MicrophoneGainProcessor(microphoneGain.value)
   let room: Room | null = null
+  let participantSoundsReady = false
 
   const joined = computed(() => status.value !== 'idle' && status.value !== 'error')
   const participants = computed(() => {
@@ -91,7 +93,10 @@ export const useVoiceStore = defineStore('voice', () => {
       status.value = 'connected'
       await refreshDevices(true)
       syncParticipants()
+      participantSoundsReady = true
+      useSoundStore().play('join')
     } catch (error) {
+      participantSoundsReady = false
       room?.disconnect()
       room = null
       status.value = 'error'
@@ -101,6 +106,7 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   async function leave() {
+    participantSoundsReady = false
     if (room) {
       room.disconnect()
       room = null
@@ -110,6 +116,7 @@ export const useVoiceStore = defineStore('voice', () => {
     status.value = 'idle'
     muted.value = false
     deafened.value = false
+    useSoundStore().setSuppressed(false)
   }
 
   async function toggleMute() {
@@ -125,6 +132,7 @@ export const useVoiceStore = defineStore('voice', () => {
 
   function toggleDeafen() {
     deafened.value = !deafened.value
+    useSoundStore().setSuppressed(deafened.value)
     applyAllVolumes()
   }
 
@@ -138,6 +146,7 @@ export const useVoiceStore = defineStore('voice', () => {
     if (!room) return
     await room.switchActiveDevice('audiooutput', deviceId, true)
     activeOutputId.value = deviceId
+    useSoundStore().setOutputDevice(deviceId)
     document.querySelectorAll<HTMLAudioElement>('#voice-audio-root audio').forEach((element) => {
       void setAudioSink(element, deviceId)
     })
@@ -189,27 +198,43 @@ export const useVoiceStore = defineStore('voice', () => {
     outputDevices.value = outputs
     activeInputId.value = room?.getActiveDevice('audioinput') ?? inputs[0]?.deviceId ?? ''
     activeOutputId.value = room?.getActiveDevice('audiooutput') ?? outputs[0]?.deviceId ?? ''
+    useSoundStore().setOutputDevice(activeOutputId.value)
   }
 
   function bindRoom(target: Room) {
     target
       .on(RoomEvent.TrackSubscribed, attachTrack)
       .on(RoomEvent.TrackUnsubscribed, detachTrack)
-      .on(RoomEvent.ParticipantConnected, syncParticipants)
-      .on(RoomEvent.ParticipantDisconnected, syncParticipants)
+      .on(RoomEvent.ParticipantConnected, () => handleParticipantChange(target, 'join'))
+      .on(RoomEvent.ParticipantDisconnected, () => handleParticipantChange(target, 'leave'))
       .on(RoomEvent.ActiveSpeakersChanged, syncParticipants)
       .on(RoomEvent.TrackMuted, syncParticipants)
       .on(RoomEvent.TrackUnmuted, syncParticipants)
       .on(RoomEvent.ConnectionQualityChanged, syncParticipants)
-      .on(RoomEvent.Reconnecting, () => { status.value = 'reconnecting' })
-      .on(RoomEvent.Reconnected, () => { status.value = 'connected' })
+      .on(RoomEvent.Reconnecting, () => {
+        participantSoundsReady = false
+        status.value = 'reconnecting'
+      })
+      .on(RoomEvent.Reconnected, () => {
+        if (room !== target) return
+        status.value = 'connected'
+        syncParticipants()
+        participantSoundsReady = true
+      })
       .on(RoomEvent.Disconnected, () => {
         if (room === target) {
+          participantSoundsReady = false
           room = null
           status.value = 'idle'
           participantStates.value = []
         }
       })
+  }
+
+  function handleParticipantChange(target: Room, sound: 'join' | 'leave') {
+    if (room !== target) return
+    syncParticipants()
+    if (participantSoundsReady && status.value === 'connected') useSoundStore().play(sound)
   }
 
   function attachTrack(track: RemoteTrack, _publication: RemoteTrackPublication, participant: RemoteParticipant) {

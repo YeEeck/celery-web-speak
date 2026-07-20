@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { Headphones, Mic, Save, UserRound, X } from '@lucide/vue'
+import { BellRing, Headphones, Mic, Save, UserRound, X } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
+import { useSoundStore, type NotificationSound } from '../stores/sounds'
 import { useVoiceStore } from '../stores/voice'
 
 defineEmits<{ close: [] }>()
 const app = useAppStore()
 const voice = useVoiceStore()
+const sounds = useSoundStore()
 const displayName = ref(app.user!.displayName)
 const currentPassword = ref('')
 const newPassword = ref('')
@@ -34,6 +36,10 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+function setSoundEnabled(sound: NotificationSound, event: Event) {
+  sounds.setSoundEnabled(sound, (event.target as HTMLInputElement).checked)
 }
 </script>
 
@@ -98,6 +104,32 @@ async function save() {
               @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))"
             />
           </label>
+        </section>
+
+        <section class="settings-section sound-settings">
+          <h3><BellRing :size="18" />操作提示音</h3>
+          <label class="setting-toggle">
+            <span>启用提示音</span>
+            <input type="checkbox" :checked="sounds.enabled" aria-label="启用提示音" @change="sounds.setEnabled(($event.target as HTMLInputElement).checked)" />
+          </label>
+          <label class="audio-level-control">
+            <span><span>提示音音量</span><strong>{{ Math.round(sounds.volume * 100) }}%</strong></span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              :value="sounds.volume"
+              :disabled="!sounds.enabled"
+              aria-label="提示音音量"
+              @input="sounds.setVolume(Number(($event.target as HTMLInputElement).value))"
+            />
+          </label>
+          <div class="sound-toggle-list">
+            <label><span>加入语音</span><input type="checkbox" :checked="sounds.joinEnabled" :disabled="!sounds.enabled" @change="setSoundEnabled('join', $event)" /></label>
+            <label><span>退出语音</span><input type="checkbox" :checked="sounds.leaveEnabled" :disabled="!sounds.enabled" @change="setSoundEnabled('leave', $event)" /></label>
+            <label><span>新文字消息</span><input type="checkbox" :checked="sounds.messageEnabled" :disabled="!sounds.enabled" @change="setSoundEnabled('message', $event)" /></label>
+          </div>
         </section>
       </div>
       <footer class="panel-footer">
