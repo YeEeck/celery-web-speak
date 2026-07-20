@@ -168,6 +168,9 @@ func (s *Store) ClearTemporaryBan(ctx context.Context, actorID, userID int64) er
 	if _, err := tx.ExecContext(ctx, "DELETE FROM temporary_bans WHERE user_id = ?", userID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM channel_read_states WHERE user_id = ?", userID); err != nil {
+		return err
+	}
 	if err := insertAudit(ctx, tx, actorID, &userID, "clear_temporary_ban", ""); err != nil {
 		return err
 	}

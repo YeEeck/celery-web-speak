@@ -312,6 +312,178 @@ func TestMessageRetention(t *testing.T) {
 	}
 }
 
+func TestChannelsIsolateMessagesRetentionAndReadState(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	channels, err := db.ListChannels(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(channels) != 2 || channels[0].Type != ChannelTypeText || channels[1].Type != ChannelTypeVoice {
+		t.Fatalf("default channels = %+v", channels)
+	}
+	firstText := channels[0]
+	secondText, err := db.CreateChannel(ctx, admin.ID, ChannelTypeText, "另一个文字频道")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.UpdateChannel(ctx, admin.ID, firstText.ID, firstText.Name, 0, 100); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.UpdateChannel(ctx, admin.ID, secondText.ID, secondText.Name, 0, 100); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 105; index++ {
+		if _, err := db.CreateChannelMessage(ctx, firstText.ID, admin, fmt.Sprintf("first-%d", index)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	secondMessage, err := db.CreateChannelMessage(ctx, secondText.ID, admin, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstMessages, _, err := db.ListChannelMessages(ctx, firstText.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondMessages, _, err := db.ListChannelMessages(ctx, secondText.ID, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(firstMessages) != 100 || len(secondMessages) != 1 || secondMessages[0].ID != secondMessage.ID {
+		t.Fatalf("isolated message counts = %d/%d", len(firstMessages), len(secondMessages))
+	}
+
+	states, err := db.ListChannelReadStates(ctx, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(states) != 2 || states[0].UnreadCount != 100 || states[1].UnreadCount != 1 {
+		t.Fatalf("initial read states = %+v", states)
+	}
+	state, err := db.MarkChannelRead(ctx, admin.ID, firstText.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.UnreadCount != 0 || state.LastReadMessageID != firstMessages[len(firstMessages)-1].ID {
+		t.Fatalf("marked read state = %+v", state)
+	}
+	states, err = db.ListChannelReadStates(ctx, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if states[0].UnreadCount != 0 || states[1].UnreadCount != 1 {
+		t.Fatalf("updated read states = %+v", states)
+	}
+}
+
+func TestChannelLifecycleProtectsLastTypeAndCascadesMessages(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	defaultText, err := db.FirstChannel(ctx, ChannelTypeText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DeleteChannel(ctx, admin.ID, defaultText.ID); !errors.Is(err, ErrLastChannel) {
+		t.Fatalf("delete last text channel error = %v, want ErrLastChannel", err)
+	}
+	secondText, err := db.CreateChannel(ctx, admin.ID, ChannelTypeText, "临时频道")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateChannel(ctx, admin.ID, ChannelTypeText, "临时频道"); !errors.Is(err, ErrChannelNameExists) {
+		t.Fatalf("duplicate channel error = %v, want ErrChannelNameExists", err)
+	}
+	message, err := db.CreateChannelMessage(ctx, secondText.ID, admin, "will be deleted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.MarkChannelRead(ctx, admin.ID, secondText.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DeleteChannel(ctx, admin.ID, secondText.ID); err != nil {
+		t.Fatal(err)
+	}
+	var messageCount, stateCount int
+	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM messages WHERE id = ?", message.ID).Scan(&messageCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM channel_read_states WHERE channel_id = ?", secondText.ID).Scan(&stateCount); err != nil {
+		t.Fatal(err)
+	}
+	if messageCount != 0 || stateCount != 0 {
+		t.Fatalf("cascaded message/read state counts = %d/%d", messageCount, stateCount)
+	}
+}
+
+func TestLegacyMessageMigrationPreservesAccountsAndDropsMessages(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-channels.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := bootstrapAdmin(t, db)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`
+DROP TABLE channel_read_states;
+DROP TABLE messages;
+DROP TABLE channels;
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE settings (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  audio_bitrate_kbps INTEGER NOT NULL,
+  message_retention INTEGER NOT NULL,
+  updated_at TEXT NOT NULL
+);
+INSERT INTO messages (user_id, content, created_at) VALUES (?, 'legacy', ?);
+INSERT INTO settings VALUES (1, 64, 500, ?);`, admin.ID, formatTime(time.Now()), formatTime(time.Now())); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrated.Close()
+	if _, err := migrated.UserByID(context.Background(), admin.ID); err != nil {
+		t.Fatalf("preserved user: %v", err)
+	}
+	channels, err := migrated.ListChannels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var messageCount, settingsTables, version int
+	if err := migrated.db.QueryRow("SELECT COUNT(*) FROM messages").Scan(&messageCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrated.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'settings'").Scan(&settingsTables); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrated.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if len(channels) != 2 || messageCount != 0 || settingsTables != 0 || version != 2 {
+		t.Fatalf("migration result channels/messages/settings/version = %d/%d/%d/%d", len(channels), messageCount, settingsTables, version)
+	}
+}
+
 func TestCannotDemoteLastServerAdmin(t *testing.T) {
 	db := newTestStore(t)
 	admin := bootstrapAdmin(t, db)
