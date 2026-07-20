@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { BellRing, Headphones, Mic, Palette, Save, UserRound, X } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
-import { useSoundStore, type NotificationSound } from '../stores/sounds'
+import { useSoundStore, type NotificationSound, type SoundPresetId, SOUND_PRESETS } from '../stores/sounds'
 import { useThemeStore } from '../stores/theme'
 import { useVoiceStore } from '../stores/voice'
 
@@ -67,6 +67,24 @@ async function savePassword() {
 
 function setSoundEnabled(sound: NotificationSound, event: Event) {
   sounds.setSoundEnabled(sound, (event.target as HTMLInputElement).checked)
+}
+
+function setSoundPreset(sound: NotificationSound, event: Event) {
+  sounds.setSoundPreset(sound, (event.target as HTMLSelectElement).value as SoundPresetId)
+}
+
+const presetOptions = Object.entries(SOUND_PRESETS).map(([id, { name }]) => ({ id: id as SoundPresetId, name }))
+
+function getSelectedPreset(sound: NotificationSound): SoundPresetId {
+  if (sound === 'join') return sounds.joinPreset
+  if (sound === 'leave') return sounds.leavePreset
+  return sounds.messagePreset
+}
+
+function isSoundEnabled(sound: NotificationSound): boolean {
+  if (sound === 'join') return sounds.joinEnabled
+  if (sound === 'leave') return sounds.leaveEnabled
+  return sounds.messageEnabled
 }
 </script>
 
@@ -159,10 +177,18 @@ function setSoundEnabled(sound: NotificationSound, event: Event) {
             <input type="range" min="0" max="1" step="0.05" :value="sounds.volume" :disabled="!sounds.enabled" aria-label="提示音音量" @input="sounds.setVolume(Number(($event.target as HTMLInputElement).value))" />
           </label>
           <h3><BellRing :size="18" />各事件</h3>
-          <div class="sound-toggle-list">
-            <label><span>加入语音</span><input type="checkbox" :checked="sounds.joinEnabled" :disabled="!sounds.enabled" @change="setSoundEnabled('join', $event)" /></label>
-            <label><span>退出语音</span><input type="checkbox" :checked="sounds.leaveEnabled" :disabled="!sounds.enabled" @change="setSoundEnabled('leave', $event)" /></label>
-            <label><span>新文字消息</span><input type="checkbox" :checked="sounds.messageEnabled" :disabled="!sounds.enabled" @change="setSoundEnabled('message', $event)" /></label>
+          <div class="sound-event-list">
+            <div v-for="sound in (['join','leave','message'] as NotificationSound[])" :key="sound" class="sound-event-row">
+              <label class="setting-toggle">
+                <span>{{ sound === 'join' ? '加入语音' : sound === 'leave' ? '退出语音' : '新文字消息' }}</span>
+                <input type="checkbox" :checked="isSoundEnabled(sound)" :disabled="!sounds.enabled" @change="setSoundEnabled(sound, $event)" />
+              </label>
+              <label><span>音效</span>
+                <select :value="getSelectedPreset(sound)" :disabled="!sounds.enabled" @change="setSoundPreset(sound, $event)">
+                  <option v-for="preset in presetOptions" :key="preset.id" :value="preset.id">{{ preset.name }}</option>
+                </select>
+              </label>
+            </div>
           </div>
         </section>
 

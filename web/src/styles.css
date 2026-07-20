@@ -270,6 +270,9 @@ select { appearance: auto; }
 .setting-toggle input, .sound-toggle-list input { width: 18px; height: 18px; padding: 0; accent-color: var(--brand); }
 .sound-toggle-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .sound-toggle-list label { min-height: 40px; padding: 0 10px; border-radius: 4px; background: var(--main); display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+.sound-event-list { display: grid; gap: 12px; }
+.sound-event-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
+.sound-event-row .setting-toggle { min-height: 42px; }
 .user-admin-layout { height: 100%; min-height: 0; display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 20px; }
 .admin-user-list { min-height: 0; padding-right: 10px; border-right: 1px solid var(--line); overflow-y: auto; overscroll-behavior-y: contain; }
 .admin-user-list button { width: 100%; min-height: 46px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; display: flex; align-items: center; gap: 9px; color: var(--muted); text-align: left; cursor: pointer; }
@@ -350,6 +353,7 @@ select { appearance: auto; }
   .user-admin-detail { padding-right: 4px; }
   .two-column { grid-template-columns: 1fr; }
   .sound-toggle-list { grid-template-columns: 1fr; }
+  .sound-event-row { grid-template-columns: 1fr; }
   .profile-audio-layout { grid-template-columns: 1fr; gap: 12px; }
   .profile-audio-nav { display: flex; gap: 4px; padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--line); }
   .profile-audio-nav button { flex: 1; justify-content: center; }
