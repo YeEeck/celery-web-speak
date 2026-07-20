@@ -259,7 +259,7 @@ select { appearance: auto; }
 .message-action:hover { color: var(--danger-fg); }
 .jump-to-latest { position: absolute; z-index: 3; left: 50%; bottom: 12px; min-height: 34px; max-width: calc(100% - 24px); transform: translateX(-50%); border: 1px solid var(--line); border-radius: 4px; padding: 0 12px; display: flex; align-items: center; gap: 6px; background: var(--elevated); color: var(--text); cursor: pointer; box-shadow: 0 5px 16px rgba(0,0,0,.32); }
 .jump-to-latest:hover { background: var(--active); }
-.composer-area { padding: 0 16px max(16px, env(safe-area-inset-bottom)); }
+.composer-area { padding: 16px 16px max(16px, env(safe-area-inset-bottom)); }
 .composer { min-height: 46px; display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: end; background: var(--elevated); border-radius: 6px; padding: 2px 5px 2px 12px; }
 .composer.disabled { opacity: .62; }
 .composer textarea { align-self: center; resize: none; border: 0; background: transparent; padding: 10px 0; line-height: 22px; max-height: 144px; outline: none; }

@@ -38,6 +38,20 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
   expect(Math.abs(verticalLayout.viewport - verticalLayout.composerBottom)).toBeLessThan(2)
 })
 
+test('最新消息与文字输入框保持间距', async ({ page }) => {
+  const message = `输入区间距检查 ${Date.now()}`
+  await page.getByPlaceholder('发送消息到 #文字聊天').fill(message)
+  await page.getByTitle('发送消息').click()
+
+  const latestMessage = page.locator('.message-row').filter({ hasText: message })
+  await expect(latestMessage).toBeVisible()
+  await expect.poll(() => latestMessage.evaluate((element) => {
+    const composer = document.querySelector('.composer')!.getBoundingClientRect()
+    const messageRow = element.getBoundingClientRect()
+    return composer.top - messageRow.bottom
+  })).toBeGreaterThanOrEqual(16)
+})
+
 test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, isMobile }) => {
   if (isMobile) await page.getByTitle('频道').click()
   await page.getByTitle('用户设置').click()
