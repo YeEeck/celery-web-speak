@@ -15,7 +15,7 @@ const voice = useVoiceStore()
 const channelsOpen = ref(false)
 const membersOpen = ref(false)
 const desktopMembersVisible = ref(true)
-const wideMemberLayout = ref(window.matchMedia('(min-width: 1101px)').matches)
+const wideMemberLayout = ref(window.matchMedia('(min-width: 1141px)').matches)
 const profileOpen = ref(false)
 const adminOpen = ref(false)
 let wideMemberQuery: MediaQueryList | null = null
@@ -30,7 +30,7 @@ watch(() => app.user?.voiceMuted, (value) => {
   if (value) void voice.syncServerMute(true)
 })
 onMounted(() => {
-  wideMemberQuery = window.matchMedia('(min-width: 1101px)')
+  wideMemberQuery = window.matchMedia('(min-width: 1141px)')
   mobileQuery = window.matchMedia('(max-width: 760px)')
   wideMemberQuery.addEventListener('change', handleWideMemberLayout)
   mobileQuery.addEventListener('change', closeTemporaryDrawers)
