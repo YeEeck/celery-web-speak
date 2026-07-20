@@ -6,7 +6,7 @@ export type AccentPreset = 'indigo' | 'green' | 'rose' | 'amber'
 
 const MODE_KEY = 'cws.theme.mode'
 const ACCENT_KEY = 'cws.theme.accent'
-const DEFAULT_MODE: ThemeMode = 'system'
+const DEFAULT_MODE: ThemeMode = 'dark'
 const DEFAULT_ACCENT: AccentPreset = 'indigo'
 
 const mediaQuery = typeof window !== 'undefined' && window.matchMedia
