@@ -58,6 +58,47 @@ test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, is
   }))).toEqual({ microphone: '2.5', output: '1.5' })
 })
 
+test('退出登录使用明确的二次确认弹窗', async ({ page, isMobile }) => {
+  if (isMobile) await page.getByTitle('频道').click()
+  const logoutTrigger = page.getByTitle('退出登录')
+  const dialog = page.getByRole('alertdialog', { name: '退出登录？' })
+  const cancel = page.getByRole('button', { name: '取消', exact: true })
+
+  await logoutTrigger.click()
+  await expect(dialog).toBeVisible()
+  await expect(cancel).toBeFocused()
+  await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+
+  await logoutTrigger.click()
+  await expect(dialog).toBeHidden()
+  await expect(logoutTrigger).toBeFocused()
+
+  await logoutTrigger.click()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(logoutTrigger).toBeFocused()
+
+  await logoutTrigger.click()
+  await page.locator('.server-title').click({ position: { x: 8, y: 8 } })
+  await expect(dialog).toBeHidden()
+
+  await logoutTrigger.click()
+  await cancel.click()
+  await expect(dialog).toBeHidden()
+  await expect(logoutTrigger).toBeFocused()
+
+  await page.route('**/api/auth/logout', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await route.continue()
+  })
+  await logoutTrigger.click()
+  const confirm = dialog.getByRole('button', { name: '退出', exact: true })
+  await confirm.click()
+  await expect(dialog.getByRole('button', { name: '正在退出', exact: true })).toBeDisabled()
+  await expect(cancel).toBeDisabled()
+  await expect(page.getByRole('heading', { name: '欢迎回来' })).toBeVisible()
+})
+
 test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page }) => {
   let newestID = 0
   let currentUser = { id: 0, username: '', displayName: '', role: 'member' }
