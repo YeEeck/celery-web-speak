@@ -1,7 +1,8 @@
-import { expect, test } from '@playwright/test'
+import { expect, request as createRequestContext, test } from '@playwright/test'
 
 const username = process.env.E2E_USERNAME ?? 'admin'
 const password = process.env.E2E_PASSWORD ?? 'admin-password-123'
+const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080'
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
@@ -56,6 +57,86 @@ test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, is
     microphone: localStorage.getItem('cws.microphoneGain'),
     output: localStorage.getItem('cws.outputVolume'),
   }))).toEqual({ microphone: '2.5', output: '1.5' })
+})
+
+test('操作提示音默认开启并持久化到浏览器', async ({ page, isMobile }) => {
+  if (isMobile) await page.getByTitle('频道').click()
+  await page.getByTitle('用户设置').click()
+
+  const masterSwitch = page.getByLabel('启用提示音')
+  const soundVolume = page.getByLabel('提示音音量')
+  const joinSwitch = page.getByLabel('加入语音')
+  const leaveSwitch = page.getByLabel('退出语音')
+  const messageSwitch = page.getByLabel('新文字消息')
+  await expect(masterSwitch).toBeChecked()
+  await expect(soundVolume).toHaveValue('0.6')
+  await expect(joinSwitch).toBeChecked()
+  await expect(leaveSwitch).toBeChecked()
+  await expect(messageSwitch).toBeChecked()
+
+  await soundVolume.fill('0.35')
+  await joinSwitch.uncheck()
+  await messageSwitch.uncheck()
+  await expect.poll(() => page.evaluate(() => ({
+    volume: localStorage.getItem('cws.notificationSounds.volume'),
+    join: localStorage.getItem('cws.notificationSounds.join'),
+    message: localStorage.getItem('cws.notificationSounds.message'),
+  }))).toEqual({ volume: '0.35', join: 'false', message: 'false' })
+
+  await masterSwitch.uncheck()
+  await expect(soundVolume).toBeDisabled()
+  await expect(joinSwitch).toBeDisabled()
+  await expect(leaveSwitch).toBeDisabled()
+  await expect(messageSwitch).toBeDisabled()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.enabled'))).toBe('false')
+
+  await page.reload()
+  if (isMobile) await page.getByTitle('频道').click()
+  await page.getByTitle('用户设置').click()
+  await expect(page.getByLabel('启用提示音')).not.toBeChecked()
+  await expect(page.getByLabel('提示音音量')).toHaveValue('0.35')
+  await expect(page.getByLabel('加入语音')).not.toBeChecked()
+  await expect(page.getByLabel('新文字消息')).not.toBeChecked()
+})
+
+test('他人的新消息播放提示音，自己的消息不播放', async ({ page, request, isMobile }, testInfo) => {
+  await installToneCounter(page)
+  await expect(page.locator('.rail-status.online')).toBeAttached()
+
+  await request.post('/api/auth/login', { data: { username, password } })
+  const suffix = `${Date.now().toString(36)}_${isMobile ? 'm' : 'd'}_${testInfo.workerIndex}`
+  const account = {
+    username: `sound_${suffix}`,
+    displayName: `提示音测试${suffix.slice(-3)}`,
+    password: 'sound-member-password',
+    role: 'member',
+  }
+  const createResponse = await request.post('/api/admin/users', { data: account })
+  expect(createResponse.ok()).toBeTruthy()
+
+  const other = await createRequestContext.newContext({ baseURL })
+  try {
+    const loginResponse = await other.post('/api/auth/login', { data: { username: account.username, password: account.password } })
+    expect(loginResponse.ok()).toBeTruthy()
+    if (isMobile) await page.waitForTimeout(700)
+    const beforeOtherMessage = await toneCount(page)
+    const otherMessage = `他人提示音检查 ${Date.now()}`
+    const sendResponse = await other.post('/api/messages', { data: { content: otherMessage } })
+    expect(sendResponse.ok()).toBeTruthy()
+    await expect(page.getByText(otherMessage, { exact: true })).toBeVisible()
+    await expect.poll(() => toneCount(page)).toBe(beforeOtherMessage + 1)
+
+    await page.waitForTimeout(350)
+    const beforeOwnMessage = await toneCount(page)
+    const ownMessage = `自己静默检查 ${Date.now()}`
+    await page.getByPlaceholder('发送消息到 #文字聊天').fill(ownMessage)
+    await page.getByTitle('发送消息').click()
+    await expect(page.getByText(ownMessage, { exact: true })).toBeVisible()
+    await page.waitForTimeout(150)
+    expect(await toneCount(page)).toBe(beforeOwnMessage)
+  } finally {
+    await other.dispose()
+  }
 })
 
 test('退出登录使用明确的二次确认弹窗', async ({ page, isMobile }) => {
@@ -224,6 +305,23 @@ test('管理控制台外框不随页签内容变化', async ({ page, isMobile })
     await expect.poll(panelSize).toEqual({ width: 980, height: 820 })
   }
 })
+
+async function installToneCounter(page: import('@playwright/test').Page) {
+  await page.evaluate(() => {
+    const target = window as typeof window & { __cwsToneCount?: number }
+    target.__cwsToneCount = 0
+    const prototype = AudioContext.prototype
+    const original = prototype.createOscillator
+    prototype.createOscillator = function createCountedOscillator(this: AudioContext) {
+      target.__cwsToneCount = (target.__cwsToneCount ?? 0) + 1
+      return original.call(this)
+    }
+  })
+}
+
+async function toneCount(page: import('@playwright/test').Page) {
+  return page.evaluate(() => (window as typeof window & { __cwsToneCount?: number }).__cwsToneCount ?? 0)
+}
 
 test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile }) => {
   await page.route('**/api/bootstrap', async (route) => {

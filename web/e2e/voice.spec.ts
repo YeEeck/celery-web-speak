@@ -33,12 +33,16 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
     await page.getByRole('button', { name: '登录', exact: true }).click()
     await page.getByRole('heading', { name: '文字聊天', exact: true }).waitFor()
     if (testInfo.project.name.startsWith('android')) await page.getByTitle('频道').click()
+    await installToneCounter(page)
+    const tonesBeforeJoin = await toneCount(page)
     await page.getByRole('button', { name: /语音频道/ }).click()
     await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
+    await expect.poll(() => toneCount(page)).toBeGreaterThanOrEqual(tonesBeforeJoin + 2)
     contexts.push({ context, page })
   }
 
   try {
+    await expect.poll(() => toneCount(contexts[0].page)).toBeGreaterThanOrEqual(4)
     for (const { page } of contexts) {
       await expect(page.locator('.voice-member').filter({ hasText: accounts[0].displayName })).toBeVisible()
       await expect(page.locator('.voice-member').filter({ hasText: accounts[1].displayName })).toBeVisible()
@@ -63,6 +67,10 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
     await expect(remoteVolume).toHaveAttribute('max', '3')
     await remoteVolume.fill('3')
     await expect(remoteMember.getByText('300%', { exact: true })).toBeVisible()
+
+    const beforeRemoteLeave = await toneCount(contexts[0].page)
+    await contexts[1].page.getByTitle('断开语音').click()
+    await expect.poll(() => toneCount(contexts[0].page)).toBeGreaterThanOrEqual(beforeRemoteLeave + 2)
   } finally {
     await Promise.all(contexts.map(({ context }) => context.close()))
   }
@@ -75,4 +83,21 @@ async function expectVoiceOrder(pages: Page[], expected: string[]) {
       return labels.map((label) => label.replace('你', '').trim()).filter((label) => expected.includes(label))
     }).toEqual(expected)
   }
+}
+
+async function installToneCounter(page: Page) {
+  await page.evaluate(() => {
+    const target = window as typeof window & { __cwsToneCount?: number }
+    target.__cwsToneCount = 0
+    const prototype = AudioContext.prototype
+    const original = prototype.createOscillator
+    prototype.createOscillator = function createCountedOscillator(this: AudioContext) {
+      target.__cwsToneCount = (target.__cwsToneCount ?? 0) + 1
+      return original.call(this)
+    }
+  })
+}
+
+async function toneCount(page: Page) {
+  return page.evaluate(() => (window as typeof window & { __cwsToneCount?: number }).__cwsToneCount ?? 0)
 }
