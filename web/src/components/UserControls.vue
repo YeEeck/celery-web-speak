@@ -82,8 +82,8 @@ onBeforeUnmount(() => {
       <button
         class="icon-button"
         :class="{ danger: voice.muted || app.user!.voiceMuted }"
-        :disabled="!voice.joined || app.user!.voiceMuted || voice.deafened"
-        :title="voice.deafened ? '耳机静音中' : voice.muted ? '取消静音' : '麦克风静音'"
+        :disabled="!voice.joined || app.user!.voiceMuted || voice.deafened || voice.deafenChanging"
+        :title="voice.deafenChanging ? '耳机状态切换中' : voice.deafened ? '耳机静音中' : voice.muted ? '取消静音' : '麦克风静音'"
         @click="voice.toggleMute()"
       >
         <MicOff v-if="voice.muted || app.user!.voiceMuted" :size="18" /><Mic v-else :size="18" />

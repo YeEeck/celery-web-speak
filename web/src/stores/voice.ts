@@ -136,7 +136,7 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   async function toggleMute() {
-    if (!room || deafened.value) return
+    if (!room || deafened.value || deafenChanging.value) return
     const app = useAppStore()
     if (app.user?.voiceMuted) return
     const enabled = muted.value
