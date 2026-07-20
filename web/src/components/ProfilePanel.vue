@@ -86,6 +86,19 @@ function isSoundEnabled(sound: NotificationSound): boolean {
   if (sound === 'leave') return sounds.leaveEnabled
   return sounds.messageEnabled
 }
+
+const themeModes: { value: 'system' | 'light' | 'dark'; label: string }[] = [
+  { value: 'system', label: '跟随系统' },
+  { value: 'light', label: '亮色' },
+  { value: 'dark', label: '暗色' },
+]
+
+const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: string; color: string }[] = [
+  { value: 'indigo', label: '靛蓝', color: '#5865f2' },
+  { value: 'green', label: '绿色', color: '#23a559' },
+  { value: 'rose', label: '玫瑰', color: '#e64855' },
+  { value: 'amber', label: '琥珀', color: '#d4a32e' },
+]
 </script>
 
 <template>
@@ -193,11 +206,20 @@ function isSoundEnabled(sound: NotificationSound): boolean {
         </section>
 
         <section v-else-if="tab === 'theme'" class="settings-section">
-          <h3><Palette :size="18" />主题</h3>
+          <h3><Palette :size="18" />外观模式</h3>
+          <div class="theme-mode-group">
+            <button v-for="mode in themeModes" :key="mode.value" :class="{ active: theme.mode === mode.value }" @click="theme.setMode(mode.value)">{{ mode.label }}</button>
+          </div>
+          <h3><Palette :size="18" />强调色</h3>
+          <div class="accent-swatches">
+            <button v-for="swatch in accentSwatches" :key="swatch.value" :class="['accent-swatch', { active: theme.accent === swatch.value }]" :title="swatch.label" :aria-label="swatch.label" @click="theme.setAccent(swatch.value)">
+              <span class="accent-swatch-inner" :style="{ background: swatch.color }" />
+            </button>
+          </div>
           <p class="profile-hint">主题与强调色仅保存在当前浏览器。</p>
         </section>
       </div>
-      <footer class="panel-footer"><span class="profile-hint">用户设置</span></footer>
+      <footer class="panel-footer"><span class="profile-hint">音频、音效与主题设置即时生效。账号修改使用各自保存按钮。</span></footer>
     </section>
   </div>
 </template>

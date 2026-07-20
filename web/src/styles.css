@@ -260,6 +260,14 @@ select { appearance: auto; }
 .profile-save-row { display: flex; align-items: center; gap: 12px; }
 .profile-save-row .primary-button { min-height: 34px; padding: 0 14px; }
 .profile-hint { color: var(--faint); font-size: 11px; }
+.theme-mode-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.theme-mode-group button { min-height: 44px; border: 1px solid var(--line); border-radius: 4px; background: var(--main); color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-weight: 650; }
+.theme-mode-group button:hover { background: var(--hover); color: var(--text); }
+.theme-mode-group button.active { border-color: var(--brand); color: var(--text); background: var(--active); }
+.accent-swatches { display: flex; gap: 14px; }
+.accent-swatch { width: 36px; height: 36px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; display: grid; place-items: center; }
+.accent-swatch.active { border-color: var(--text); }
+.accent-swatch-inner { width: 26px; height: 26px; border-radius: 50%; }
 .channel-settings { max-width: 620px; border: 0; }
 .range-setting { gap: 10px; }.range-setting > span:first-child { display: flex; justify-content: space-between; }.range-setting input { padding: 0; accent-color: var(--brand); }
 .range-labels { display: flex; justify-content: space-between; color: var(--faint); font-weight: 500; }
@@ -357,6 +365,7 @@ select { appearance: auto; }
   .profile-audio-layout { grid-template-columns: 1fr; gap: 12px; }
   .profile-audio-nav { display: flex; gap: 4px; padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--line); }
   .profile-audio-nav button { flex: 1; justify-content: center; }
+  .theme-mode-group { grid-template-columns: 1fr; }
   .profile-tabs { overflow-x: auto; }
   .profile-tabs button { white-space: nowrap; }
   .admin-tabs { overflow-x: auto; }.admin-tabs button { white-space: nowrap; }
