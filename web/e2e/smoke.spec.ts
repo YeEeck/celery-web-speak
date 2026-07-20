@@ -61,6 +61,31 @@ test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, is
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.outputVolume'))).toBe('1.5')
 })
 
+test('紧凑视口下用户设置页签与内容不重叠', async ({ page, isMobile }) => {
+  test.skip(isMobile, '桌面项目覆盖可调整高度的紧凑视口')
+  await page.setViewportSize({ width: 720, height: 600 })
+  await page.getByTitle('频道').click()
+  await page.getByTitle('用户设置').click()
+  await page.getByRole('button', { name: '音效', exact: true }).click()
+
+  const layout = await page.locator('.settings-panel').evaluate((panel) => {
+    const [header, tabs, content, footer] = Array.from(panel.children).map((element) => element.getBoundingClientRect())
+    return {
+      headerBottom: header.bottom,
+      tabsTop: tabs.top,
+      tabsBottom: tabs.bottom,
+      tabsHeight: tabs.height,
+      contentTop: content.top,
+      contentBottom: content.bottom,
+      footerTop: footer.top,
+    }
+  })
+  expect(layout.tabsTop).toBeGreaterThanOrEqual(layout.headerBottom - 1)
+  expect(layout.tabsHeight).toBeGreaterThanOrEqual(40)
+  expect(layout.contentTop).toBeGreaterThanOrEqual(layout.tabsBottom - 1)
+  expect(layout.footerTop).toBeGreaterThanOrEqual(layout.contentBottom - 1)
+})
+
 test('操作提示音默认开启并持久化到浏览器', async ({ page, isMobile }) => {
   if (isMobile) await page.getByTitle('频道').click()
   await page.getByTitle('用户设置').click()
