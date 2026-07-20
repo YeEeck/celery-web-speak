@@ -17,6 +17,7 @@ const cancelLogout = ref<HTMLButtonElement | null>(null)
 const voiceStatus = computed(() => {
   if (!voice.joined) return '未连接语音'
   if (voice.status === 'reconnecting') return '语音重连中'
+  if (voice.deafened) return '耳机已静音'
   return voice.muted ? '麦克风已静音' : '语音已连接'
 })
 
@@ -81,8 +82,8 @@ onBeforeUnmount(() => {
       <button
         class="icon-button"
         :class="{ danger: voice.muted || app.user!.voiceMuted }"
-        :disabled="!voice.joined || app.user!.voiceMuted"
-        :title="voice.muted ? '取消静音' : '麦克风静音'"
+        :disabled="!voice.joined || app.user!.voiceMuted || voice.deafened || voice.deafenChanging"
+        :title="voice.deafenChanging ? '耳机状态切换中' : voice.deafened ? '耳机静音中' : voice.muted ? '取消静音' : '麦克风静音'"
         @click="voice.toggleMute()"
       >
         <MicOff v-if="voice.muted || app.user!.voiceMuted" :size="18" /><Mic v-else :size="18" />
@@ -90,7 +91,7 @@ onBeforeUnmount(() => {
       <button
         class="icon-button"
         :class="{ danger: voice.deafened }"
-        :disabled="!voice.joined"
+        :disabled="!voice.joined || voice.deafenChanging"
         :title="voice.deafened ? '取消耳机静音' : '耳机静音'"
         @click="voice.toggleDeafen()"
       >

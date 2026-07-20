@@ -41,40 +41,55 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
 test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, isMobile }) => {
   if (isMobile) await page.getByTitle('频道').click()
   await page.getByTitle('用户设置').click()
+  await page.getByRole('button', { name: '音频', exact: true }).click()
+  await page.getByRole('button', { name: '输入', exact: true }).click()
 
   const microphoneGain = page.getByLabel('麦克风增益')
-  const outputVolume = page.getByLabel('扬声器音量')
   await expect(microphoneGain).toHaveValue('1')
-  await expect(outputVolume).toHaveValue('1')
   await expect(microphoneGain).toHaveAttribute('max', '3')
-  await expect(outputVolume).toHaveAttribute('max', '3')
 
   await microphoneGain.fill('2.5')
-  await outputVolume.fill('1.5')
   await expect(page.getByText('250%', { exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.microphoneGain'))).toBe('2.5')
+
+  await page.getByRole('button', { name: '输出', exact: true }).click()
+  const outputVolume = page.getByLabel('扬声器音量')
+  await expect(outputVolume).toHaveValue('1')
+  await expect(outputVolume).toHaveAttribute('max', '3')
+  await outputVolume.fill('1.5')
   await expect(page.getByText('150%', { exact: true })).toBeVisible()
-  await expect.poll(() => page.evaluate(() => ({
-    microphone: localStorage.getItem('cws.microphoneGain'),
-    output: localStorage.getItem('cws.outputVolume'),
-  }))).toEqual({ microphone: '2.5', output: '1.5' })
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.outputVolume'))).toBe('1.5')
 })
 
-test('用户设置分区标题与上方分隔线保持间距', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
+test('紧凑视口下用户设置页签与内容不重叠', async ({ page, isMobile }) => {
+  test.skip(isMobile, '桌面项目覆盖可调整高度的紧凑视口')
+  await page.setViewportSize({ width: 720, height: 600 })
+  await page.getByTitle('频道').click()
   await page.getByTitle('用户设置').click()
+  await page.getByRole('button', { name: '音效', exact: true }).click()
 
-  const sectionTitleOffsets = await page.locator('.settings-scroll .settings-section').evaluateAll((sections) => (
-    sections.slice(1).map((section) => {
-      const title = section.querySelector('h3')!
-      return Math.round(title.getBoundingClientRect().top - section.getBoundingClientRect().top)
-    })
-  ))
-  expect(sectionTitleOffsets).toEqual([22, 22, 22])
+  const layout = await page.locator('.settings-panel').evaluate((panel) => {
+    const [header, tabs, content, footer] = Array.from(panel.children).map((element) => element.getBoundingClientRect())
+    return {
+      headerBottom: header.bottom,
+      tabsTop: tabs.top,
+      tabsBottom: tabs.bottom,
+      tabsHeight: tabs.height,
+      contentTop: content.top,
+      contentBottom: content.bottom,
+      footerTop: footer.top,
+    }
+  })
+  expect(layout.tabsTop).toBeGreaterThanOrEqual(layout.headerBottom - 1)
+  expect(layout.tabsHeight).toBeGreaterThanOrEqual(40)
+  expect(layout.contentTop).toBeGreaterThanOrEqual(layout.tabsBottom - 1)
+  expect(layout.footerTop).toBeGreaterThanOrEqual(layout.contentBottom - 1)
 })
 
 test('操作提示音默认开启并持久化到浏览器', async ({ page, isMobile }) => {
   if (isMobile) await page.getByTitle('频道').click()
   await page.getByTitle('用户设置').click()
+  await page.getByRole('button', { name: '音效', exact: true }).click()
 
   const masterSwitch = page.getByLabel('启用提示音')
   const soundVolume = page.getByLabel('提示音音量')
@@ -106,10 +121,46 @@ test('操作提示音默认开启并持久化到浏览器', async ({ page, isMob
   await page.reload()
   if (isMobile) await page.getByTitle('频道').click()
   await page.getByTitle('用户设置').click()
+  await page.getByRole('button', { name: '音效', exact: true }).click()
   await expect(page.getByLabel('启用提示音')).not.toBeChecked()
   await expect(page.getByLabel('提示音音量')).toHaveValue('0.35')
   await expect(page.getByLabel('加入语音')).not.toBeChecked()
   await expect(page.getByLabel('新文字消息')).not.toBeChecked()
+})
+
+test('主题模式与强调色持久化到浏览器', async ({ page, isMobile }) => {
+  if (isMobile) await page.getByTitle('频道').click()
+  await page.getByTitle('用户设置').click()
+  await page.getByRole('button', { name: '主题', exact: true }).click()
+
+  await page.getByRole('button', { name: '亮色', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.theme.mode'))).toBe('light')
+
+  await page.getByRole('button', { name: '绿色', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'green')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.theme.accent'))).toBe('green')
+
+  await page.getByRole('button', { name: '暗色', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+})
+
+test('音频处理开关持久化到浏览器', async ({ page, isMobile }) => {
+  if (isMobile) await page.getByTitle('频道').click()
+  await page.getByTitle('用户设置').click()
+  await page.getByRole('button', { name: '音频', exact: true }).click()
+
+  const echoToggle = page.getByLabel('回声抑制')
+  const noiseToggle = page.getByLabel('降噪')
+  await expect(echoToggle).toBeChecked()
+  await expect(noiseToggle).toBeChecked()
+
+  await echoToggle.uncheck()
+  await noiseToggle.uncheck()
+  await expect.poll(() => page.evaluate(() => ({
+    echo: localStorage.getItem('cws.echoCancellation'),
+    noise: localStorage.getItem('cws.noiseSuppression'),
+  }))).toEqual({ echo: 'false', noise: 'false' })
 })
 
 test('他人的新消息播放提示音，自己的消息不播放', async ({ page, request, isMobile }, testInfo) => {

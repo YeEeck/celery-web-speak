@@ -14,6 +14,8 @@ import (
 
 const RoomName = "main"
 
+const DeafenedAttribute = "deafened"
+
 type Service struct {
 	apiKey    string
 	apiSecret string
@@ -95,6 +97,19 @@ func (s *Service) UpdateName(ctx context.Context, userID int64, displayName stri
 		Room:     RoomName,
 		Identity: Identity(userID),
 		Name:     displayName,
+	})
+	return err
+}
+
+func (s *Service) SetDeafened(ctx context.Context, userID int64, deafened bool) error {
+	value := ""
+	if deafened {
+		value = "true"
+	}
+	_, err := s.room.UpdateParticipant(ctx, &livekit.UpdateParticipantRequest{
+		Room:       RoomName,
+		Identity:   Identity(userID),
+		Attributes: map[string]string{DeafenedAttribute: value},
 	})
 	return err
 }

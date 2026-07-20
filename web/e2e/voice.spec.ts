@@ -61,6 +61,32 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
     expect(demoteResponse.ok()).toBeTruthy()
     await expectVoiceOrder(contexts.map(({ page }) => page), accounts.map(({ displayName }) => displayName))
 
+    const firstAccountRows = contexts.map(({ page }) => page.locator('.voice-member').filter({ hasText: accounts[0].displayName }))
+    await contexts[0].page.getByTitle('耳机静音', { exact: true }).click()
+    await expect(contexts[0].page.getByTitle('耳机静音中', { exact: true })).toBeDisabled()
+    for (const row of firstAccountRows) {
+      await expect(row.getByTitle('麦克风已静音', { exact: true })).toBeVisible()
+      await expect(row.getByTitle('耳机已静音', { exact: true })).toBeVisible()
+    }
+
+    await contexts[0].page.getByTitle('取消耳机静音', { exact: true }).click()
+    for (const row of firstAccountRows) {
+      await expect(row.getByTitle('麦克风已静音', { exact: true })).toHaveCount(0)
+      await expect(row.getByTitle('耳机已静音', { exact: true })).toHaveCount(0)
+    }
+
+    await contexts[0].page.getByTitle('麦克风静音', { exact: true }).click()
+    for (const row of firstAccountRows) {
+      await expect(row.getByTitle('麦克风已静音', { exact: true })).toBeVisible()
+    }
+    await contexts[0].page.getByTitle('耳机静音', { exact: true }).click()
+    await contexts[0].page.getByTitle('取消耳机静音', { exact: true }).click()
+    for (const row of firstAccountRows) {
+      await expect(row.getByTitle('麦克风已静音', { exact: true })).toBeVisible()
+      await expect(row.getByTitle('耳机已静音', { exact: true })).toHaveCount(0)
+    }
+    await contexts[0].page.getByTitle('取消静音', { exact: true }).click()
+
     const remoteMember = contexts[0].page.locator('.voice-member').filter({ hasText: accounts[1].displayName })
     await remoteMember.locator('.voice-member-main').click()
     const remoteVolume = remoteMember.getByLabel('用户音量')

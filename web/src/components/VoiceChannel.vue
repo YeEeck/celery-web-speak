@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ChevronRight, MicOff, Signal, Volume2 } from '@lucide/vue'
+import { ChevronRight, MicOff, Signal, Volume2, VolumeX } from '@lucide/vue'
 import { ConnectionQuality } from 'livekit-client'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
@@ -48,7 +48,14 @@ function userFor(participant: VoiceParticipant) {
           <span class="voice-member-name" :class="{ speaking: participant.isSpeaking }">
             {{ participant.name }}<small v-if="participant.isLocal">你</small>
           </span>
-          <MicOff v-if="!participant.microphoneEnabled" :size="15" class="muted-icon" />
+          <span v-if="!participant.microphoneEnabled || participant.deafened" class="voice-status-icons">
+            <span v-if="!participant.microphoneEnabled" class="voice-status-icon" role="img" aria-label="麦克风已静音" title="麦克风已静音">
+              <MicOff :size="15" class="muted-icon" />
+            </span>
+            <span v-if="participant.deafened" class="voice-status-icon" role="img" aria-label="耳机已静音" title="耳机已静音">
+              <VolumeX :size="15" class="muted-icon" />
+            </span>
+          </span>
           <span class="quality-bars" :title="`网络质量：${participant.quality}`">
             <i v-for="bar in 3" :key="bar" :class="{ lit: bar <= qualityBars(participant.quality) }" />
           </span>
@@ -70,6 +77,7 @@ function userFor(participant: VoiceParticipant) {
       </div>
       <p v-if="voice.status === 'reconnecting'" class="voice-notice"><Signal :size="14" /> 正在恢复语音连接</p>
     </div>
+    <p v-if="voice.deafenedSyncError" class="voice-error">{{ voice.deafenedSyncError }}</p>
     <p v-if="voice.errorMessage" class="voice-error">{{ voice.errorMessage }}</p>
   </section>
 </template>

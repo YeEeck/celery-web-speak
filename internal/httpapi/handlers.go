@@ -96,6 +96,20 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, credentials)
 }
 
+func (s *Server) handleVoiceState(w http.ResponseWriter, r *http.Request) {
+	var state struct {
+		Deafened bool `json:"deafened"`
+	}
+	if !decodeJSON(w, r, &state) {
+		return
+	}
+	if err := s.media.SetDeafened(r.Context(), currentUser(r).ID, state.Deafened); err != nil {
+		s.internalError(w, "update voice state", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var settings store.ChannelSettings
 	if !decodeJSON(w, r, &settings) {

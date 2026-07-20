@@ -29,6 +29,9 @@ watch(() => app.settings.audioBitrateKbps, (value, oldValue) => {
 watch(() => app.user?.voiceMuted, (value) => {
   if (value) void voice.syncServerMute(true)
 })
+watch(() => app.socketStatus, (value) => {
+  if (value === 'online') voice.retryDeafenedSync()
+})
 onMounted(() => {
   wideMemberQuery = window.matchMedia('(min-width: 1141px)')
   mobileQuery = window.matchMedia('(max-width: 760px)')
