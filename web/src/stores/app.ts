@@ -170,6 +170,8 @@ export const useAppStore = defineStore('app', () => {
       trimMessagesToRetention()
     } else if (type === 'user_updated') {
       upsertUser(data as Partial<User> & { id: number })
+    } else if (type === 'user_deleted') {
+      removeUser((data as { id: number }).id)
     } else if (type === 'session_revoked') {
       stopSocket()
       user.value = null
@@ -189,6 +191,18 @@ export const useAppStore = defineStore('app', () => {
   function trimMessagesToRetention() {
     const excess = messages.value.length - settings.value.messageRetention
     if (excess > 0) messages.value.splice(0, excess)
+  }
+
+  function removeUser(userId: number) {
+    users.value = users.value.filter((item) => item.id !== userId)
+    onlineIds.value = onlineIds.value.filter((id) => id !== userId)
+    messages.value = messages.value.map((message) => message.userId === userId
+      ? { ...message, username: '', displayName: '已删除用户', role: 'member' }
+      : message)
+    if (user.value?.id === userId) {
+      stopSocket()
+      user.value = null
+    }
   }
 
   return {
@@ -211,6 +225,7 @@ export const useAppStore = defineStore('app', () => {
     sendMessage,
     loadEarlier,
     updateProfile,
+    removeUser,
   }
 })
 

@@ -30,6 +30,9 @@ const errorMessage = ref('')
 const busy = ref(false)
 const adminContent = ref<HTMLElement | null>(null)
 const userDetail = ref<HTMLElement | null>(null)
+const deleteTarget = ref<User | null>(null)
+const deleteConfirmation = ref('')
+const deleteConfirmationInput = ref<HTMLInputElement | null>(null)
 
 const selectedUser = computed(() => app.users.find((user) => user.id === selectedUserId.value) ?? null)
 const manageableUsers = computed(() => app.users.filter((user) => user.id !== app.user!.id))
@@ -138,6 +141,34 @@ async function doResetPassword() {
     })
     resetPassword.value = ''
   }, '密码已重置，该用户的其他会话已退出')
+}
+
+function openDeleteDialog(target: User) {
+  errorMessage.value = ''
+  deleteTarget.value = target
+  deleteConfirmation.value = ''
+  nextTick(() => deleteConfirmationInput.value?.focus())
+}
+
+function closeDeleteDialog() {
+  if (busy.value) return
+  deleteTarget.value = null
+  deleteConfirmation.value = ''
+}
+
+async function deleteUser() {
+  const target = deleteTarget.value
+  if (!target || deleteConfirmation.value !== target.username) return
+  await run(async () => {
+    await request(`/api/admin/users/${target.id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ username: deleteConfirmation.value }),
+    })
+    app.removeUser(target.id)
+    deleteTarget.value = null
+    deleteConfirmation.value = ''
+    selectedUserId.value = manageableUsers.value[0]?.id ?? null
+  }, `账号 @${target.username} 已删除`)
 }
 
 async function createUser() {
@@ -295,6 +326,10 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
               <label><span>管理员级别</span><select :value="selectedUser.role" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通成员</option><option value="channel_admin">频道管理员</option><option value="server_admin">服务器管理员</option></select></label>
               <label><span>重置密码</span><span class="inline-actions"><input v-model="resetPassword" type="password" minlength="10" placeholder="至少 10 位" /><button class="secondary-button" :disabled="resetPassword.length < 10" @click="doResetPassword"><KeyRound :size="16" />重置</button></span></label>
               <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '解除永久封禁' : '永久封禁账号' }}</button>
+              <div class="account-danger-zone">
+                <div><strong>删除账号</strong><p>撤销登录并永久移除账号，历史消息将匿名保留。</p></div>
+                <button class="secondary-button danger-text" @click="openDeleteDialog(selectedUser)"><Trash2 :size="16" />删除账号</button>
+              </div>
             </template>
           </div>
         </section>
@@ -342,6 +377,23 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
         </section>
       </div>
       <footer class="panel-footer"><span v-if="errorMessage" class="form-error">{{ errorMessage }}</span><span v-else class="form-success">{{ message }}</span></footer>
+      <div v-if="deleteTarget" class="account-delete-backdrop" @mousedown.self="closeDeleteDialog" @keydown.esc.stop="closeDeleteDialog">
+        <section class="account-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="account-delete-title" aria-describedby="account-delete-description">
+          <header>
+            <div><h3 id="account-delete-title">永久删除账号？</h3><p id="account-delete-description">该操作无法恢复。账号会立即退出登录和语音，历史消息将显示为“已删除用户”。</p></div>
+            <button class="icon-button" title="关闭" :disabled="busy" @click="closeDeleteDialog"><X :size="19" /></button>
+          </header>
+          <label>
+            <span>输入登录名 <code>{{ deleteTarget.username }}</code> 以确认</span>
+            <input ref="deleteConfirmationInput" v-model="deleteConfirmation" autocomplete="off" spellcheck="false" />
+          </label>
+          <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
+          <div class="account-delete-actions">
+            <button class="secondary-button" :disabled="busy" @click="closeDeleteDialog">取消</button>
+            <button class="account-delete-confirm" :disabled="busy || deleteConfirmation !== deleteTarget.username" @click="deleteUser"><Trash2 :size="16" />{{ busy ? '正在删除' : '永久删除' }}</button>
+          </div>
+        </section>
+      </div>
     </section>
   </div>
 </template>
