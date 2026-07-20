@@ -299,7 +299,7 @@ select { appearance: auto; }
 .profile-tabs button:hover { color: var(--text); background: var(--hover); }
 .profile-tabs button.active { color: var(--text); background: var(--active); }
 .profile-audio-layout { display: grid; grid-template-columns: 200px minmax(0,1fr); gap: 20px; }
-.profile-audio-nav { padding-right: 10px; border-right: 1px solid var(--line); }
+.profile-audio-nav { display: flex; flex-direction: column; gap: 4px; padding-right: 10px; border-right: 1px solid var(--line); }
 .profile-audio-nav button { width: 100%; min-height: 42px; padding: 0 12px; border: 0; border-radius: 4px; background: transparent; display: flex; align-items: center; gap: 8px; color: var(--muted); text-align: left; cursor: pointer; }
 .profile-audio-nav button:hover { background: var(--hover); color: var(--text); }
 .profile-audio-nav button.active { background: var(--active); color: var(--text); }
