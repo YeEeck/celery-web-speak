@@ -278,7 +278,7 @@ select { appearance: auto; }
 .member-row.offline { opacity: .48; }.server-role { color: var(--yellow); }.channel-role { color: var(--role-blue); }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px; background: rgba(0,0,0,.68); }
-.settings-panel, .admin-panel { width: min(720px, 100%); max-height: min(820px, calc(100vh - 48px)); display: grid; grid-template-rows: auto minmax(0,1fr) auto; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); box-shadow: 0 18px 55px rgba(0,0,0,.38); }
+.settings-panel, .admin-panel { width: min(720px, 100%); max-height: min(820px, calc(100vh - 48px)); display: grid; grid-template-rows: auto auto minmax(0,1fr) auto; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); box-shadow: 0 18px 55px rgba(0,0,0,.38); }
 .admin-panel { position: relative; width: 980px; height: 820px; max-width: none; max-height: none; grid-template-rows: auto auto minmax(0,1fr) auto; }
 .panel-header { min-height: 66px; padding: 13px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
 .panel-header h2 { font-size: 19px; }.panel-header p { margin-top: 3px; color: var(--faint); font-size: 11px; }
