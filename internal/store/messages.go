@@ -17,6 +17,13 @@ func (s *Store) ListMessages(ctx context.Context, beforeID int64, limit int) ([]
 }
 
 func (s *Store) ListChannelMessages(ctx context.Context, channelID, beforeID int64, limit int) ([]Message, bool, error) {
+	channel, err := s.ChannelByID(ctx, channelID)
+	if err != nil {
+		return nil, false, err
+	}
+	if channel.Type != ChannelTypeText {
+		return nil, false, errors.New("messages require a text channel")
+	}
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
