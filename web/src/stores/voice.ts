@@ -155,26 +155,25 @@ export const useVoiceStore = defineStore('voice', () => {
     const target = room
     const session = voiceSession
     const app = useAppStore()
+    const previousDeafened = deafened.value
+    const previousMuted = muted.value
+    const previousMicrophoneBeforeDeafen = microphoneBeforeDeafen
     const nextDeafened = !deafened.value
     deafenChanging.value = true
     errorMessage.value = ''
     try {
       if (nextDeafened) {
         microphoneBeforeDeafen = !muted.value && !app.user?.voiceMuted
-        deafened.value = true
-        useSoundStore().setSuppressed(true)
-        applyAllVolumes()
         if (microphoneBeforeDeafen) {
           await target.localParticipant.setMicrophoneEnabled(false)
           if (session !== voiceSession || room !== target) return
           muted.value = true
         }
-      } else {
-        deafened.value = false
-        useSoundStore().setSuppressed(false)
+        deafened.value = true
+        useSoundStore().setSuppressed(true)
         applyAllVolumes()
+      } else {
         const shouldRestoreMicrophone = microphoneBeforeDeafen && !app.user?.voiceMuted
-        microphoneBeforeDeafen = false
         if (shouldRestoreMicrophone) {
           await target.localParticipant.setMicrophoneEnabled(true, undefined, publishOptions())
           if (session !== voiceSession || room !== target) return
@@ -182,13 +181,25 @@ export const useVoiceStore = defineStore('voice', () => {
           if (session !== voiceSession || room !== target) return
           muted.value = false
         }
+        microphoneBeforeDeafen = false
+        deafened.value = false
+        useSoundStore().setSuppressed(false)
+        applyAllVolumes()
       }
       syncParticipants()
       queueDeafenedSync(nextDeafened)
     } catch (error) {
+      if (session !== voiceSession || room !== target) return
       errorMessage.value = error instanceof Error ? error.message : '无法切换耳机静音状态'
+      await restoreMicrophoneState(target, !previousMuted && !app.user?.voiceMuted)
+      if (session !== voiceSession || room !== target) return
+      muted.value = Boolean(app.user?.voiceMuted) || !target.localParticipant.isMicrophoneEnabled
+      deafened.value = previousDeafened
+      microphoneBeforeDeafen = previousMicrophoneBeforeDeafen
+      useSoundStore().setSuppressed(previousDeafened)
+      applyAllVolumes()
       syncParticipants()
-      queueDeafenedSync(deafened.value)
+      queueDeafenedSync(previousDeafened)
     } finally {
       deafenChanging.value = false
     }
@@ -417,6 +428,17 @@ export const useVoiceStore = defineStore('voice', () => {
     const track = target.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack
     if (track && track.getProcessor() !== microphoneGainProcessor) {
       await track.setProcessor(microphoneGainProcessor)
+    }
+  }
+
+  async function restoreMicrophoneState(target: Room, enabled: boolean) {
+    try {
+      if (target.localParticipant.isMicrophoneEnabled !== enabled) {
+        await target.localParticipant.setMicrophoneEnabled(enabled, undefined, enabled ? publishOptions() : undefined)
+      }
+      if (enabled) await attachMicrophoneGain(target)
+    } catch {
+      // The participant state below remains the source of truth if rollback also fails.
     }
   }
 
