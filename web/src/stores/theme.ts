@@ -37,11 +37,6 @@ export const useThemeStore = defineStore('theme', () => {
     mediaQuery.addEventListener('change', mediaListener)
   }
 
-  function unwatchMedia() {
-    if (mediaListener && mediaQuery) mediaQuery.removeEventListener('change', mediaListener)
-    mediaListener = null
-  }
-
   function initialize() {
     apply()
     watchMedia()

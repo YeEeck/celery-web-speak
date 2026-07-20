@@ -275,9 +275,7 @@ select { appearance: auto; }
 .audio-level-control strong { color: var(--text); font-size: 12px; }
 .audio-level-control input { padding: 0; accent-color: var(--brand); }
 .setting-toggle { min-height: 42px; padding: 0 11px; border-radius: 4px; background: var(--main); display: flex; flex-direction: row; align-items: center; justify-content: space-between; }
-.setting-toggle input, .sound-toggle-list input { width: 18px; height: 18px; padding: 0; accent-color: var(--brand); }
-.sound-toggle-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.sound-toggle-list label { min-height: 40px; padding: 0 10px; border-radius: 4px; background: var(--main); display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; }
+.setting-toggle input { width: 18px; height: 18px; padding: 0; accent-color: var(--brand); }
 .sound-event-list { display: grid; gap: 12px; }
 .sound-event-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
 .sound-event-row .setting-toggle { min-height: 42px; }
@@ -360,7 +358,6 @@ select { appearance: auto; }
   .admin-user-list { max-height: none; padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--line); }
   .user-admin-detail { padding-right: 4px; }
   .two-column { grid-template-columns: 1fr; }
-  .sound-toggle-list { grid-template-columns: 1fr; }
   .sound-event-row { grid-template-columns: 1fr; }
   .profile-audio-layout { grid-template-columns: 1fr; gap: 12px; }
   .profile-audio-nav { display: flex; gap: 4px; padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--line); }
