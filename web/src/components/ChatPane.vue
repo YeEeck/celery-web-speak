@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { ArrowDown, ChevronUp, Hash, Menu, Send, Trash2, Users } from '@lucide/vue'
 import UserAvatar from './UserAvatar.vue'
@@ -14,13 +14,15 @@ const sending = ref(false)
 const list = ref<HTMLElement | null>(null)
 const composer = ref<HTMLTextAreaElement | null>(null)
 const atBottom = ref(true)
-const unreadMessages = ref(0)
+let markReadTimer: number | undefined
+let restoringChannel = false
+let programmaticScroll = false
 
 const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>(computed(() => ({
   count: app.messages.length + 1,
   getScrollElement: () => list.value as HTMLDivElement | null,
   estimateSize: (index: number) => index === 0 ? (app.hasEarlierMessages ? 46 : 205) : 64,
-  getItemKey: (index: number) => index === 0 ? 'history-status' : (app.messages[index - 1]?.id ?? index),
+  getItemKey: (index: number) => index === 0 ? `history-${app.activeTextChannelId}` : (app.messages[index - 1]?.id ?? index),
   overscan: 10,
 })))
 const visibleRows = computed(() => virtualizer.value.getVirtualItems().map((virtualRow) => ({
@@ -29,20 +31,47 @@ const visibleRows = computed(() => virtualizer.value.getVirtualItems().map((virt
 })))
 const totalSize = computed(() => virtualizer.value.getTotalSize())
 
-onMounted(() => nextTick(scrollToLatest))
-watch(() => app.messages.at(-1)?.id, (messageID, previousID) => {
-  if (messageID === undefined || previousID === undefined || messageID <= previousID) return
-  const added = app.messages.filter((message) => message.id > previousID).length
-  if (atBottom.value) {
-    void nextTick(scrollToLatest)
-  } else {
-    unreadMessages.value += added
+watch(() => app.activeTextChannelId, async (channelId, previousChannelId) => {
+  if (typeof previousChannelId === 'number' && list.value) app.setChannelScroll(previousChannelId, list.value.scrollTop, atBottom.value)
+  content.value = channelId === null ? '' : app.getChannelDraft(channelId)
+  resizeComposer()
+  if (channelId === null) return
+  restoringChannel = true
+  try {
+    await app.loadChannelMessages(channelId)
+    await restoreChannelPosition(channelId)
+  } finally {
+    restoringChannel = false
+    handleScroll()
   }
+}, { immediate: true })
+
+watch(content, (value) => {
+  if (app.activeTextChannelId !== null) app.setChannelDraft(app.activeTextChannelId, value)
+})
+
+watch(() => [app.activeTextChannelId, app.messages.at(-1)?.id] as const, async ([channelId, messageID], previous) => {
+  if (channelId === null || messageID === undefined) return
+  const [previousChannelId, previousID] = previous ?? [null, undefined]
+  if (channelId !== previousChannelId || previousID === undefined) {
+    await restoreChannelPosition(channelId)
+    return
+  }
+  if (messageID <= previousID) return
+  if (atBottom.value) {
+    await nextTick()
+    await scrollToLatestStable()
+  }
+})
+
+onBeforeUnmount(() => {
+  if (markReadTimer) window.clearTimeout(markReadTimer)
+  if (app.activeTextChannelId !== null && list.value) app.setChannelScroll(app.activeTextChannelId, list.value.scrollTop, atBottom.value)
 })
 
 async function send() {
   const value = content.value.trim()
-  if (!value || sending.value || app.user?.textMuted) return
+  if (!value || sending.value || app.user?.textMuted || !app.activeTextChannel) return
   sending.value = true
   try {
     await app.sendMessage(value)
@@ -61,13 +90,16 @@ function keydown(event: KeyboardEvent) {
 }
 
 function resizeComposer() {
-  if (!composer.value) return
-  composer.value.style.height = '0'
-  composer.value.style.height = `${Math.min(composer.value.scrollHeight, 144)}px`
+  void nextTick(() => {
+    if (!composer.value) return
+    composer.value.style.height = '0'
+    composer.value.style.height = `${Math.min(composer.value.scrollHeight, 144)}px`
+  })
 }
 
 async function removeMessage(id: number) {
-  await request<void>(`/api/messages/${id}`, { method: 'DELETE' })
+  if (app.activeTextChannelId === null) return
+  await request<void>(`/api/channels/${app.activeTextChannelId}/messages/${id}`, { method: 'DELETE' })
 }
 
 async function loadEarlierMessages() {
@@ -88,20 +120,55 @@ async function loadEarlierMessages() {
 }
 
 function handleScroll() {
-  if (!list.value) return
+  if (restoringChannel || programmaticScroll || !list.value || app.activeTextChannelId === null) return
   const distance = list.value.scrollHeight - list.value.scrollTop - list.value.clientHeight
   atBottom.value = distance < 80
-  if (atBottom.value) unreadMessages.value = 0
+  app.setChannelScroll(app.activeTextChannelId, list.value.scrollTop, atBottom.value)
+  if (atBottom.value) scheduleMarkRead()
+}
+
+function scheduleMarkRead() {
+  if (!app.activeUnreadCount) return
+  if (markReadTimer) window.clearTimeout(markReadTimer)
+  markReadTimer = window.setTimeout(() => {
+    if (atBottom.value) void app.markActiveChannelRead()
+  }, 200)
 }
 
 function scrollToLatest() {
+  void scrollToLatestStable()
+}
+
+async function scrollToLatestStable() {
   if (!list.value) return
-  virtualizer.value.scrollToIndex(app.messages.length, { align: 'end' })
-  requestAnimationFrame(() => {
-    if (!list.value) return
-    list.value.scrollTop = list.value.scrollHeight
+  const channelId = app.activeTextChannelId
+  programmaticScroll = true
+  try {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (!list.value || channelId !== app.activeTextChannelId) return
+      list.value.scrollTop = list.value.scrollHeight
+      await animationFrame()
+    }
+  } finally {
+    programmaticScroll = false
     handleScroll()
-  })
+  }
+}
+
+async function restoreChannelPosition(channelId: number) {
+  await nextTick()
+  if (channelId !== app.activeTextChannelId || !list.value) return
+  const saved = app.getChannelScroll(channelId)
+  if (saved === null || saved.atBottom) {
+    virtualizer.value.measure()
+    await scrollToLatestStable()
+  } else {
+    virtualizer.value.measure()
+    await animationFrame()
+    if (!list.value || channelId !== app.activeTextChannelId) return
+    list.value.scrollTop = saved.top
+    handleScroll()
+  }
 }
 
 function measureElement(element: Element | ComponentPublicInstance | null) {
@@ -135,7 +202,7 @@ function roleLabel(role: string) {
     <header class="chat-header">
       <button class="icon-button mobile-only" title="频道" @click="$emit('channels')"><Menu :size="20" /></button>
       <Hash :size="21" class="muted-icon" />
-      <h1 class="channel-title">文字聊天</h1>
+      <h1 class="channel-title">{{ app.activeTextChannel?.name ?? '文字频道' }}</h1>
       <span class="header-divider" />
       <small :class="['socket-state', app.socketStatus]">{{ app.socketStatus === 'online' ? '实时连接正常' : app.socketStatus === 'connecting' ? '正在连接' : '连接已断开' }}</small>
       <button
@@ -167,8 +234,8 @@ function roleLabel(role: string) {
               ><ChevronUp :size="15" />{{ app.loadingEarlierMessages ? '加载中' : '加载更早消息' }}</button>
               <div v-else class="channel-intro">
                 <span class="intro-icon"><Hash :size="28" /></span>
-                <strong class="intro-title">文字聊天</strong>
-                <p>这是 Celery Web Speak 频道的开始。</p>
+                <strong class="intro-title">{{ app.activeTextChannel?.name }}</strong>
+                <p>这是 #{{ app.activeTextChannel?.name }} 的开始。</p>
               </div>
             </template>
             <article v-else-if="row.message" class="message-row">
@@ -187,7 +254,7 @@ function roleLabel(role: string) {
         </div>
       </div>
       <button v-if="!atBottom" class="jump-to-latest" @click="scrollToLatest">
-        <ArrowDown :size="15" />{{ unreadMessages ? `${unreadMessages} 条新消息` : '回到最新消息' }}
+        <ArrowDown :size="15" />{{ app.activeUnreadCount ? `${app.activeUnreadCount} 条新消息` : '回到最新消息' }}
       </button>
     </div>
 
@@ -196,15 +263,15 @@ function roleLabel(role: string) {
         <textarea
           ref="composer"
           v-model="content"
-          :disabled="app.user?.textMuted"
-          :placeholder="app.user?.textMuted ? '你已被文字禁言' : '发送消息到 #文字聊天'"
+          :disabled="app.user?.textMuted || !app.activeTextChannel"
+          :placeholder="app.user?.textMuted ? '你已被文字禁言' : `发送消息到 #${app.activeTextChannel?.name ?? '文字频道'}`"
           maxlength="2000"
           rows="1"
           @input="resizeComposer"
           @keydown="keydown"
         />
         <span class="character-count" :class="{ near: content.length > 1800 }">{{ content.length }}/2000</span>
-        <button class="send-button" :disabled="!content.trim() || sending || app.user?.textMuted" title="发送消息" @click="send"><Send :size="19" /></button>
+        <button class="send-button" :disabled="!content.trim() || sending || app.user?.textMuted || !app.activeTextChannel" title="发送消息" @click="send"><Send :size="19" /></button>
       </div>
     </footer>
   </section>

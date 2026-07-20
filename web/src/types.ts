@@ -1,4 +1,5 @@
 export type Role = 'member' | 'channel_admin' | 'server_admin'
+export type ChannelType = 'text' | 'voice'
 
 export interface User {
   id: number
@@ -13,13 +14,42 @@ export interface User {
 }
 
 export interface Message {
-  id: number
+	id: number
+	channelId: number
   userId: number
   username: string
   displayName: string
   role: Role
   content: string
   createdAt: string
+}
+
+export interface Channel {
+	id: number
+	type: ChannelType
+	name: string
+	audioBitrateKbps?: number
+	messageRetention?: number
+	createdAt: string
+	updatedAt: string
+}
+
+export interface ChannelReadState {
+	channelId: number
+	lastReadMessageId: number
+	unreadCount: number
+}
+
+export interface VoiceRoomParticipant {
+	userId: number
+	identity: string
+	name: string
+	joinedAt: number
+}
+
+export interface VoiceRoom {
+	channelId: number
+	participants: VoiceRoomParticipant[]
 }
 
 export interface ChannelSettings {
@@ -44,11 +74,15 @@ export interface BootstrapData {
   settings: ChannelSettings
   messages: Message[]
   messagesHasMore: boolean
-  onlineIds: number[]
+	onlineIds: number[]
+	channels: Channel[]
+	channelReadStates: ChannelReadState[]
+	voiceRooms: VoiceRoom[]
 }
 
 export interface VoiceCredentials {
   url: string
   token: string
-  roomName: string
+	roomName: string
+	channelId: number
 }

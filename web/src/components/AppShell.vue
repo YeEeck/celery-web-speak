@@ -23,8 +23,11 @@ let mobileQuery: MediaQueryList | null = null
 
 const membersVisible = computed(() => wideMemberLayout.value ? desktopMembersVisible.value : membersOpen.value)
 
-watch(() => app.settings.audioBitrateKbps, (value, oldValue) => {
+watch(() => app.voiceChannels.find((channel) => channel.id === voice.connectedChannelId)?.audioBitrateKbps, (value, oldValue) => {
   if (oldValue !== undefined && value !== oldValue && voice.joined) void voice.applyBitrateChange()
+})
+watch(() => app.voiceChannels.some((channel) => channel.id === voice.connectedChannelId), (exists) => {
+  if (!exists && voice.joined) void voice.leave()
 })
 watch(() => app.user?.voiceMuted, (value) => {
   if (value) void voice.syncServerMute(true)
@@ -61,6 +64,11 @@ function closeTemporaryDrawers() {
   channelsOpen.value = false
   membersOpen.value = false
 }
+
+function selectTextChannel(channelId: number) {
+  void app.selectTextChannel(channelId)
+  channelsOpen.value = false
+}
 </script>
 
 <template>
@@ -73,20 +81,29 @@ function closeTemporaryDrawers() {
 
     <aside :class="['channel-sidebar', { 'mobile-drawer-open': channelsOpen }]">
       <header class="server-title">
-        <span><strong>Celery Web Speak</strong><small>单频道服务器</small></span>
+        <span><strong>Celery Web Speak</strong><small>公开频道服务器</small></span>
         <button class="icon-button mobile-only" title="关闭" @click="channelsOpen = false"><X :size="19" /></button>
       </header>
       <div class="channel-scroll">
         <div class="category-heading"><span>语音频道</span></div>
-        <VoiceChannel />
+        <VoiceChannel v-for="channel in app.voiceChannels" :key="channel.id" :channel="channel" />
         <div class="category-heading"><span>文字频道</span></div>
-        <button class="channel-row active"><Hash :size="18" /><span class="channel-label"><strong>文字聊天</strong><small>最近 {{ app.settings.messageRetention }} 条</small></span></button>
+        <button
+          v-for="channel in app.textChannels"
+          :key="channel.id"
+          :class="['channel-row', { active: app.activeTextChannelId === channel.id }]"
+          @click="selectTextChannel(channel.id)"
+        >
+          <Hash :size="18" />
+          <span class="channel-label"><strong>{{ channel.name }}</strong><small>最近 {{ channel.messageRetention }} 条</small></span>
+          <span v-if="app.channelReadStates[channel.id]?.unreadCount" class="channel-unread">{{ app.channelReadStates[channel.id].unreadCount }}</span>
+        </button>
         <div v-if="app.isAdmin" class="admin-entry">
           <button class="channel-row" @click="adminOpen = true; channelsOpen = false"><ServerCog :size="18" /><span class="channel-label"><strong>管理控制台</strong><small>{{ app.isServerAdmin ? '服务器与频道' : '频道管理' }}</small></span></button>
         </div>
       </div>
       <div v-if="voice.joined" class="voice-connection-panel">
-        <span class="connection-indicator" /><span><strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong><small>语音频道 / {{ app.settings.audioBitrateKbps }} kbps</small></span>
+        <span class="connection-indicator" /><span><strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong><small>{{ app.voiceChannels.find((channel) => channel.id === voice.connectedChannelId)?.name }} / {{ app.voiceChannels.find((channel) => channel.id === voice.connectedChannelId)?.audioBitrateKbps }} kbps</small></span>
         <button class="icon-button" title="断开语音" @click="voice.leave()"><X :size="17" /></button>
       </div>
       <UserControls @settings="profileOpen = true" />

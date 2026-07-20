@@ -142,6 +142,7 @@ func (s *Server) handleMarkChannelRead(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.Broadcast("channel_read", map[string]any{"userId": currentUser(r).ID, "readState": state})
 	writeJSON(w, http.StatusOK, map[string]any{"readState": state})
 }
 

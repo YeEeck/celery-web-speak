@@ -5,16 +5,22 @@ import { ConnectionQuality } from 'livekit-client'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
+import type { Channel } from '../types'
 
+const props = defineProps<{ channel: Channel }>()
 const app = useAppStore()
 const voice = useVoiceStore()
 const expandedVolume = ref<number | null>(null)
 
+const connected = computed(() => voice.joined && voice.connectedChannelId === props.channel.id)
+const roomState = computed(() => app.voiceRooms.find((room) => room.channelId === props.channel.id))
+const previewParticipants = computed(() => roomState.value?.participants ?? [])
 const statusLabel = computed(() => {
-  if (voice.status === 'connecting') return '正在连接'
-  if (voice.status === 'reconnecting') return '正在重连'
-  if (voice.status === 'connected') return `${voice.participants.length} 人已连接`
-  if (voice.status === 'error') return '连接失败'
+  if (voice.connectedChannelId === props.channel.id && voice.status === 'connecting') return '正在连接'
+  if (voice.connectedChannelId === props.channel.id && voice.status === 'reconnecting') return '正在重连'
+  const count = connected.value ? voice.participants.length : previewParticipants.value.length
+  if (count > 0) return `${count} 人已连接`
+  if (voice.connectedChannelId === props.channel.id && voice.status === 'error') return '连接失败'
   return '点击加入'
 })
 
@@ -25,23 +31,27 @@ function qualityBars(quality: ConnectionQuality) {
   return 0
 }
 
-function userFor(participant: VoiceParticipant) {
+function userFor(participant: VoiceParticipant | { userId: number }) {
   return app.users.find((user) => user.id === participant.userId)
 }
 </script>
 
 <template>
   <section class="voice-channel-block">
-    <button class="channel-row active" :disabled="voice.status === 'connecting'" @click="voice.join()">
+    <button
+      :class="['channel-row', { active: connected }]"
+      :disabled="voice.status === 'connecting'"
+      @click="voice.join(channel.id)"
+    >
       <Volume2 :size="18" />
       <span class="channel-label">
-        <strong>语音频道</strong>
+        <strong>{{ channel.name }}</strong>
         <small>{{ statusLabel }}</small>
       </span>
-      <ChevronRight v-if="!voice.joined" :size="16" />
+      <ChevronRight v-if="!connected" :size="16" />
     </button>
 
-    <div v-if="voice.joined" class="voice-members">
+    <div v-if="connected" class="voice-members">
       <div v-for="participant in voice.participants" :key="participant.identity" class="voice-member">
         <button class="voice-member-main" @click="expandedVolume = expandedVolume === participant.userId ? null : participant.userId">
           <UserAvatar :name="participant.name" :size="30" />
@@ -77,7 +87,15 @@ function userFor(participant: VoiceParticipant) {
       </div>
       <p v-if="voice.status === 'reconnecting'" class="voice-notice"><Signal :size="14" /> 正在恢复语音连接</p>
     </div>
-    <p v-if="voice.deafenedSyncError" class="voice-error">{{ voice.deafenedSyncError }}</p>
-    <p v-if="voice.errorMessage" class="voice-error">{{ voice.errorMessage }}</p>
+    <div v-else-if="previewParticipants.length" class="voice-members voice-members-preview">
+      <div v-for="participant in previewParticipants" :key="participant.identity" class="voice-member">
+        <div class="voice-member-main">
+          <UserAvatar :name="userFor(participant)?.displayName ?? participant.name" :size="30" />
+          <span class="voice-member-name">{{ userFor(participant)?.displayName ?? participant.name }}</span>
+        </div>
+      </div>
+    </div>
+    <p v-if="connected && voice.deafenedSyncError" class="voice-error">{{ voice.deafenedSyncError }}</p>
+    <p v-if="voice.connectedChannelId === channel.id && voice.errorMessage" class="voice-error">{{ voice.errorMessage }}</p>
   </section>
 </template>

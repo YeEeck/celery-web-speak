@@ -1,16 +1,21 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
-import { Ban, Clipboard, Gauge, KeyRound, Save, ShieldCheck, Ticket, Trash2, UserCog, UserPlus, X } from '@lucide/vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { Ban, Clipboard, Gauge, KeyRound, Plus, Save, ShieldCheck, Ticket, Trash2, UserCog, UserPlus, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
-import type { Invite, Role, User } from '../types'
+import type { ChannelType, Invite, Role, User } from '../types'
 import UserAvatar from './UserAvatar.vue'
 
 defineEmits<{ close: [] }>()
 const app = useAppStore()
 const tab = ref<'channel' | 'users' | 'invites'>('channel')
-const bitrate = ref(app.settings.audioBitrateKbps)
-const retention = ref(app.settings.messageRetention)
+const selectedChannelId = ref<number | null>(app.channels[0]?.id ?? null)
+const selectedChannel = computed(() => app.channels.find((channel) => channel.id === selectedChannelId.value) ?? null)
+const channelName = ref(selectedChannel.value?.name ?? '')
+const bitrate = ref(selectedChannel.value?.audioBitrateKbps ?? 64)
+const retention = ref(selectedChannel.value?.messageRetention ?? 500)
+const newChannelType = ref<ChannelType>('text')
+const newChannelName = ref('')
 const selectedUserId = ref<number | null>(null)
 const kickMinutes = ref(30)
 const resetPassword = ref('')
@@ -36,6 +41,12 @@ const deleteConfirmationInput = ref<HTMLInputElement | null>(null)
 
 const selectedUser = computed(() => app.users.find((user) => user.id === selectedUserId.value) ?? null)
 const manageableUsers = computed(() => app.users.filter((user) => user.id !== app.user!.id))
+
+watch(selectedChannel, (channel) => {
+  channelName.value = channel?.name ?? ''
+  bitrate.value = channel?.audioBitrateKbps ?? 64
+  retention.value = channel?.messageRetention ?? 500
+})
 
 onMounted(async () => {
   selectedUserId.value = manageableUsers.value[0]?.id ?? null
@@ -63,12 +74,42 @@ async function run(action: () => Promise<void>, success: string) {
 }
 
 async function saveSettings() {
+  const channel = selectedChannel.value
+  if (!channel) return
   await run(async () => {
-    await request('/api/settings', {
+    await request(`/api/channels/${channel.id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ audioBitrateKbps: bitrate.value, messageRetention: retention.value }),
+      body: JSON.stringify({
+        name: channelName.value,
+        audioBitrateKbps: channel.type === 'voice' ? bitrate.value : 0,
+        messageRetention: channel.type === 'text' ? retention.value : 0,
+      }),
     })
+    await app.bootstrap()
   }, '频道设置已更新')
+}
+
+async function createChannel() {
+  if (!newChannelName.value.trim()) return
+  await run(async () => {
+    const payload = await request<{ channel: { id: number } }>('/api/channels', {
+      method: 'POST',
+      body: JSON.stringify({ type: newChannelType.value, name: newChannelName.value }),
+    })
+    newChannelName.value = ''
+    await app.bootstrap()
+    selectedChannelId.value = payload.channel.id
+  }, '频道已创建')
+}
+
+async function deleteChannel() {
+  const channel = selectedChannel.value
+  if (!channel || !window.confirm(`永久删除${channel.type === 'text' ? '文字' : '语音'}频道“${channel.name}”？此操作无法恢复。`)) return
+  await run(async () => {
+    await request(`/api/channels/${channel.id}`, { method: 'DELETE' })
+    await app.bootstrap()
+    selectedChannelId.value = app.channels[0]?.id ?? null
+  }, '频道已永久删除')
 }
 
 function canModerate(user: User) {
@@ -287,15 +328,27 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
 
       <div ref="adminContent" :class="['admin-content', { 'users-content': tab === 'users' }]">
         <section v-if="tab === 'channel'" class="settings-section channel-settings">
-          <h3>语音质量</h3>
-          <label class="range-setting">
-            <span>Opus 发送码率 <strong>{{ bitrate }} kbps</strong></span>
-            <input v-model.number="bitrate" type="range" min="32" max="128" step="8" />
-            <span class="range-labels"><small>32 kbps</small><small>128 kbps</small></span>
-          </label>
-          <h3>文字消息</h3>
-          <label><span>保留消息数量</span><input v-model.number="retention" type="number" min="100" max="5000" step="100" /></label>
-          <button class="primary-button" :disabled="busy" @click="saveSettings"><Save :size="17" />保存频道设置</button>
+          <h3>创建频道</h3>
+          <div class="channel-create-row">
+            <select v-model="newChannelType" aria-label="频道类型"><option value="text">文字频道</option><option value="voice">语音频道</option></select>
+            <input v-model.trim="newChannelName" maxlength="32" placeholder="频道名称" aria-label="新频道名称" @keydown.enter="createChannel" />
+            <button class="primary-button" :disabled="busy || !newChannelName" @click="createChannel"><Plus :size="17" />创建</button>
+          </div>
+          <h3>频道设置</h3>
+          <label><span>选择频道</span><select v-model.number="selectedChannelId"><option v-for="channel in app.channels" :key="channel.id" :value="channel.id">{{ channel.type === 'text' ? '#' : '语音' }} {{ channel.name }}</option></select></label>
+          <template v-if="selectedChannel">
+            <label><span>频道名称</span><input v-model.trim="channelName" maxlength="32" /></label>
+            <label v-if="selectedChannel.type === 'voice'" class="range-setting">
+              <span>Opus 发送码率 <strong>{{ bitrate }} kbps</strong></span>
+              <input v-model.number="bitrate" type="range" min="32" max="128" step="8" />
+              <span class="range-labels"><small>32 kbps</small><small>128 kbps</small></span>
+            </label>
+            <label v-else><span>保留消息数量</span><input v-model.number="retention" type="number" min="100" max="5000" step="100" /></label>
+            <div class="channel-admin-actions">
+              <button class="primary-button" :disabled="busy || !channelName" @click="saveSettings"><Save :size="17" />保存频道设置</button>
+              <button class="secondary-button danger-text" :disabled="busy" @click="deleteChannel"><Trash2 :size="16" />永久删除</button>
+            </div>
+          </template>
         </section>
 
         <section v-else-if="tab === 'users'" class="user-admin-layout">
