@@ -104,7 +104,9 @@ select { appearance: auto; }
 .voice-member-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .voice-member-name.speaking { color: #52d987; }
 .voice-member-name small { color: var(--faint); font-size: 10px; }
-.quality-bars { width: 16px; height: 14px; display: flex; gap: 2px; align-items: flex-end; }
+.voice-status-icons { display: inline-flex; flex: 0 0 auto; gap: 4px; }
+.voice-status-icon { display: inline-flex; }
+.quality-bars { width: 16px; height: 14px; display: flex; flex: 0 0 16px; gap: 2px; align-items: flex-end; }
 .quality-bars i { width: 3px; background: #5b5d64; border-radius: 1px; }
 .quality-bars i:nth-child(1) { height: 5px; }.quality-bars i:nth-child(2) { height: 9px; }.quality-bars i:nth-child(3) { height: 13px; }
 .quality-bars i.lit { background: var(--green); }

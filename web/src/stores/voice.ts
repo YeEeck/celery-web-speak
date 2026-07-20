@@ -21,6 +21,7 @@ const DEFAULT_VOLUME = 1
 const MAX_VOLUME = 3
 const MICROPHONE_GAIN_KEY = 'cws.microphoneGain'
 const OUTPUT_VOLUME_KEY = 'cws.outputVolume'
+const DEAFENED_ATTRIBUTE = 'deafened'
 
 export interface VoiceParticipant {
   identity: string
@@ -29,6 +30,7 @@ export interface VoiceParticipant {
   isLocal: boolean
   isSpeaking: boolean
   microphoneEnabled: boolean
+  deafened: boolean
   quality: ConnectionQuality
   volume: number
   role: Role
@@ -40,6 +42,8 @@ export const useVoiceStore = defineStore('voice', () => {
   const errorMessage = ref('')
   const muted = ref(false)
   const deafened = ref(false)
+  const deafenChanging = ref(false)
+  const deafenedSyncError = ref('')
   const participantStates = ref<VoiceParticipant[]>([])
   const inputDevices = ref<MediaDeviceInfo[]>([])
   const outputDevices = ref<MediaDeviceInfo[]>([])
@@ -50,6 +54,10 @@ export const useVoiceStore = defineStore('voice', () => {
   const microphoneGainProcessor = new MicrophoneGainProcessor(microphoneGain.value)
   let room: Room | null = null
   let participantSoundsReady = false
+  let microphoneBeforeDeafen = false
+  let pendingDeafenedSync: boolean | null = null
+  let deafenedSyncSession: number | null = null
+  let voiceSession = 0
 
   const joined = computed(() => status.value !== 'idle' && status.value !== 'error')
   const participants = computed(() => {
@@ -59,9 +67,13 @@ export const useVoiceStore = defineStore('voice', () => {
 
   async function join() {
     if (room || status.value === 'connecting') return
+    voiceSession += 1
     const app = useAppStore()
     status.value = 'connecting'
     errorMessage.value = ''
+    deafenedSyncError.value = ''
+    pendingDeafenedSync = null
+    microphoneBeforeDeafen = false
     try {
       const credentials = await request<VoiceCredentials>('/api/voice/token', { method: 'POST' })
       const nextRoom = markRaw(new Room({
@@ -106,6 +118,7 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   async function leave() {
+    voiceSession += 1
     participantSoundsReady = false
     if (room) {
       room.disconnect()
@@ -116,11 +129,14 @@ export const useVoiceStore = defineStore('voice', () => {
     status.value = 'idle'
     muted.value = false
     deafened.value = false
+    microphoneBeforeDeafen = false
+    pendingDeafenedSync = null
+    deafenedSyncError.value = ''
     useSoundStore().setSuppressed(false)
   }
 
   async function toggleMute() {
-    if (!room) return
+    if (!room || deafened.value) return
     const app = useAppStore()
     if (app.user?.voiceMuted) return
     const enabled = muted.value
@@ -130,10 +146,48 @@ export const useVoiceStore = defineStore('voice', () => {
     syncParticipants()
   }
 
-  function toggleDeafen() {
-    deafened.value = !deafened.value
-    useSoundStore().setSuppressed(deafened.value)
-    applyAllVolumes()
+  async function toggleDeafen() {
+    if (!room || deafenChanging.value) return
+    const target = room
+    const session = voiceSession
+    const app = useAppStore()
+    const nextDeafened = !deafened.value
+    deafenChanging.value = true
+    errorMessage.value = ''
+    try {
+      if (nextDeafened) {
+        microphoneBeforeDeafen = !muted.value && !app.user?.voiceMuted
+        deafened.value = true
+        useSoundStore().setSuppressed(true)
+        applyAllVolumes()
+        if (microphoneBeforeDeafen) {
+          await target.localParticipant.setMicrophoneEnabled(false)
+          if (session !== voiceSession || room !== target) return
+          muted.value = true
+        }
+      } else {
+        deafened.value = false
+        useSoundStore().setSuppressed(false)
+        applyAllVolumes()
+        const shouldRestoreMicrophone = microphoneBeforeDeafen && !app.user?.voiceMuted
+        microphoneBeforeDeafen = false
+        if (shouldRestoreMicrophone) {
+          await target.localParticipant.setMicrophoneEnabled(true, undefined, publishOptions())
+          if (session !== voiceSession || room !== target) return
+          await attachMicrophoneGain(target)
+          if (session !== voiceSession || room !== target) return
+          muted.value = false
+        }
+      }
+      syncParticipants()
+      queueDeafenedSync(nextDeafened)
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '无法切换耳机静音状态'
+      syncParticipants()
+      queueDeafenedSync(deafened.value)
+    } finally {
+      deafenChanging.value = false
+    }
   }
 
   async function switchInput(deviceId: string) {
@@ -185,6 +239,7 @@ export const useVoiceStore = defineStore('voice', () => {
   async function syncServerMute(serverMuted: boolean) {
     if (!room || !serverMuted) return
     await room.localParticipant.setMicrophoneEnabled(false)
+    microphoneBeforeDeafen = false
     muted.value = true
     syncParticipants()
   }
@@ -210,6 +265,7 @@ export const useVoiceStore = defineStore('voice', () => {
       .on(RoomEvent.ActiveSpeakersChanged, syncParticipants)
       .on(RoomEvent.TrackMuted, syncParticipants)
       .on(RoomEvent.TrackUnmuted, syncParticipants)
+      .on(RoomEvent.ParticipantAttributesChanged, syncParticipants)
       .on(RoomEvent.ConnectionQualityChanged, syncParticipants)
       .on(RoomEvent.Reconnecting, () => {
         participantSoundsReady = false
@@ -219,14 +275,22 @@ export const useVoiceStore = defineStore('voice', () => {
         if (room !== target) return
         status.value = 'connected'
         syncParticipants()
+        queueDeafenedSync(deafened.value)
         participantSoundsReady = true
       })
       .on(RoomEvent.Disconnected, () => {
         if (room === target) {
+          voiceSession += 1
           participantSoundsReady = false
           room = null
           status.value = 'idle'
           participantStates.value = []
+          muted.value = false
+          deafened.value = false
+          microphoneBeforeDeafen = false
+          pendingDeafenedSync = null
+          deafenedSyncError.value = ''
+          useSoundStore().setSuppressed(false)
         }
       })
   }
@@ -274,10 +338,48 @@ export const useVoiceStore = defineStore('voice', () => {
       isLocal,
       isSpeaking: participant.isSpeaking,
       microphoneEnabled: participant.isMicrophoneEnabled,
+      deafened: isLocal ? deafened.value : participant.attributes[DEAFENED_ATTRIBUTE] === 'true',
       quality: participant.connectionQuality,
       volume: getSavedVolume(userId),
       role: participantRole(participant),
       joinedAt: existing ? existing.joinedAt : participantJoinedAt(participant),
+    }
+  }
+
+  function queueDeafenedSync(value: boolean) {
+    if (!room) return
+    pendingDeafenedSync = value
+    if (deafenedSyncSession !== voiceSession) void flushDeafenedSync()
+  }
+
+  function retryDeafenedSync() {
+    if (deafenedSyncError.value) queueDeafenedSync(deafened.value)
+  }
+
+  async function flushDeafenedSync() {
+    const session = voiceSession
+    if (deafenedSyncSession === session) return
+    deafenedSyncSession = session
+    try {
+      while (room && session === voiceSession && pendingDeafenedSync !== null) {
+        const value = pendingDeafenedSync
+        pendingDeafenedSync = null
+        try {
+          await request<void>('/api/voice/state', {
+            method: 'PATCH',
+            body: JSON.stringify({ deafened: value }),
+          })
+          if (session === voiceSession) deafenedSyncError.value = ''
+        } catch {
+          if (session === voiceSession) {
+            pendingDeafenedSync = deafened.value
+            deafenedSyncError.value = '耳机静音状态同步失败，将在连接恢复后重试'
+          }
+          break
+        }
+      }
+    } finally {
+      if (deafenedSyncSession === session) deafenedSyncSession = null
     }
   }
 
@@ -325,8 +427,10 @@ export const useVoiceStore = defineStore('voice', () => {
   return {
     status,
     errorMessage,
+    deafenedSyncError,
     muted,
     deafened,
+    deafenChanging,
     participants,
     inputDevices,
     outputDevices,
@@ -346,6 +450,7 @@ export const useVoiceStore = defineStore('voice', () => {
     setOutputVolume,
     applyBitrateChange,
     syncServerMute,
+    retryDeafenedSync,
     refreshDevices,
   }
 })
