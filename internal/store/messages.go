@@ -13,7 +13,11 @@ func (s *Store) ListMessages(ctx context.Context, beforeID int64, limit int) ([]
 		limit = 50
 	}
 	query := `
-SELECT m.id, m.user_id, u.username, u.display_name, u.role, m.content, m.created_at
+SELECT m.id, m.user_id,
+       CASE WHEN u.deleted_at IS NULL THEN u.username ELSE '' END,
+       CASE WHEN u.deleted_at IS NULL THEN u.display_name ELSE '已删除用户' END,
+       CASE WHEN u.deleted_at IS NULL THEN u.role ELSE 'member' END,
+       m.content, m.created_at
 FROM messages m JOIN users u ON u.id = m.user_id`
 	args := []any{}
 	if beforeID > 0 {

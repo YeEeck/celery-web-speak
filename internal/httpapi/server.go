@@ -78,6 +78,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/admin/users/{id}/kick", s.requireAdmin(http.HandlerFunc(s.handleKick)))
 	mux.Handle("DELETE /api/admin/users/{id}/temporary-ban", s.requireAdmin(http.HandlerFunc(s.handleClearTemporaryBan)))
 	mux.Handle("PATCH /api/admin/users/{id}/ban", s.requireServerAdmin(http.HandlerFunc(s.handlePermanentBan)))
+	mux.Handle("DELETE /api/admin/users/{id}", s.requireServerAdmin(http.HandlerFunc(s.handleDeleteUser)))
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "接口不存在")
 	}))

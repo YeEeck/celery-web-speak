@@ -262,6 +262,27 @@ func (s *Server) handlePermanentBan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
 }
 
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	targetID, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Username string `json:"username"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.store.DeleteUser(r.Context(), currentUser(r).ID, targetID, input.Username); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	s.hub.DisconnectUser(targetID)
+	s.removeFromVoice(r, targetID)
+	s.hub.Broadcast("user_deleted", map[string]int64{"id": targetID})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) authorizeModeration(w http.ResponseWriter, r *http.Request, targetID int64) (store.User, bool) {
 	actor := currentUser(r)
 	if actor.ID == targetID {

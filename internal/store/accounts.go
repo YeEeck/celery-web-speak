@@ -83,7 +83,7 @@ func (s *Store) UpdateProfile(ctx context.Context, userID int64, displayName, cu
 			return User{}, err
 		}
 		var existingHash string
-		if err := tx.QueryRowContext(ctx, "SELECT password_hash FROM users WHERE id = ?", userID).Scan(&existingHash); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT password_hash FROM users WHERE id = ? AND deleted_at IS NULL", userID).Scan(&existingHash); err != nil {
 			return User{}, err
 		}
 		if bcrypt.CompareHashAndPassword([]byte(existingHash), []byte(currentPassword)) != nil {
@@ -94,12 +94,12 @@ func (s *Store) UpdateProfile(ctx context.Context, userID int64, displayName, cu
 			return User{}, err
 		}
 		if _, err := tx.ExecContext(ctx, `
-UPDATE users SET display_name = ?, password_hash = ?, updated_at = ? WHERE id = ?`,
+UPDATE users SET display_name = ?, password_hash = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
 			displayName, string(newHash), formatTime(s.now()), userID); err != nil {
 			return User{}, err
 		}
 	} else if _, err := tx.ExecContext(ctx, `
-UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?`, displayName, formatTime(s.now()), userID); err != nil {
+UPDATE users SET display_name = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`, displayName, formatTime(s.now()), userID); err != nil {
 		return User{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -121,8 +121,12 @@ func (s *Store) ResetPassword(ctx context.Context, actorID, userID int64, passwo
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?", string(hash), formatTime(s.now()), userID); err != nil {
+	result, err := tx.ExecContext(ctx, "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL", string(hash), formatTime(s.now()), userID)
+	if err != nil {
 		return err
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ErrNotFound
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", userID); err != nil {
 		return err

@@ -24,6 +24,8 @@ var (
 	ErrInvalidInvite   = errors.New("invite is invalid or expired")
 	ErrBanned          = errors.New("account is banned")
 	ErrLastServerAdmin = errors.New("at least one server admin is required")
+	ErrSelfAction      = errors.New("cannot perform this action on yourself")
+	ErrUsernameConfirm = errors.New("username confirmation does not match")
 )
 
 type Store struct {
@@ -77,6 +79,7 @@ CREATE TABLE IF NOT EXISTS users (
   voice_muted INTEGER NOT NULL DEFAULT 0,
   text_muted INTEGER NOT NULL DEFAULT 0,
   permanently_banned INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -137,6 +140,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if err := s.ensureInviteCodeColumn(ctx); err != nil {
 		return fmt.Errorf("migrate invite codes: %w", err)
 	}
+	if err := s.ensureUserDeletedAtColumn(ctx); err != nil {
+		return fmt.Errorf("migrate deleted users: %w", err)
+	}
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO settings (id, audio_bitrate_kbps, message_retention, updated_at)
 VALUES (1, 64, 500, ?)
@@ -145,6 +151,34 @@ ON CONFLICT(id) DO NOTHING`, formatTime(s.now()))
 		return fmt.Errorf("initialize settings: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) ensureUserDeletedAtColumn(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info(users)")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return err
+		}
+		if name == "deleted_at" {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN deleted_at TEXT")
+	return err
 }
 
 func (s *Store) ensureInviteCodeColumn(ctx context.Context) error {
@@ -177,7 +211,7 @@ func (s *Store) ensureInviteCodeColumn(ctx context.Context) error {
 
 func (s *Store) EnsureBootstrapAdmin(ctx context.Context, username, password string) error {
 	var count int
-	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&count); err != nil {
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE deleted_at IS NULL").Scan(&count); err != nil {
 		return fmt.Errorf("count users: %w", err)
 	}
 	if count > 0 {
@@ -238,7 +272,7 @@ func (s *Store) Authenticate(ctx context.Context, username, password string) (Us
 	err := s.db.QueryRowContext(ctx, `
 SELECT id, username, display_name, password_hash, role, voice_muted, text_muted,
        permanently_banned, created_at
-FROM users WHERE username = ?`, strings.TrimSpace(username)).Scan(
+FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(username)).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &passwordHash, &user.Role,
 		&voiceMuted, &textMuted, &permanentlyBanned, &createdAt,
 	)
@@ -270,7 +304,7 @@ func (s *Store) UserByID(ctx context.Context, id int64) (User, error) {
 	var voiceMuted, textMuted, permanentlyBanned int
 	err := s.db.QueryRowContext(ctx, `
 SELECT id, username, display_name, role, voice_muted, text_muted, permanently_banned, created_at
-FROM users WHERE id = ?`, id).Scan(
+FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &user.Role, &voiceMuted,
 		&textMuted, &permanentlyBanned, &createdAt,
 	)

@@ -13,6 +13,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 SELECT u.id, u.username, u.display_name, u.role, u.voice_muted, u.text_muted,
        u.permanently_banned, u.created_at, b.expires_at
 FROM users u LEFT JOIN temporary_bans b ON b.user_id = u.id
+WHERE u.deleted_at IS NULL
 ORDER BY CASE u.role WHEN 'server_admin' THEN 0 WHEN 'channel_admin' THEN 1 ELSE 2 END,
          u.display_name COLLATE NOCASE`)
 	if err != nil {
@@ -53,7 +54,7 @@ func (s *Store) SetMute(ctx context.Context, actorID, userID int64, voice, text 
 	}
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
-UPDATE users SET voice_muted = ?, text_muted = ?, updated_at = ? WHERE id = ?`,
+UPDATE users SET voice_muted = ?, text_muted = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
 		voice, text, formatTime(s.now()), userID)
 	if err != nil {
 		return err
@@ -78,21 +79,21 @@ func (s *Store) SetRole(ctx context.Context, actorID, userID int64, role Role) e
 	}
 	defer tx.Rollback()
 	var current Role
-	if err := tx.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ?", userID).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ? AND deleted_at IS NULL", userID).Scan(&current); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
 	}
 	if current == RoleServerAdmin && role != RoleServerAdmin {
 		var count int
-		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = 'server_admin'").Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = 'server_admin' AND deleted_at IS NULL").Scan(&count); err != nil {
 			return err
 		}
 		if count <= 1 {
 			return ErrLastServerAdmin
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE users SET role = ?, updated_at = ? WHERE id = ?", role, formatTime(s.now()), userID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE users SET role = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL", role, formatTime(s.now()), userID); err != nil {
 		return err
 	}
 	if err := insertAudit(ctx, tx, actorID, &userID, "set_role", string(role)); err != nil {
@@ -107,9 +108,13 @@ func (s *Store) SetPermanentBan(ctx context.Context, actorID, userID int64, bann
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `
-UPDATE users SET permanently_banned = ?, updated_at = ? WHERE id = ?`, banned, formatTime(s.now()), userID); err != nil {
+	result, err := tx.ExecContext(ctx, `
+UPDATE users SET permanently_banned = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`, banned, formatTime(s.now()), userID)
+	if err != nil {
 		return err
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ErrNotFound
 	}
 	if banned {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", userID); err != nil {
@@ -131,6 +136,9 @@ func (s *Store) SetTemporaryBan(ctx context.Context, actorID, userID int64, unti
 		return err
 	}
 	defer tx.Rollback()
+	if err := requireActiveUser(ctx, tx, userID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO temporary_bans (user_id, expires_at, reason, created_by, created_at)
 VALUES (?, ?, ?, ?, ?)
@@ -154,6 +162,9 @@ func (s *Store) ClearTemporaryBan(ctx context.Context, actorID, userID int64) er
 		return err
 	}
 	defer tx.Rollback()
+	if err := requireActiveUser(ctx, tx, userID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM temporary_bans WHERE user_id = ?", userID); err != nil {
 		return err
 	}
@@ -164,10 +175,90 @@ func (s *Store) ClearTemporaryBan(ctx context.Context, actorID, userID int64) er
 }
 
 func insertAudit(ctx context.Context, tx *sql.Tx, actorID int64, targetID *int64, action, details string) error {
+	return insertAuditAt(ctx, tx, actorID, targetID, action, details, time.Now().UTC())
+}
+
+func insertAuditAt(ctx context.Context, tx *sql.Tx, actorID int64, targetID *int64, action, details string, createdAt time.Time) error {
 	_, err := tx.ExecContext(ctx, `
 INSERT INTO audit_logs (actor_id, target_user_id, action, details, created_at) VALUES (?, ?, ?, ?, ?)`,
-		actorID, targetID, action, details, formatTime(time.Now().UTC()))
+		actorID, targetID, action, details, formatTime(createdAt))
 	return err
+}
+
+func requireActiveUser(ctx context.Context, tx *sql.Tx, userID int64) error {
+	var exists int
+	err := tx.QueryRowContext(ctx, "SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL", userID).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	return err
+}
+
+func (s *Store) DeleteUser(ctx context.Context, actorID, userID int64, confirmationUsername string) error {
+	if actorID == userID {
+		return ErrSelfAction
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	var actorRole Role
+	if err := tx.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ? AND deleted_at IS NULL", actorID).Scan(&actorRole); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	if actorRole != RoleServerAdmin {
+		return errors.New("server admin role required")
+	}
+
+	var username string
+	var role Role
+	if err := tx.QueryRowContext(ctx, "SELECT username, role FROM users WHERE id = ? AND deleted_at IS NULL", userID).Scan(&username, &role); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	if confirmationUsername != username {
+		return ErrUsernameConfirm
+	}
+	if role == RoleServerAdmin {
+		var count int
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = 'server_admin' AND deleted_at IS NULL").Scan(&count); err != nil {
+			return err
+		}
+		if count <= 1 {
+			return ErrLastServerAdmin
+		}
+	}
+
+	now := s.now()
+	deletedUsername := fmt.Sprintf("!deleted-user-%d", userID)
+	result, err := tx.ExecContext(ctx, `
+UPDATE users
+SET username = ?, display_name = '已删除用户', password_hash = '', role = 'member',
+    voice_muted = 0, text_muted = 0, permanently_banned = 0,
+    deleted_at = ?, updated_at = ?
+WHERE id = ? AND deleted_at IS NULL`, deletedUsername, formatTime(now), formatTime(now), userID)
+	if err != nil {
+		return err
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM temporary_bans WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	details := fmt.Sprintf("username=%q deleted_at=%s", username, formatTime(now))
+	if err := insertAuditAt(ctx, tx, actorID, &userID, "delete_user", details, now); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) CreateInvite(ctx context.Context, actorID int64, maxUses int, expiresAt time.Time) (CreatedInvite, error) {

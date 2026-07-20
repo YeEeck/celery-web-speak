@@ -127,6 +127,10 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "not_found", "目标不存在")
 	case errors.Is(err, store.ErrLastServerAdmin):
 		writeError(w, http.StatusConflict, "last_server_admin", "必须保留至少一名服务器管理员")
+	case errors.Is(err, store.ErrSelfAction):
+		writeError(w, http.StatusBadRequest, "self_action", "不能删除自己的账号")
+	case errors.Is(err, store.ErrUsernameConfirm):
+		writeError(w, http.StatusBadRequest, "confirmation_mismatch", "输入的登录名与目标账号不一致")
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 	}
