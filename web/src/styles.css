@@ -1,8 +1,11 @@
 :root {
-  color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
   --rail: #1e1f22;
   --sidebar: #2b2d31;
   --main: #313338;
@@ -15,12 +18,50 @@
   --text: #f2f3f5;
   --muted: #b5bac1;
   --faint: #80848e;
-  --brand: #5865f2;
-  --brand-hover: #4752c4;
   --green: #23a559;
   --yellow: #f0b232;
   --red: #da373c;
   --red-hover: #a1282c;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --rail: #ffffff;
+  --sidebar: #f2f3f5;
+  --main: #ffffff;
+  --panel: #f2f3f5;
+  --elevated: #ebedef;
+  --input: #dcdee1;
+  --hover: #e0e1e5;
+  --active: #d4d7dc;
+  --line: #dcdee1;
+  --text: #060607;
+  --muted: #596162;
+  --faint: #94989c;
+  --green: #1d8a47;
+  --yellow: #c69520;
+  --red: #c0343a;
+  --red-hover: #8f262b;
+}
+
+[data-accent="indigo"] {
+  --brand: #5865f2;
+  --brand-hover: #4752c4;
+}
+
+[data-accent="green"] {
+  --brand: #23a559;
+  --brand-hover: #1c8748;
+}
+
+[data-accent="rose"] {
+  --brand: #e64855;
+  --brand-hover: #c13a45;
+}
+
+[data-accent="amber"] {
+  --brand: #d4a32e;
+  --brand-hover: #a8821f;
 }
 
 * { box-sizing: border-box; }
