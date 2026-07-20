@@ -306,7 +306,7 @@ test('管理控制台外框不随页签内容变化', async ({ page, isMobile })
   }
 })
 
-test('服务器管理员可通过登录名确认删除账号', async ({ page, request, isMobile }, testInfo) => {
+test('服务器管理员可通过登录名确认删除账号', async ({ page, request, browser, isMobile }, testInfo) => {
   await request.post('/api/auth/login', { data: { username, password } })
   const suffix = `${Date.now().toString(36)}_${isMobile ? 'm' : 'd'}_${testInfo.workerIndex}`
   const account = {
@@ -319,13 +319,17 @@ test('服务器管理员可通过登录名确认删除账号', async ({ page, re
   expect(createResponse.ok()).toBeTruthy()
   const created = await createResponse.json() as { user: { id: number } }
 
-  const target = await createRequestContext.newContext({ baseURL })
+  const target = await browser.newContext({ baseURL })
+  const targetPage = await target.newPage()
   const historicalMessage = `账号删除消息 ${suffix}`
   try {
-    const loginResponse = await target.post('/api/auth/login', { data: { username: account.username, password: account.password } })
-    expect(loginResponse.ok()).toBeTruthy()
-    const messageResponse = await target.post('/api/messages', { data: { content: historicalMessage } })
-    expect(messageResponse.ok()).toBeTruthy()
+    await targetPage.goto('/')
+    await targetPage.getByLabel('登录名').fill(account.username)
+    await targetPage.getByLabel('密码').fill(account.password)
+    await targetPage.getByRole('button', { name: '登录', exact: true }).click()
+    await expect(targetPage.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+    await targetPage.getByPlaceholder('发送消息到 #文字聊天').fill(historicalMessage)
+    await targetPage.getByTitle('发送消息').click()
     await expect(page.getByText(historicalMessage, { exact: true })).toBeVisible()
 
     const adminButton = page.getByText('管理控制台', { exact: true })
@@ -348,20 +352,21 @@ test('服务器管理员可通过登录名确认删除账号', async ({ page, re
 
     await expect(dialog).toBeHidden()
     await expect(page.getByRole('button', { name: new RegExp(account.displayName) })).toHaveCount(0)
+    await expect(targetPage.getByRole('button', { name: '登录', exact: true })).toBeVisible()
     await page.getByTitle('关闭').last().click()
     const messageRow = page.locator('.message-row').filter({ hasText: historicalMessage })
     await expect(messageRow.getByText('已删除用户', { exact: true })).toBeVisible()
 
-    const revokedSession = await target.get('/api/me')
+    const revokedSession = await target.request.get('/api/me')
     expect(revokedSession.status()).toBe(401)
-    const deletedLogin = await target.post('/api/auth/login', { data: { username: account.username, password: account.password } })
+    const deletedLogin = await target.request.post('/api/auth/login', { data: { username: account.username, password: account.password } })
     expect(deletedLogin.status()).toBe(401)
     const replacementResponse = await request.post('/api/admin/users', { data: { ...account, displayName: '同名新账号' } })
     expect(replacementResponse.ok()).toBeTruthy()
     const replacement = await replacementResponse.json() as { user: { id: number } }
     expect(replacement.user.id).not.toBe(created.user.id)
   } finally {
-    await target.dispose()
+    await target.close()
   }
 })
 
