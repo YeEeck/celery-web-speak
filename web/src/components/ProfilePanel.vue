@@ -123,6 +123,11 @@ function setSoundEnabled(sound: NotificationSound, event: Event) {
                 <span><span>麦克风增益</span><strong>{{ Math.round(voice.microphoneGain * 100) }}%</strong></span>
                 <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" aria-label="麦克风增益" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" />
               </label>
+              <div class="toggle-list">
+                <label><span>回声抑制</span><input type="checkbox" :checked="voice.echoCancellation" @change="voice.setEchoCancellation(($event.target as HTMLInputElement).checked)" /></label>
+                <label><span>降噪</span><input type="checkbox" :checked="voice.noiseSuppression" @change="voice.setNoiseSuppression(($event.target as HTMLInputElement).checked)" /></label>
+              </div>
+              <p v-if="voice.joined" class="profile-hint">处理开关更改将在下次加入语音时生效。</p>
             </section>
           </div>
           <div v-else>
