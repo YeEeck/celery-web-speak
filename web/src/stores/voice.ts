@@ -22,6 +22,8 @@ const MAX_VOLUME = 3
 const MICROPHONE_GAIN_KEY = 'cws.microphoneGain'
 const OUTPUT_VOLUME_KEY = 'cws.outputVolume'
 const DEAFENED_ATTRIBUTE = 'deafened'
+const ECHO_CANCELLATION_KEY = 'cws.echoCancellation'
+const NOISE_SUPPRESSION_KEY = 'cws.noiseSuppression'
 
 export interface VoiceParticipant {
   identity: string
@@ -51,6 +53,8 @@ export const useVoiceStore = defineStore('voice', () => {
   const activeOutputId = ref('')
   const microphoneGain = ref(getSavedLevel(MICROPHONE_GAIN_KEY))
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
+  const echoCancellation = ref(getSavedBoolean(ECHO_CANCELLATION_KEY, true))
+  const noiseSuppression = ref(getSavedBoolean(NOISE_SUPPRESSION_KEY, true))
   const microphoneGainProcessor = new MicrophoneGainProcessor(microphoneGain.value)
   let room: Room | null = null
   let participantSoundsReady = false
@@ -81,8 +85,8 @@ export const useVoiceStore = defineStore('voice', () => {
         dynacast: true,
         webAudioMix: true,
         audioCaptureDefaults: {
-          echoCancellation: true,
-          noiseSuppression: true,
+          echoCancellation: echoCancellation.value,
+          noiseSuppression: noiseSuppression.value,
           autoGainControl: true,
           channelCount: 1,
         },
@@ -226,6 +230,16 @@ export const useVoiceStore = defineStore('voice', () => {
     outputVolume.value = normalized
     localStorage.setItem(OUTPUT_VOLUME_KEY, String(normalized))
     applyAllVolumes()
+  }
+
+  function setEchoCancellation(value: boolean) {
+    echoCancellation.value = value
+    localStorage.setItem(ECHO_CANCELLATION_KEY, String(value))
+  }
+
+  function setNoiseSuppression(value: boolean) {
+    noiseSuppression.value = value
+    localStorage.setItem(NOISE_SUPPRESSION_KEY, String(value))
   }
 
   async function applyBitrateChange() {
@@ -438,6 +452,8 @@ export const useVoiceStore = defineStore('voice', () => {
     activeOutputId,
     microphoneGain,
     outputVolume,
+    echoCancellation,
+    noiseSuppression,
     joined,
     join,
     leave,
@@ -448,6 +464,8 @@ export const useVoiceStore = defineStore('voice', () => {
     setParticipantVolume,
     setMicrophoneGain,
     setOutputVolume,
+    setEchoCancellation,
+    setNoiseSuppression,
     applyBitrateChange,
     syncServerMute,
     retryDeafenedSync,
@@ -463,6 +481,12 @@ function getSavedLevel(key: string) {
   const saved = localStorage.getItem(key)
   if (saved === null) return DEFAULT_VOLUME
   return clampVolume(Number(saved))
+}
+
+function getSavedBoolean(key: string, defaultValue: boolean) {
+  const saved = localStorage.getItem(key)
+  if (saved === null) return defaultValue
+  return saved !== 'false'
 }
 
 function compareParticipants(a: VoiceParticipant, b: VoiceParticipant, users: User[]) {

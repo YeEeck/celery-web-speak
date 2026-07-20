@@ -7,18 +7,52 @@ const DEFAULT_VOLUME = 0.6
 const MIN_INTERVAL_MS = 300
 const STORAGE_PREFIX = 'cws.notificationSounds'
 
-const soundNotes: Record<NotificationSound, Array<{ delay: number; duration: number; from: number; to: number }>> = {
-  join: [
-    { delay: 0, duration: 0.1, from: 440, to: 500 },
-    { delay: 0.075, duration: 0.14, from: 620, to: 700 },
-  ],
-  leave: [
-    { delay: 0, duration: 0.1, from: 560, to: 500 },
-    { delay: 0.075, duration: 0.15, from: 390, to: 320 },
-  ],
-  message: [
-    { delay: 0, duration: 0.13, from: 720, to: 840 },
-  ],
+export type SoundPresetId = 'rise-duo' | 'fall-duo' | 'bright-single' | 'low-pulse' | 'gentle-triple'
+
+interface NotePattern { delay: number; duration: number; from: number; to: number }
+
+export const SOUND_PRESETS: Record<SoundPresetId, { name: string; notes: NotePattern[] }> = {
+  'rise-duo': {
+    name: '上升双音',
+    notes: [
+      { delay: 0, duration: 0.1, from: 440, to: 500 },
+      { delay: 0.075, duration: 0.14, from: 620, to: 700 },
+    ],
+  },
+  'fall-duo': {
+    name: '下降双音',
+    notes: [
+      { delay: 0, duration: 0.1, from: 560, to: 500 },
+      { delay: 0.075, duration: 0.15, from: 390, to: 320 },
+    ],
+  },
+  'bright-single': {
+    name: '清脆单音',
+    notes: [
+      { delay: 0, duration: 0.13, from: 720, to: 840 },
+    ],
+  },
+  'low-pulse': {
+    name: '低沉脉冲',
+    notes: [
+      { delay: 0, duration: 0.18, from: 280, to: 220 },
+      { delay: 0.12, duration: 0.18, from: 280, to: 220 },
+    ],
+  },
+  'gentle-triple': {
+    name: '柔和三音',
+    notes: [
+      { delay: 0, duration: 0.1, from: 520, to: 560 },
+      { delay: 0.08, duration: 0.1, from: 620, to: 660 },
+      { delay: 0.16, duration: 0.12, from: 740, to: 780 },
+    ],
+  },
+}
+
+const DEFAULT_PRESETS: Record<NotificationSound, SoundPresetId> = {
+  join: 'rise-duo',
+  leave: 'fall-duo',
+  message: 'bright-single',
 }
 
 export const useSoundStore = defineStore('sounds', () => {
@@ -27,6 +61,9 @@ export const useSoundStore = defineStore('sounds', () => {
   const joinEnabled = ref(getSavedBoolean(`${STORAGE_PREFIX}.join`))
   const leaveEnabled = ref(getSavedBoolean(`${STORAGE_PREFIX}.leave`))
   const messageEnabled = ref(getSavedBoolean(`${STORAGE_PREFIX}.message`))
+  const joinPreset = ref<SoundPresetId>(getSavedPreset('join'))
+  const leavePreset = ref<SoundPresetId>(getSavedPreset('leave'))
+  const messagePreset = ref<SoundPresetId>(getSavedPreset('message'))
   const suppressed = ref(false)
   let context: AudioContext | null = null
   let outputDeviceId = ''
@@ -59,7 +96,7 @@ export const useSoundStore = defineStore('sounds', () => {
     void ready.then(async () => {
       if (target.state !== 'running' || volume.value === 0 || suppressed.value || !enabled.value || !isSoundEnabled(sound)) return
       await applyOutputDevice(target)
-      scheduleSound(target, sound, volume.value)
+      scheduleSound(target, sound, volume.value, getSoundPreset(sound))
     }).catch(() => undefined)
   }
 
@@ -79,6 +116,13 @@ export const useSoundStore = defineStore('sounds', () => {
     if (sound === 'leave') leaveEnabled.value = value
     if (sound === 'message') messageEnabled.value = value
     saveBoolean(`${STORAGE_PREFIX}.${sound}`, value)
+  }
+
+  function setSoundPreset(sound: NotificationSound, preset: SoundPresetId) {
+    if (sound === 'join') joinPreset.value = preset
+    if (sound === 'leave') leavePreset.value = preset
+    if (sound === 'message') messagePreset.value = preset
+    localStorage.setItem(`${STORAGE_PREFIX}.preset.${sound}`, preset)
   }
 
   function setSuppressed(value: boolean) {
@@ -107,6 +151,12 @@ export const useSoundStore = defineStore('sounds', () => {
     return messageEnabled.value
   }
 
+  function getSoundPreset(sound: NotificationSound): SoundPresetId {
+    if (sound === 'join') return joinPreset.value
+    if (sound === 'leave') return leavePreset.value
+    return messagePreset.value
+  }
+
   async function applyOutputDevice(target: AudioContext) {
     const routable = target as AudioContext & { setSinkId?: (deviceId: string) => Promise<void> }
     if (!routable.setSinkId || appliedOutputDeviceId === outputDeviceId) return
@@ -130,24 +180,28 @@ export const useSoundStore = defineStore('sounds', () => {
     joinEnabled,
     leaveEnabled,
     messageEnabled,
+    joinPreset,
+    leavePreset,
+    messagePreset,
     installInteractionUnlock,
     removeInteractionUnlock,
     play,
     setEnabled,
     setVolume,
     setSoundEnabled,
+    setSoundPreset,
     setSuppressed,
     setOutputDevice,
   }
 })
 
-function scheduleSound(context: AudioContext, sound: NotificationSound, volume: number) {
+function scheduleSound(context: AudioContext, sound: NotificationSound, volume: number, preset: SoundPresetId) {
   const start = context.currentTime + 0.005
   const master = context.createGain()
   master.gain.setValueAtTime(volume * 0.18, start)
   master.connect(context.destination)
 
-  const notes = soundNotes[sound]
+  const notes = SOUND_PRESETS[preset].notes
   for (const [index, note] of notes.entries()) {
     const noteStart = start + note.delay
     const noteEnd = noteStart + note.duration
@@ -179,4 +233,10 @@ function getSavedVolume() {
 
 function saveBoolean(key: string, value: boolean) {
   localStorage.setItem(key, String(value))
+}
+
+function getSavedPreset(sound: NotificationSound): SoundPresetId {
+  const saved = localStorage.getItem(`${STORAGE_PREFIX}.preset.${sound}`)
+  if (saved && saved in SOUND_PRESETS) return saved as SoundPresetId
+  return DEFAULT_PRESETS[sound]
 }
