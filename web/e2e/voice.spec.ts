@@ -10,9 +10,10 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
 
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
   const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
+  const displaySuffix = suffix.slice(-6)
   const accounts = [
-    { username: `voice_a_${suffix}`, displayName: `语音甲${suffix.slice(-1)}`, password: 'voice-member-password-a' },
-    { username: `voice_b_${suffix}`, displayName: `语音乙${suffix.slice(-1)}`, password: 'voice-member-password-b' },
+    { username: `voice_a_${suffix}`, displayName: `语音甲${displaySuffix}`, password: 'voice-member-password-a' },
+    { username: `voice_b_${suffix}`, displayName: `语音乙${displaySuffix}`, password: 'voice-member-password-b' },
   ]
   const accountIds = new Map<string, number>()
   for (const account of accounts) {
