@@ -41,6 +41,7 @@ export interface VoiceParticipant {
 
 export const useVoiceStore = defineStore('voice', () => {
   const status = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'>('idle')
+  const connectedChannelId = ref<number | null>(null)
   const errorMessage = ref('')
   const muted = ref(false)
   const deafened = ref(false)
@@ -69,8 +70,10 @@ export const useVoiceStore = defineStore('voice', () => {
     return [...participantStates.value].sort((a, b) => compareParticipants(a, b, app.users))
   })
 
-  async function join() {
-    if (room || status.value === 'connecting') return
+  async function join(channelId: number) {
+    if (room && connectedChannelId.value === channelId) return
+    if (status.value === 'connecting') return
+    if (room) await leave()
     voiceSession += 1
     const app = useAppStore()
     status.value = 'connecting'
@@ -79,7 +82,9 @@ export const useVoiceStore = defineStore('voice', () => {
     pendingDeafenedSync = null
     microphoneBeforeDeafen = false
     try {
-      const credentials = await request<VoiceCredentials>('/api/voice/token', { method: 'POST' })
+      const channel = app.voiceChannels.find((item) => item.id === channelId)
+      if (!channel) throw new Error('语音频道不存在')
+      const credentials = await request<VoiceCredentials>(`/api/channels/${channelId}/voice/token`, { method: 'POST' })
       const nextRoom = markRaw(new Room({
         adaptiveStream: true,
         dynacast: true,
@@ -91,13 +96,14 @@ export const useVoiceStore = defineStore('voice', () => {
           channelCount: 1,
         },
         publishDefaults: {
-          audioPreset: { maxBitrate: app.settings.audioBitrateKbps * 1000 },
+          audioPreset: { maxBitrate: (channel.audioBitrateKbps ?? 64) * 1000 },
           dtx: true,
           red: true,
           forceStereo: false,
         },
       }))
       room = nextRoom
+      connectedChannelId.value = channelId
       bindRoom(nextRoom)
       await nextRoom.connect(credentials.url, credentials.token, { autoSubscribe: true, maxRetries: 5 })
       await nextRoom.startAudio()
@@ -115,6 +121,7 @@ export const useVoiceStore = defineStore('voice', () => {
       participantSoundsReady = false
       room?.disconnect()
       room = null
+      connectedChannelId.value = null
       status.value = 'error'
       errorMessage.value = error instanceof Error ? error.message : '无法连接语音频道'
       throw error
@@ -128,6 +135,7 @@ export const useVoiceStore = defineStore('voice', () => {
       room.disconnect()
       room = null
     }
+    connectedChannelId.value = null
     document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove())
     participantStates.value = []
     status.value = 'idle'
@@ -308,6 +316,7 @@ export const useVoiceStore = defineStore('voice', () => {
           voiceSession += 1
           participantSoundsReady = false
           room = null
+          connectedChannelId.value = null
           status.value = 'idle'
           participantStates.value = []
           muted.value = false
@@ -390,7 +399,8 @@ export const useVoiceStore = defineStore('voice', () => {
         const value = pendingDeafenedSync
         pendingDeafenedSync = null
         try {
-          await request<void>('/api/voice/state', {
+          if (connectedChannelId.value === null) break
+          await request<void>(`/api/channels/${connectedChannelId.value}/voice/state`, {
             method: 'PATCH',
             body: JSON.stringify({ deafened: value }),
           })
@@ -416,8 +426,9 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   function publishOptions() {
+    const channel = useAppStore().voiceChannels.find((item) => item.id === connectedChannelId.value)
     return {
-      audioPreset: { maxBitrate: useAppStore().settings.audioBitrateKbps * 1000 },
+      audioPreset: { maxBitrate: (channel?.audioBitrateKbps ?? 64) * 1000 },
       dtx: true,
       red: true,
       forceStereo: false,
@@ -462,6 +473,7 @@ export const useVoiceStore = defineStore('voice', () => {
 
   return {
     status,
+    connectedChannelId,
     errorMessage,
     deafenedSyncError,
     muted,

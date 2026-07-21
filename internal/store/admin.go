@@ -254,6 +254,9 @@ WHERE id = ? AND deleted_at IS NULL`, deletedUsername, formatTime(now), formatTi
 	if _, err := tx.ExecContext(ctx, "DELETE FROM temporary_bans WHERE user_id = ?", userID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM channel_read_states WHERE user_id = ?", userID); err != nil {
+		return err
+	}
 	details := fmt.Sprintf("username=%q deleted_at=%s", username, formatTime(now))
 	if err := insertAuditAt(ctx, tx, actorID, &userID, "delete_user", details, now); err != nil {
 		return err

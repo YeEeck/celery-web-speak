@@ -47,6 +47,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go api.RunVoiceReconciler(ctx)
+	go api.RunPresenceBroadcaster(ctx)
 	go func() {
 		logger.Info("server started", "addr", cfg.Addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

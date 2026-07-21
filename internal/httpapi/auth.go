@@ -131,6 +131,12 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "self_action", "不能删除自己的账号")
 	case errors.Is(err, store.ErrUsernameConfirm):
 		writeError(w, http.StatusBadRequest, "confirmation_mismatch", "输入的登录名与目标账号不一致")
+	case errors.Is(err, store.ErrLastChannel):
+		writeError(w, http.StatusConflict, "last_channel", "必须至少保留一个同类型频道")
+	case errors.Is(err, store.ErrChannelLimit):
+		writeError(w, http.StatusConflict, "channel_limit", "同类型频道数量已达到上限")
+	case errors.Is(err, store.ErrChannelNameExists):
+		writeError(w, http.StatusConflict, "channel_name_exists", "同类型频道名称已存在")
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 	}

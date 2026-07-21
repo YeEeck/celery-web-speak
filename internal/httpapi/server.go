@@ -49,6 +49,9 @@ func New(cfg config.Config, db *store.Store, mediaService *media.Service, logger
 		HandshakeTimeout: 10 * time.Second,
 		CheckOrigin:      s.checkOrigin,
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	s.reconcileVoiceRooms(ctx, "startup")
+	cancel()
 	return s
 }
 
@@ -57,10 +60,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/auth/register", s.handleRegister)
+	mux.HandleFunc("POST /api/livekit/webhook", s.handleLiveKitWebhook)
 	mux.Handle("POST /api/auth/logout", s.requireAuth(http.HandlerFunc(s.handleLogout)))
 	mux.Handle("GET /api/me", s.requireAuth(http.HandlerFunc(s.handleMe)))
 	mux.Handle("PATCH /api/me", s.requireAuth(http.HandlerFunc(s.handleUpdateMe)))
 	mux.Handle("GET /api/bootstrap", s.requireAuth(http.HandlerFunc(s.handleBootstrap)))
+	mux.Handle("POST /api/channels", s.requireAdmin(http.HandlerFunc(s.handleCreateChannel)))
+	mux.Handle("PATCH /api/channels/{id}", s.requireAdmin(http.HandlerFunc(s.handleUpdateChannel)))
+	mux.Handle("DELETE /api/channels/{id}", s.requireAdmin(http.HandlerFunc(s.handleDeleteChannel)))
+	mux.Handle("GET /api/channels/{id}/messages", s.requireAuth(http.HandlerFunc(s.handleListChannelMessages)))
+	mux.Handle("POST /api/channels/{id}/messages", s.requireAuth(http.HandlerFunc(s.handleCreateChannelMessage)))
+	mux.Handle("DELETE /api/channels/{channelID}/messages/{messageID}", s.requireAdmin(http.HandlerFunc(s.handleDeleteChannelMessage)))
+	mux.Handle("POST /api/channels/{id}/read", s.requireAuth(http.HandlerFunc(s.handleMarkChannelRead)))
+	mux.Handle("POST /api/channels/{id}/voice/token", s.requireAuth(http.HandlerFunc(s.handleChannelVoiceToken)))
+	mux.Handle("PATCH /api/channels/{id}/voice/state", s.requireAuth(http.HandlerFunc(s.handleChannelVoiceState)))
 	mux.Handle("GET /api/messages", s.requireAuth(http.HandlerFunc(s.handleListMessages)))
 	mux.Handle("POST /api/messages", s.requireAuth(http.HandlerFunc(s.handleCreateMessage)))
 	mux.Handle("DELETE /api/messages/{id}", s.requireAdmin(http.HandlerFunc(s.handleDeleteMessage)))
@@ -181,7 +194,11 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 }
 
 func parseID(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	return parsePathID(w, r, "id")
+}
+
+func parsePathID(w http.ResponseWriter, r *http.Request, name string) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue(name), 10, 64)
 	if err != nil || id < 1 {
 		writeError(w, http.StatusBadRequest, "invalid_id", "用户或资源编号无效")
 		return 0, false

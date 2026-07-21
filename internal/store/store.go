@@ -18,14 +18,17 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("not found")
-	ErrInvalidLogin    = errors.New("invalid username or password")
-	ErrUsernameExists  = errors.New("username already exists")
-	ErrInvalidInvite   = errors.New("invite is invalid or expired")
-	ErrBanned          = errors.New("account is banned")
-	ErrLastServerAdmin = errors.New("at least one server admin is required")
-	ErrSelfAction      = errors.New("cannot perform this action on yourself")
-	ErrUsernameConfirm = errors.New("username confirmation does not match")
+	ErrNotFound          = errors.New("not found")
+	ErrInvalidLogin      = errors.New("invalid username or password")
+	ErrUsernameExists    = errors.New("username already exists")
+	ErrInvalidInvite     = errors.New("invite is invalid or expired")
+	ErrBanned            = errors.New("account is banned")
+	ErrLastServerAdmin   = errors.New("at least one server admin is required")
+	ErrSelfAction        = errors.New("cannot perform this action on yourself")
+	ErrUsernameConfirm   = errors.New("username confirmation does not match")
+	ErrLastChannel       = errors.New("at least one channel of each type is required")
+	ErrChannelLimit      = errors.New("channel limit reached")
+	ErrChannelNameExists = errors.New("channel name already exists")
 )
 
 type Store struct {
@@ -105,25 +108,12 @@ CREATE TABLE IF NOT EXISTS invites (
 );
 CREATE INDEX IF NOT EXISTS invites_active_order ON invites(revoked_at, expires_at, id);
 CREATE INDEX IF NOT EXISTS invites_created_order ON invites(created_at DESC, id DESC);
-CREATE TABLE IF NOT EXISTS messages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id INTEGER NOT NULL REFERENCES users(id),
-  content TEXT NOT NULL,
-  created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS messages_created_at ON messages(created_at);
 CREATE TABLE IF NOT EXISTS temporary_bans (
   user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   expires_at TEXT NOT NULL,
   reason TEXT NOT NULL DEFAULT '',
   created_by INTEGER NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS settings (
-  id INTEGER PRIMARY KEY CHECK(id = 1),
-  audio_bitrate_kbps INTEGER NOT NULL DEFAULT 64,
-  message_retention INTEGER NOT NULL DEFAULT 500,
-  updated_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS audit_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -143,14 +133,119 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if err := s.ensureUserDeletedAtColumn(ctx); err != nil {
 		return fmt.Errorf("migrate deleted users: %w", err)
 	}
-	_, err := s.db.ExecContext(ctx, `
-INSERT INTO settings (id, audio_bitrate_kbps, message_retention, updated_at)
-VALUES (1, 64, 500, ?)
-ON CONFLICT(id) DO NOTHING`, formatTime(s.now()))
-	if err != nil {
-		return fmt.Errorf("initialize settings: %w", err)
+	if err := s.migrateChannels(ctx); err != nil {
+		return fmt.Errorf("migrate channels: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) migrateChannels(ctx context.Context) error {
+	legacyMessages, err := s.tableExists(ctx, "messages")
+	if err != nil {
+		return err
+	}
+	legacySchema := false
+	if legacyMessages {
+		hasChannelID, err := s.tableHasColumn(ctx, "messages", "channel_id")
+		if err != nil {
+			return err
+		}
+		if !hasChannelID {
+			legacySchema = true
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if legacySchema {
+		if _, err := tx.ExecContext(ctx, "DROP TABLE messages"); err != nil {
+			return fmt.Errorf("drop legacy messages: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "DROP TABLE IF EXISTS settings"); err != nil {
+		return fmt.Errorf("drop legacy settings: %w", err)
+	}
+
+	const schema = `
+CREATE TABLE IF NOT EXISTS channels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL CHECK(type IN ('text','voice')),
+  name TEXT NOT NULL COLLATE NOCASE,
+  audio_bitrate_kbps INTEGER,
+  message_retention INTEGER,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(type, name),
+  CHECK(
+    (type = 'text' AND audio_bitrate_kbps IS NULL AND message_retention BETWEEN 100 AND 5000)
+    OR
+    (type = 'voice' AND message_retention IS NULL AND audio_bitrate_kbps BETWEEN 32 AND 128 AND audio_bitrate_kbps % 8 = 0)
+  )
+);
+CREATE INDEX IF NOT EXISTS channels_type_id ON channels(type, id);
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_channel_id_id ON messages(channel_id, id);
+CREATE TABLE IF NOT EXISTS channel_read_states (
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel_id INTEGER NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  last_read_message_id INTEGER NOT NULL DEFAULT 0 CHECK(last_read_message_id >= 0),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(user_id, channel_id)
+);`
+	if _, err := tx.ExecContext(ctx, schema); err != nil {
+		return err
+	}
+	now := formatTime(s.now())
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO channels (type, name, message_retention, created_at, updated_at)
+SELECT 'text', '文字聊天', 500, ?, ?
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE type = 'text')`, now, now); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO channels (type, name, audio_bitrate_kbps, created_at, updated_at)
+SELECT 'voice', '语音频道', 64, ?, ?
+WHERE NOT EXISTS (SELECT 1 FROM channels WHERE type = 'voice')`, now, now); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 2"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) tableExists(ctx context.Context, table string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&count)
+	return count > 0, err
+}
+
+func (s *Store) tableHasColumn(ctx context.Context, table, column string) (bool, error) {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func (s *Store) ensureUserDeletedAtColumn(ctx context.Context) error {

@@ -28,13 +28,26 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "list messages", err)
 		return
 	}
+	channels, err := s.store.ListChannels(r.Context())
+	if err != nil {
+		s.internalError(w, "list channels", err)
+		return
+	}
+	readStates, err := s.store.ListChannelReadStates(r.Context(), currentUser(r).ID)
+	if err != nil {
+		s.internalError(w, "list channel read states", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":            currentUser(r),
-		"users":           users,
-		"settings":        settings,
-		"messages":        messages,
-		"messagesHasMore": messagesHasMore,
-		"onlineIds":       s.hub.OnlineUserIDs(),
+		"user":              currentUser(r),
+		"users":             users,
+		"settings":          settings,
+		"messages":          messages,
+		"messagesHasMore":   messagesHasMore,
+		"onlineIds":         s.hub.OnlineUserIDs(),
+		"channels":          channels,
+		"channelReadStates": readStates,
+		"voiceRooms":        s.media.VoiceRooms(),
 	})
 }
 
@@ -88,7 +101,12 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request) {
-	credentials, err := s.media.JoinCredentials(currentUser(r))
+	channel, err := s.store.FirstChannel(r.Context(), store.ChannelTypeVoice)
+	if err != nil {
+		s.internalError(w, "get default voice channel", err)
+		return
+	}
+	credentials, err := s.media.JoinCredentials(r.Context(), currentUser(r), channel.ID)
 	if err != nil {
 		s.internalError(w, "create voice token", err)
 		return

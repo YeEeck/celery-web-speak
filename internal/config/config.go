@@ -21,12 +21,20 @@ type Config struct {
 	LiveKitAPIKey          string
 	LiveKitAPISecret       string
 	TrustedOrigins         []string
+	VoiceReconcileInterval time.Duration
 }
 
 func Load() (Config, error) {
 	secure, err := strconv.ParseBool(env("COOKIE_SECURE", "true"))
 	if err != nil {
 		return Config{}, fmt.Errorf("COOKIE_SECURE: %w", err)
+	}
+	reconcileInterval, err := time.ParseDuration(env("VOICE_RECONCILE_INTERVAL", "15s"))
+	if err != nil {
+		return Config{}, fmt.Errorf("VOICE_RECONCILE_INTERVAL: %w", err)
+	}
+	if reconcileInterval < 0 {
+		return Config{}, fmt.Errorf("VOICE_RECONCILE_INTERVAL must not be negative")
 	}
 
 	cfg := Config{
@@ -42,6 +50,7 @@ func Load() (Config, error) {
 		LiveKitAPIKey:          strings.TrimSpace(os.Getenv("LIVEKIT_API_KEY")),
 		LiveKitAPISecret:       os.Getenv("LIVEKIT_API_SECRET"),
 		TrustedOrigins:         splitList(os.Getenv("TRUSTED_ORIGINS")),
+		VoiceReconcileInterval: reconcileInterval,
 	}
 
 	if cfg.LiveKitAPIKey == "" || cfg.LiveKitAPISecret == "" {

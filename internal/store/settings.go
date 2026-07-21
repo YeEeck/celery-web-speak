@@ -8,11 +8,17 @@ import (
 
 func (s *Store) Settings(ctx context.Context) (ChannelSettings, error) {
 	var settings ChannelSettings
-	err := s.db.QueryRowContext(ctx, `
-SELECT audio_bitrate_kbps, message_retention FROM settings WHERE id = 1`).Scan(
-		&settings.AudioBitrateKbps, &settings.MessageRetention,
-	)
-	return settings, err
+	voice, err := s.FirstChannel(ctx, ChannelTypeVoice)
+	if err != nil {
+		return settings, err
+	}
+	text, err := s.FirstChannel(ctx, ChannelTypeText)
+	if err != nil {
+		return settings, err
+	}
+	settings.AudioBitrateKbps = voice.AudioBitrateKbps
+	settings.MessageRetention = text.MessageRetention
+	return settings, nil
 }
 
 func (s *Store) UpdateSettings(ctx context.Context, actorID int64, settings ChannelSettings) error {
@@ -22,22 +28,19 @@ func (s *Store) UpdateSettings(ctx context.Context, actorID int64, settings Chan
 	if settings.MessageRetention < 100 || settings.MessageRetention > 5000 {
 		return errors.New("message retention must be between 100 and 5000")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	voice, err := s.FirstChannel(ctx, ChannelTypeVoice)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `
-UPDATE settings SET audio_bitrate_kbps = ?, message_retention = ?, updated_at = ? WHERE id = 1`,
-		settings.AudioBitrateKbps, settings.MessageRetention, formatTime(s.now())); err != nil {
-		return fmt.Errorf("update settings: %w", err)
-	}
-	if err := trimMessages(ctx, tx, settings.MessageRetention); err != nil {
+	text, err := s.FirstChannel(ctx, ChannelTypeText)
+	if err != nil {
 		return err
 	}
-	details := fmt.Sprintf("bitrate=%d retention=%d", settings.AudioBitrateKbps, settings.MessageRetention)
-	if err := insertAudit(ctx, tx, actorID, nil, "update_settings", details); err != nil {
-		return err
+	if _, err := s.UpdateChannel(ctx, actorID, voice.ID, voice.Name, settings.AudioBitrateKbps, 0); err != nil {
+		return fmt.Errorf("update voice settings: %w", err)
 	}
-	return tx.Commit()
+	if _, err := s.UpdateChannel(ctx, actorID, text.ID, text.Name, 0, settings.MessageRetention); err != nil {
+		return fmt.Errorf("update text settings: %w", err)
+	}
+	return nil
 }

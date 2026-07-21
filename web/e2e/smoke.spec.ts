@@ -24,6 +24,7 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
   }
   await adminButton.click()
   await expect(page.getByRole('heading', { name: '管理控制台' })).toBeVisible()
+  await page.getByLabel('选择频道').selectOption({ label: '语音 语音频道' })
   await expect(page.getByText('Opus 发送码率')).toBeVisible()
   await page.getByTitle('关闭').last().click()
 
@@ -36,6 +37,41 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
   })
   expect(Math.abs(verticalLayout.viewport - verticalLayout.shellHeight)).toBeLessThan(2)
   expect(Math.abs(verticalLayout.viewport - verticalLayout.composerBottom)).toBeLessThan(2)
+})
+
+test('管理员可创建和删除独立文字频道', async ({ page, isMobile }) => {
+  const channelName = `项目频道${Date.now().toString(36).slice(-5)}`
+  const channelMessage = `频道隔离检查 ${Date.now()}`
+  const adminButton = page.getByText('管理控制台', { exact: true })
+  if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
+  await adminButton.click()
+  await page.getByLabel('新频道名称').fill(channelName)
+  await page.getByRole('button', { name: '创建', exact: true }).click()
+  await expect(page.getByLabel('选择频道')).toHaveValue(/\d+/)
+  await page.getByTitle('关闭').last().click()
+
+  if (isMobile) await page.getByTitle('频道').click()
+  const newChannel = page.getByRole('button', { name: new RegExp(channelName) })
+  await expect(newChannel).toBeVisible()
+  await newChannel.click()
+  await expect(page.getByRole('heading', { name: channelName, exact: true })).toBeVisible()
+  await page.getByPlaceholder(`发送消息到 #${channelName}`).fill(channelMessage)
+  await page.getByTitle('发送消息').click()
+  await expect(page.getByText(channelMessage, { exact: true })).toBeVisible()
+
+  if (isMobile) await page.getByTitle('频道').click()
+  await page.getByRole('button', { name: /文字聊天.*最近/ }).click()
+  await expect(page.getByText(channelMessage, { exact: true })).toHaveCount(0)
+
+  if (isMobile) await page.getByTitle('频道').click()
+  await page.getByText('管理控制台', { exact: true }).click()
+  await page.getByLabel('选择频道').selectOption({ label: `# ${channelName}` })
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: '永久删除', exact: true }).click()
+  await expect(page.getByText('频道已永久删除')).toBeVisible()
+  await page.getByTitle('关闭').last().click()
+  if (isMobile) await page.getByTitle('频道').click()
+  await expect(page.getByRole('button', { name: new RegExp(channelName) })).toHaveCount(0)
 })
 
 test('最新消息与文字输入框保持间距', async ({ page }) => {
@@ -182,6 +218,13 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
   await expect(page.locator('.rail-status.online')).toBeAttached()
 
   await request.post('/api/auth/login', { data: { username, password } })
+  const bootstrapResponse = await request.get('/api/bootstrap')
+  const bootstrap = await bootstrapResponse.json() as { channels: Array<{ id: number; type: string; name: string }> }
+  const activeTextChannel = bootstrap.channels.find((channel) => channel.type === 'text')!
+  const extraChannelName = `静默频道${Date.now().toString(36).slice(-5)}`
+  const channelResponse = await request.post('/api/channels', { data: { type: 'text', name: extraChannelName } })
+  expect(channelResponse.ok()).toBeTruthy()
+  const extraChannel = (await channelResponse.json() as { channel: { id: number } }).channel
   const suffix = `${Date.now().toString(36)}_${isMobile ? 'm' : 'd'}_${testInfo.workerIndex}`
   const account = {
     username: `sound_${suffix}`,
@@ -197,9 +240,20 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
     const loginResponse = await other.post('/api/auth/login', { data: { username: account.username, password: account.password } })
     expect(loginResponse.ok()).toBeTruthy()
     if (isMobile) await page.waitForTimeout(700)
+    if (isMobile) await page.getByTitle('频道').click()
+    await expect(page.getByRole('button', { name: new RegExp(extraChannelName) })).toBeAttached()
+    const beforeInactiveMessage = await toneCount(page)
+    const inactiveMessage = `非当前频道静默检查 ${Date.now()}`
+    const inactiveResponse = await other.post(`/api/channels/${extraChannel.id}/messages`, { data: { content: inactiveMessage } })
+    expect(inactiveResponse.ok()).toBeTruthy()
+    await expect(page.getByRole('button', { name: new RegExp(extraChannelName) }).locator('.channel-unread')).toHaveText('1')
+    await page.waitForTimeout(150)
+    expect(await toneCount(page)).toBe(beforeInactiveMessage)
+    if (isMobile) await page.getByRole('button', { name: /文字聊天.*最近/ }).click()
+
     const beforeOtherMessage = await toneCount(page)
     const otherMessage = `他人提示音检查 ${Date.now()}`
-    const sendResponse = await other.post('/api/messages', { data: { content: otherMessage } })
+    const sendResponse = await other.post(`/api/channels/${activeTextChannel.id}/messages`, { data: { content: otherMessage } })
     expect(sendResponse.ok()).toBeTruthy()
     await expect(page.getByText(otherMessage, { exact: true })).toBeVisible()
     await expect.poll(() => toneCount(page)).toBe(beforeOtherMessage + 1)
@@ -214,6 +268,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
     expect(await toneCount(page)).toBe(beforeOwnMessage)
   } finally {
     await other.dispose()
+    await request.delete(`/api/channels/${extraChannel.id}`)
   }
 })
 
@@ -260,9 +315,11 @@ test('退出登录使用明确的二次确认弹窗', async ({ page, isMobile })
 
 test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page }) => {
   let newestID = 0
+  let channelID = 0
   let currentUser = { id: 0, username: '', displayName: '', role: 'member' }
   const makeMessage = (id: number, content: string) => ({
     id,
+    channelId: channelID,
     userId: currentUser.id,
     username: currentUser.username,
     displayName: currentUser.displayName,
@@ -275,22 +332,22 @@ test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page 
     const response = await route.fetch()
     const payload = await response.json()
     currentUser = payload.user
+    channelID = payload.channels.find((channel: { type: string }) => channel.type === 'text').id
     newestID = payload.messages.at(-1)?.id ?? 0
-    const messages = Array.from({ length: 50 }, (_, index) => {
-      const id = newestID - 49 + index
-      return makeMessage(id, `虚拟消息 ${id}`)
-    })
-    await route.fulfill({ response, json: { ...payload, messages, messagesHasMore: true, settings: { ...payload.settings, messageRetention: 500 } } })
+    await route.fulfill({ response, json: payload })
   })
-  await page.route('**/api/messages?**', async (route) => {
-    const before = Number(new URL(route.request().url()).searchParams.get('before'))
+  await page.route('**/api/channels/*/messages?**', async (route) => {
+    const url = new URL(route.request().url())
+    const hasBefore = url.searchParams.has('before')
+    const before = Number(url.searchParams.get('before'))
     const messages = Array.from({ length: 50 }, (_, index) => {
-      const id = before - 50 + index
+      const id = hasBefore ? before - 50 + index : newestID - 49 + index
       return makeMessage(id, `虚拟消息 ${id}`)
     })
-    await route.fulfill({ json: { messages, hasMore: false } })
+    await route.fulfill({ json: { messages, hasMore: !hasBefore } })
   })
 
+  await page.addInitScript(() => Object.keys(localStorage).filter((key) => key.startsWith('cws.channelScroll.')).forEach((key) => localStorage.removeItem(key)))
   await page.reload()
   await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
   const messageList = page.locator('.message-list')
@@ -309,9 +366,9 @@ test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page 
   await expect.poll(() => page.locator('.message-row').count()).toBeLessThan(40)
 
   await messageList.evaluate((element) => { element.scrollTop = 0 })
-  await expect(page.getByText('这是 Celery Web Speak 频道的开始。')).toBeVisible()
+  await expect(page.getByText('这是 #文字聊天 的开始。')).toBeVisible()
   await expect(loadEarlier).toBeHidden()
-  await expect(page.getByRole('button', { name: '回到最新消息' })).toBeVisible()
+  await expect(page.locator('.jump-to-latest')).toBeVisible()
 
   const realtimeMessage = `未读消息检查 ${Date.now()}`
   await page.getByPlaceholder('发送消息到 #文字聊天').fill(realtimeMessage)

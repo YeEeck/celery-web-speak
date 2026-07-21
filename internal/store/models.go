@@ -2,6 +2,13 @@ package store
 
 import "time"
 
+type ChannelType string
+
+const (
+	ChannelTypeText  ChannelType = "text"
+	ChannelTypeVoice ChannelType = "voice"
+)
+
 type Role string
 
 const (
@@ -31,8 +38,26 @@ type ChannelSettings struct {
 	MessageRetention int `json:"messageRetention"`
 }
 
+type Channel struct {
+	ID               int64       `json:"id"`
+	Type             ChannelType `json:"type"`
+	Name             string      `json:"name"`
+	AudioBitrateKbps int         `json:"audioBitrateKbps,omitempty"`
+	MessageRetention int         `json:"messageRetention,omitempty"`
+	CreatedAt        time.Time   `json:"createdAt"`
+	UpdatedAt        time.Time   `json:"updatedAt"`
+}
+
+type ChannelReadState struct {
+	ChannelID         int64 `json:"channelId"`
+	LastReadMessageID int64 `json:"lastReadMessageId"`
+	LatestMessageID   int64 `json:"latestMessageId"`
+	UnreadCount       int   `json:"unreadCount"`
+}
+
 type Message struct {
 	ID          int64     `json:"id"`
+	ChannelID   int64     `json:"channelId"`
 	UserID      int64     `json:"userId"`
 	Username    string    `json:"username"`
 	DisplayName string    `json:"displayName"`
