@@ -707,15 +707,15 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   function handleApplicationAudioPcmPort(event: { sessionId: string; port: MessagePort }) {
-    if (applicationAudioPipeline && applicationAudioSessionId === event.sessionId) {
-      event.port.close()
-      return
-    }
     if (pendingApplicationAudioPortWaiter?.sessionId === event.sessionId) {
       const waiter = pendingApplicationAudioPortWaiter
       pendingApplicationAudioPortWaiter = null
       window.clearTimeout(waiter.timer)
       waiter.resolve(event.port)
+      return
+    }
+    if (applicationAudioPipeline?.hasAttachedPort(event.sessionId)) {
+      event.port.close()
       return
     }
     if ((!applicationAudioSessionId && ['selecting', 'starting'].includes(applicationAudioState.value)) || applicationAudioSessionId === event.sessionId) {

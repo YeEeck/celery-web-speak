@@ -50,6 +50,10 @@ export class ApplicationAudioPipeline {
     return true
   }
 
+  hasAttachedPort(sessionId: string) {
+    return this.attachedSessionId === sessionId
+  }
+
   setVolume(volume: number) {
     if (!this.gain || !this.context) return
     this.gain.gain.setValueAtTime(volume, this.context.currentTime)
