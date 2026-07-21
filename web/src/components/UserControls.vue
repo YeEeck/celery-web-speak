@@ -132,7 +132,7 @@ onBeforeUnmount(() => {
         v-if="showApplicationAudio"
         ref="applicationAudioTrigger"
         class="icon-button"
-        :class="{ active: voice.applicationAudioActive, danger: voice.applicationAudioError }"
+        :class="{ active: voice.applicationAudioPlaying, danger: voice.applicationAudioError }"
         :disabled="voice.applicationAudioChanging || (!voice.applicationAudioActive && (voice.status !== 'connected' || voice.deafened))"
         :title="voice.applicationAudioChanging ? '背景音处理中' : voice.applicationAudioActive ? '背景音控制' : '共享应用背景音'"
         :aria-expanded="applicationAudioPanelOpen"
