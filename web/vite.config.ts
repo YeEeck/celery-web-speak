@@ -16,5 +16,8 @@ export default defineConfig({
   build: {
     outDir: '../internal/webui/dist',
     emptyOutDir: true,
+    // AudioWorklet rejects data: module URLs in Electron. Keep the worklet
+    // as a same-origin asset so the packaged desktop client can load it.
+    assetsInlineLimit: 0,
   },
 })
