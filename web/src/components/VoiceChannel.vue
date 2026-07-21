@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ChevronRight, MicOff, Signal, Volume2, VolumeX } from '@lucide/vue'
+import { ChevronRight, MicOff, Music2, Signal, Volume2, VolumeX } from '@lucide/vue'
 import { ConnectionQuality } from 'livekit-client'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
@@ -58,12 +58,15 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
           <span class="voice-member-name" :class="{ speaking: participant.isSpeaking }">
             {{ participant.name }}<small v-if="participant.isLocal">你</small>
           </span>
-          <span v-if="!participant.microphoneEnabled || participant.deafened" class="voice-status-icons">
+          <span v-if="!participant.microphoneEnabled || participant.deafened || participant.backgroundAudioPlaying" class="voice-status-icons">
             <span v-if="!participant.microphoneEnabled" class="voice-status-icon" role="img" aria-label="麦克风已静音" title="麦克风已静音">
               <MicOff :size="15" class="muted-icon" />
             </span>
             <span v-if="participant.deafened" class="voice-status-icon" role="img" aria-label="耳机已静音" title="耳机已静音">
               <VolumeX :size="15" class="muted-icon" />
+            </span>
+            <span v-if="participant.backgroundAudioPlaying" class="voice-status-icon background-audio-status" role="img" aria-label="正在共享背景音" title="正在共享背景音">
+              <Music2 :size="15" />
             </span>
           </span>
           <span class="quality-bars" :title="`网络质量：${participant.quality}`">
