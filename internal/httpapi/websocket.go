@@ -15,15 +15,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	c := &client{user: currentUser(r), send: make(chan []byte, 64)}
 	s.hub.register(c)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		if err := s.media.Refresh(ctx); err != nil {
-			s.logger.Warn("refresh livekit rooms after websocket connect", "error", err)
-			return
-		}
-		s.hub.Broadcast("voice_rooms", s.media.VoiceRooms())
-	}()
+	go s.reconcileVoiceRooms(context.Background(), "websocket_connect")
 	defer func() {
 		s.hub.unregister(c)
 		_ = conn.Close()

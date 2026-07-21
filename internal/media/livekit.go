@@ -28,6 +28,7 @@ type Service struct {
 	mu          sync.RWMutex
 	rooms       map[int64]map[int64]VoiceParticipant
 	targets     map[int64]int64
+	revision    uint64
 }
 
 type JoinCredentials struct {
@@ -74,6 +75,9 @@ func (s *Service) JoinCredentials(ctx context.Context, user store.User, channelI
 	s.mu.Lock()
 	previous := s.targets[user.ID]
 	s.targets[user.ID] = channelID
+	if previous != channelID {
+		s.revision++
+	}
 	s.mu.Unlock()
 	if previous > 0 && previous != channelID {
 		_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: RoomName(previous), Identity: Identity(user.ID)})
@@ -112,6 +116,7 @@ func (s *Service) JoinCredentials(ctx context.Context, user store.User, channelI
 		} else {
 			delete(s.targets, user.ID)
 		}
+		s.revision++
 		s.mu.Unlock()
 		return JoinCredentials{}, fmt.Errorf("create livekit token: %w", err)
 	}
@@ -186,6 +191,9 @@ func (s *Service) RemoveParticipant(ctx context.Context, userID int64) error {
 		}
 	}
 	delete(s.targets, userID)
+	if channelID > 0 {
+		s.revision++
+	}
 	s.mu.Unlock()
 	if channelID == 0 {
 		return nil
@@ -202,15 +210,17 @@ func (s *Service) DeleteRoom(ctx context.Context, channelID int64) error {
 			delete(s.targets, userID)
 		}
 	}
+	s.revision++
 	s.mu.Unlock()
 	_, err := s.room.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: RoomName(channelID)})
 	return err
 }
 
-func (s *Service) Refresh(ctx context.Context) error {
+func (s *Service) Refresh(ctx context.Context) (bool, error) {
+	revision := s.snapshotRevision()
 	response, err := s.room.ListRooms(ctx, &livekit.ListRoomsRequest{})
 	if err != nil {
-		return err
+		return false, err
 	}
 	rooms := make(map[int64]map[int64]VoiceParticipant)
 	targets := make(map[int64]int64)
@@ -222,7 +232,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 		}
 		participants, err := s.room.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomInfo.Name})
 		if err != nil {
-			return err
+			return false, err
 		}
 		for _, info := range participants.Participants {
 			participant, ok := voiceParticipant(info)
@@ -246,14 +256,14 @@ func (s *Service) Refresh(ctx context.Context) error {
 			targets[participant.UserID] = channelID
 		}
 	}
-	s.mu.Lock()
-	s.rooms = rooms
-	s.targets = targets
-	s.mu.Unlock()
+	changed, applied := s.replaceSnapshot(revision, rooms, targets)
+	if !applied {
+		return false, nil
+	}
 	for index := range removals {
 		_, _ = s.room.RemoveParticipant(ctx, &removals[index])
 	}
-	return nil
+	return changed, nil
 }
 
 func (s *Service) ReceiveWebhook(r *http.Request) (*livekit.WebhookEvent, error) {
@@ -282,6 +292,7 @@ func (s *Service) ApplyWebhook(ctx context.Context, event *livekit.WebhookEvent)
 		}
 		s.rooms[channelID][participant.UserID] = participant
 		s.targets[participant.UserID] = channelID
+		s.revision++
 		s.mu.Unlock()
 		if previous > 0 && previous != channelID {
 			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: RoomName(previous), Identity: participant.Identity})
@@ -297,6 +308,7 @@ func (s *Service) ApplyWebhook(ctx context.Context, event *livekit.WebhookEvent)
 		if s.targets[participant.UserID] == channelID {
 			delete(s.targets, participant.UserID)
 		}
+		s.revision++
 		s.mu.Unlock()
 		return true
 	case webhook.EventRoomFinished:
@@ -307,6 +319,7 @@ func (s *Service) ApplyWebhook(ctx context.Context, event *livekit.WebhookEvent)
 			}
 		}
 		delete(s.rooms, channelID)
+		s.revision++
 		s.mu.Unlock()
 		return true
 	default:
@@ -363,4 +376,55 @@ func voiceParticipant(info *livekit.ParticipantInfo) (VoiceParticipant, bool) {
 		joinedAt = info.JoinedAt * 1000
 	}
 	return VoiceParticipant{UserID: userID, Identity: info.Identity, Name: info.Name, JoinedAt: joinedAt}, true
+}
+
+func (s *Service) snapshotRevision() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.revision
+}
+
+func (s *Service) replaceSnapshot(revision uint64, rooms map[int64]map[int64]VoiceParticipant, targets map[int64]int64) (bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.revision != revision {
+		return false, false
+	}
+	changed := !voiceRoomMapsEqual(s.rooms, rooms)
+	if changed || !targetMapsEqual(s.targets, targets) {
+		s.rooms = rooms
+		s.targets = targets
+		s.revision++
+	}
+	return changed, true
+}
+
+func voiceRoomMapsEqual(a, b map[int64]map[int64]VoiceParticipant) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for channelID, aParticipants := range a {
+		bParticipants, ok := b[channelID]
+		if !ok || len(aParticipants) != len(bParticipants) {
+			return false
+		}
+		for userID, participant := range aParticipants {
+			if other, ok := bParticipants[userID]; !ok || participant != other {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func targetMapsEqual(a, b map[int64]int64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for userID, channelID := range a {
+		if other, ok := b[userID]; !ok || channelID != other {
+			return false
+		}
+	}
+	return true
 }
