@@ -178,6 +178,7 @@ select { appearance: auto; }
 .channel-scroll { flex: 1; overflow-y: auto; padding: 12px 8px; }
 .category-heading { height: 28px; display: flex; align-items: center; padding: 0 2px 0 8px; color: var(--faint); font-size: 11px; font-weight: 750; text-transform: uppercase; }
 .channel-row { width: 100%; min-height: 42px; padding: 5px 9px; border: 0; border-radius: 4px; background: transparent; display: flex; align-items: center; gap: 8px; color: var(--muted); text-align: left; cursor: pointer; }
+.voice-channel-block + .voice-channel-block, .channel-scroll > .channel-row + .channel-row { margin-top: 4px; }
 .channel-row:hover { color: var(--text); background: var(--hover); }
 .channel-row.active { color: var(--text); background: var(--row-active-bg); }
 .channel-label { flex: 1; min-width: 0; display: grid; gap: 1px; }
