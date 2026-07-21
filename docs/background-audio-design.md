@@ -307,17 +307,7 @@ interface DesktopApplicationAudioBridge {
 }
 ```
 
-PCM 端口不经过 `contextBridge` 普通回调。preload 使用同源 DOM `postMessage` 向主页面交付一次性端口：
-
-```ts
-window.postMessage({
-  type: 'celery:application-audio:pcm-port',
-  protocol: 1,
-  sessionId,
-}, window.location.origin, [port])
-```
-
-每个采集会话最多交付一个端口。Web 必须校验消息来源为当前 `window`、Origin 为当前页面 Origin、协议版本与当前会话一致且 `MessageEvent.ports` 恰好包含一个端口，然后把端口直接转交给 AudioWorklet；会话不匹配、重复交付或已经停止的端口必须立即关闭。Bridge 不通过普通回调逐块传输 PCM。
+PCM 端口不经过 `contextBridge` 普通回调，具体交付格式见下文“PCM Port 页面事件”。
 
 首版能力名称为：
 
