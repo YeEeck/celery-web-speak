@@ -6,6 +6,7 @@ const adminPassword = process.env.E2E_PASSWORD ?? 'admin-password-123'
 
 test('成员列表实时反映多连接关闭与异常断网', async ({ browser, isMobile, page, request }, testInfo) => {
   test.skip(isMobile, '成员状态生命周期只需在一个浏览器项目中验证')
+  test.setTimeout(75_000)
 
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
   const suffix = `${Date.now().toString(36)}_${testInfo.project.name}`.replace(/[^a-z0-9_-]/g, '_')
@@ -25,33 +26,33 @@ test('成员列表实时反映多连接关闭与异常断网', async ({ browser,
     const second = await openLoggedInContext(browser, account)
     targetContexts.push(first.context, second.context)
 
-    await expect(onlineMember(page, account.displayName)).toBeVisible()
+    await expect(onlineMember(page, account.username)).toBeVisible()
     await first.context.close()
     targetContexts.splice(targetContexts.indexOf(first.context), 1)
-    await expect(onlineMember(page, account.displayName)).toBeVisible()
+    await expect(onlineMember(page, account.username)).toBeVisible()
 
     await second.context.close()
     targetContexts.splice(targetContexts.indexOf(second.context), 1)
-    await expect(offlineMember(page, account.displayName)).toBeVisible({ timeout: 5_000 })
+    await expect(offlineMember(page, account.username)).toBeVisible({ timeout: 5_000 })
 
     const reconnecting = await openLoggedInContext(browser, account)
     targetContexts.push(reconnecting.context)
-    await expect(onlineMember(page, account.displayName)).toBeVisible()
+    await expect(onlineMember(page, account.username)).toBeVisible()
 
     await reconnecting.context.setOffline(true)
     await page.waitForTimeout(8_000)
-    await expect(onlineMember(page, account.displayName)).toBeVisible()
+    await expect(onlineMember(page, account.username)).toBeVisible()
     await reconnecting.context.setOffline(false)
     await expect(reconnecting.page.getByText('实时连接正常', { exact: true })).toBeVisible({ timeout: 8_000 })
-    await expect(onlineMember(page, account.displayName)).toBeVisible()
+    await expect(onlineMember(page, account.username)).toBeVisible()
 
     await reconnecting.context.setOffline(true)
-    await expect(offlineMember(page, account.displayName)).toBeVisible({ timeout: 20_000 })
+    await expect(offlineMember(page, account.username)).toBeVisible({ timeout: 20_000 })
     await reconnecting.context.setOffline(false)
     await expect(reconnecting.page.getByText('实时连接正常', { exact: true })).toBeVisible({ timeout: 8_000 })
-    await expect(onlineMember(page, account.displayName)).toBeVisible()
+    await expect(onlineMember(page, account.username)).toBeVisible()
   } finally {
-    await Promise.all(targetContexts.map((context) => context.close()))
+    await Promise.allSettled(targetContexts.map((context) => context.close()))
     await request.delete(`/api/admin/users/${accountID}`, { data: { username: account.username } })
   }
 })
@@ -71,12 +72,12 @@ async function openLoggedInContext(browser: Browser, account: { username: string
   return { context, page }
 }
 
-function onlineMember(page: Page, displayName: string) {
-  return memberSection(page, /^在线/).locator('.member-row').filter({ hasText: displayName })
+function onlineMember(page: Page, username: string) {
+  return memberSection(page, /^在线/).locator('.member-row').filter({ has: page.getByText(`@${username}`, { exact: true }) })
 }
 
-function offlineMember(page: Page, displayName: string) {
-  return memberSection(page, /^离线/).locator('.member-row').filter({ hasText: displayName })
+function offlineMember(page: Page, username: string) {
+  return memberSection(page, /^离线/).locator('.member-row').filter({ has: page.getByText(`@${username}`, { exact: true }) })
 }
 
 function memberSection(page: Page, heading: RegExp) {
