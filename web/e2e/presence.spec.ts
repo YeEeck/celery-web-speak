@@ -60,29 +60,37 @@ test('成员列表实时反映多连接关闭与异常断网', async ({ browser,
 test('业务连接恢复后同步断线期间的频道和消息', async ({ isMobile, page, request }) => {
   test.skip(isMobile, '业务状态恢复只需在一个浏览器项目中验证')
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
-  await login(page, adminUsername, adminPassword)
+  const suffix = Date.now().toString(36)
+  const account = { username: `sync_${suffix}`, displayName: `同步测试${suffix.slice(-4)}`, password: 'sync-member-password' }
+  const accountResponse = await request.post('/api/admin/users', { data: { ...account, role: 'member' } })
+  expect(accountResponse.ok()).toBeTruthy()
+  const accountID = (await accountResponse.json() as { user: { id: number } }).user.id
+  await login(page, account.username, account.password)
   const channelName = `恢复频道${Date.now().toString(36).slice(-5)}`
   const message = `断线恢复检查 ${Date.now()}`
   let channelID = 0
 
   try {
-    await page.context().setOffline(true)
-    await expect(page.getByText('连接已断开', { exact: true })).toBeVisible({ timeout: 8_000 })
+    await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
+    await expect.poll(async () => {
+      const bootstrap = await (await request.get('/api/bootstrap')).json() as { onlineIds: number[] }
+      return bootstrap.onlineIds.includes(accountID)
+    }).toBe(false)
     const channelResponse = await request.post('/api/channels', { data: { type: 'text', name: channelName } })
     expect(channelResponse.ok()).toBeTruthy()
     channelID = (await channelResponse.json() as { channel: { id: number } }).channel.id
     const messageResponse = await request.post(`/api/channels/${channelID}/messages`, { data: { content: message } })
     expect(messageResponse.ok()).toBeTruthy()
 
-    await page.context().setOffline(false)
+    await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
     await expect(page.getByText('实时连接正常', { exact: true })).toBeVisible({ timeout: 12_000 })
     const channelButton = page.getByRole('button', { name: new RegExp(channelName) })
     await expect(channelButton).toBeVisible()
     await channelButton.click()
     await expect(page.getByText(message, { exact: true })).toBeVisible()
   } finally {
-    await page.context().setOffline(false)
     if (channelID) await request.delete(`/api/channels/${channelID}`)
+    await request.delete(`/api/admin/users/${accountID}`, { data: { username: account.username } })
   }
 })
 
