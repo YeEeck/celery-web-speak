@@ -304,8 +304,20 @@ interface DesktopApplicationAudioBridge {
   resume(sessionId: string): Promise<ApplicationAudioSnapshot>
   stop(sessionId: string): Promise<ApplicationAudioSnapshot>
   subscribe(listener: (event: ApplicationAudioEvent) => void): () => void
+  onPcmPort(listener: (event: ApplicationAudioPcmPortEvent) => void): () => void
 }
 ```
+
+PCM 端口事件只包含当前会话标识与一个可转移的 DOM `MessagePort`：
+
+```ts
+interface ApplicationAudioPcmPortEvent {
+  sessionId: string
+  port: MessagePort
+}
+```
+
+每个采集会话最多交付一个端口。Web 必须在订阅快照的同时订阅端口，并把端口直接转交给 AudioWorklet；会话不匹配、重复交付或已经停止的端口必须立即关闭。Bridge 不通过普通回调逐块传输 PCM。
 
 首版能力名称为：
 
