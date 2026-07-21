@@ -21,6 +21,7 @@ type client struct {
 	send       chan []byte
 	presence   chan []byte
 	done       chan struct{}
+	doneOnce   sync.Once
 	lastActive atomic.Int64
 }
 
@@ -64,6 +65,10 @@ func (c *client) touch(now time.Time) {
 	c.lastActive.Store(now.UnixNano())
 }
 
+func (c *client) stop() {
+	c.doneOnce.Do(func() { close(c.done) })
+}
+
 func (h *Hub) register(c *client) {
 	c.touch(h.now())
 	h.mu.Lock()
@@ -80,7 +85,7 @@ func (h *Hub) unregister(c *client, graceful bool) {
 		return
 	}
 	delete(h.clients, c)
-	close(c.done)
+	c.stop()
 	h.mu.Unlock()
 
 	if graceful {
@@ -167,7 +172,7 @@ func (h *Hub) Broadcast(eventType string, data any) {
 		select {
 		case c.send <- payload:
 		default:
-			// The connection writer closes clients that cannot keep up.
+			c.stop()
 		}
 	}
 }

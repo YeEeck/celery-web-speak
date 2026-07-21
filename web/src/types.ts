@@ -37,6 +37,7 @@ export interface Channel {
 export interface ChannelReadState {
 	channelId: number
 	lastReadMessageId: number
+	latestMessageId: number
 	unreadCount: number
 }
 

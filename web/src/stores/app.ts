@@ -5,6 +5,7 @@ import type { BootstrapData, Channel, ChannelReadState, Message, User, VoiceRoom
 import { useSoundStore } from './sounds'
 
 type AuthPayload = { user: User }
+type SocketEvent = { type: string; data: unknown }
 
 interface MessageState {
   messages: Message[]
@@ -29,6 +30,9 @@ export const useAppStore = defineStore('app', () => {
   let socket: WebSocket | null = null
   let reconnectTimer: number | undefined
   let pageLifecycleInstalled = false
+  let synchronizingSocket: WebSocket | null = null
+  let socketActivityVersion = 0
+  const messageLoadVersions = new Map<number, number>()
 
   const isAdmin = computed(() => user.value?.role === 'channel_admin' || user.value?.role === 'server_admin')
   const isServerAdmin = computed(() => user.value?.role === 'server_admin')
@@ -54,15 +58,28 @@ export const useAppStore = defineStore('app', () => {
 
   async function bootstrap() {
     const data = await request<BootstrapData>('/api/bootstrap')
+    applyBootstrap(data)
+    if (!socket) connectSocket()
+  }
+
+  function applyBootstrap(data: BootstrapData, invalidateMessages = false) {
+    const previousChannelIDs = new Set(channels.value.map((channel) => channel.id))
     user.value = data.user
     users.value = data.users
     channels.value = Array.isArray(data.channels) ? data.channels : []
     voiceRooms.value = Array.isArray(data.voiceRooms) ? data.voiceRooms : []
     channelReadStates.value = Object.fromEntries((data.channelReadStates ?? []).map((state) => [state.channelId, state]))
     onlineIds.value = data.onlineIds ?? []
+    const currentChannelIDs = new Set(channels.value.map((channel) => channel.id))
+    previousChannelIDs.forEach((channelID) => {
+      if (!currentChannelIDs.has(channelID)) clearChannelState(channelID)
+    })
     normalizeChannelState()
-    textChannels.value.forEach((channel) => trimMessagesToRetention(channel.id))
-    if (!socket) connectSocket()
+    textChannels.value.forEach((channel) => {
+      const state = ensureMessageState(channel.id)
+      if (invalidateMessages) state.loaded = false
+      trimMessagesToRetention(channel.id)
+    })
   }
 
   async function login(username: string, password: string) {
@@ -105,16 +122,19 @@ export const useAppStore = defineStore('app', () => {
 
   async function loadChannelMessages(channelId: number, force = false) {
     const state = ensureMessageState(channelId)
-    if ((state.loaded && !force) || state.loading) return
+    if ((state.loaded && !force) || (state.loading && !force)) return
+    const loadVersion = (messageLoadVersions.get(channelId) ?? 0) + 1
+    messageLoadVersions.set(channelId, loadVersion)
     state.loading = true
     try {
       const payload = await request<{ messages: Message[]; hasMore: boolean }>(`/api/channels/${channelId}/messages?limit=50`)
+      if (messageLoadVersions.get(channelId) !== loadVersion) return
       state.messages = payload.messages
       state.hasEarlier = payload.hasMore
       state.loaded = true
       trimMessagesToRetention(channelId)
     } finally {
-      state.loading = false
+      if (messageLoadVersions.get(channelId) === loadVersion) state.loading = false
     }
   }
 
@@ -193,20 +213,59 @@ export const useAppStore = defineStore('app', () => {
     if (!user.value) return
     socketStatus.value = 'connecting'
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    socket = new WebSocket(`${protocol}//${location.host}/api/ws`)
-    socket.onopen = () => { socketStatus.value = 'online' }
-    socket.onmessage = (messageEvent) => {
-      const event = JSON.parse(messageEvent.data) as { type: string; data: unknown }
+    const connection = new WebSocket(`${protocol}//${location.host}/api/ws`)
+    socket = connection
+    connection.onopen = () => {
+      synchronizingSocket = connection
+      socketActivityVersion = 0
+      void synchronizeSocket(connection)
+    }
+    connection.onmessage = (messageEvent) => {
+      const event = JSON.parse(messageEvent.data) as SocketEvent
+      if (synchronizingSocket === connection) {
+        socketActivityVersion += 1
+        return
+      }
       handleEvent(event.type, event.data)
     }
-    socket.onclose = (event) => {
+    connection.onclose = (event) => {
+      if (socket !== connection) return
       socket = null
+      if (synchronizingSocket === connection) synchronizingSocket = null
       socketStatus.value = 'offline'
       if (event.code === 1008) {
         user.value = null
         return
       }
       if (user.value) reconnectTimer = window.setTimeout(connectSocket, 2500)
+    }
+  }
+
+  async function synchronizeSocket(connection: WebSocket) {
+    try {
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const activityVersion = socketActivityVersion
+        const data = await request<BootstrapData>('/api/bootstrap')
+        if (socket !== connection) return
+        if (socketActivityVersion !== activityVersion) continue
+        applyBootstrap(data, true)
+        const channelId = activeTextChannelId.value
+        if (channelId !== null) await loadChannelMessages(channelId, true)
+        if (socket !== connection) return
+        if (socketActivityVersion !== activityVersion) continue
+        synchronizingSocket = null
+        socketStatus.value = 'online'
+        return
+      }
+      connection.close(1012, 'state synchronization busy')
+    } catch (error) {
+      synchronizingSocket = null
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+        user.value = null
+        connection.close(1008, 'session revoked')
+        return
+      }
+      if (socket === connection) connection.close(1012, 'state synchronization failed')
     }
   }
 
@@ -218,6 +277,7 @@ export const useAppStore = defineStore('app', () => {
       socket.close()
     }
     socket = null
+    synchronizingSocket = null
     socketStatus.value = 'offline'
   }
 
@@ -238,6 +298,7 @@ export const useAppStore = defineStore('app', () => {
       }
     }
     socket = null
+    synchronizingSocket = null
     socketStatus.value = 'offline'
   }
 
@@ -251,12 +312,14 @@ export const useAppStore = defineStore('app', () => {
     } else if (type === 'message_created') {
       const message = data as Message
       const state = ensureMessageState(message.channelId)
+      const readState = ensureReadState(message.channelId)
+      if (message.id <= readState.latestMessageId) return
       if (state.loaded && !state.messages.some((item) => item.id === message.id)) {
         state.messages.push(message)
         trimMessagesToRetention(message.channelId)
       }
-      const readState = ensureReadState(message.channelId)
       if (message.id > readState.lastReadMessageId) readState.unreadCount += 1
+      readState.latestMessageId = message.id
       if (message.channelId === activeTextChannelId.value && message.userId !== user.value?.id) useSoundStore().play('message')
     } else if (type === 'message_deleted') {
       const payload = data as { channelId?: number; id: number }
@@ -301,13 +364,18 @@ export const useAppStore = defineStore('app', () => {
 
   function removeChannel(channelId: number) {
     channels.value = channels.value.filter((channel) => channel.id !== channelId)
+    clearChannelState(channelId)
+    normalizeChannelState()
+  }
+
+  function clearChannelState(channelId: number) {
     delete messageStates.value[channelId]
     delete channelReadStates.value[channelId]
+    messageLoadVersions.delete(channelId)
     voiceRooms.value = voiceRooms.value.filter((room) => room.channelId !== channelId)
     localStorage.removeItem(`cws.channelDraft.${channelId}`)
     localStorage.removeItem(`cws.channelScroll.${channelId}`)
     localStorage.removeItem(`cws.channelAtBottom.${channelId}`)
-    normalizeChannelState()
   }
 
   function normalizeChannelState() {
@@ -327,15 +395,13 @@ export const useAppStore = defineStore('app', () => {
 
   function ensureReadState(channelId: number): ChannelReadState {
     if (!channelReadStates.value[channelId]) {
-      channelReadStates.value[channelId] = { channelId, lastReadMessageId: 0, unreadCount: 0 }
+      channelReadStates.value[channelId] = { channelId, lastReadMessageId: 0, latestMessageId: 0, unreadCount: 0 }
     }
     return channelReadStates.value[channelId]
   }
 
   function applyReadState(readState: ChannelReadState) {
-    const state = ensureMessageState(readState.channelId)
-    const unreadCount = state.messages.filter((message) => message.id > readState.lastReadMessageId).length
-    channelReadStates.value[readState.channelId] = { ...readState, unreadCount }
+    channelReadStates.value[readState.channelId] = readState
   }
 
   function trimMessagesToRetention(channelId: number) {

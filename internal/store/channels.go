@@ -182,7 +182,7 @@ FROM channels WHERE id = ?`, channelID))
 
 func (s *Store) ListChannelReadStates(ctx context.Context, userID int64) ([]ChannelReadState, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT c.id, COALESCE(rs.last_read_message_id, 0), COUNT(m.id)
+SELECT c.id, COALESCE(rs.last_read_message_id, 0), COALESCE(MAX(m.id), 0), COUNT(m.id)
 FROM channels c
 LEFT JOIN channel_read_states rs ON rs.channel_id = c.id AND rs.user_id = ?
 LEFT JOIN messages m ON m.channel_id = c.id AND m.id > COALESCE(rs.last_read_message_id, 0)
@@ -196,7 +196,7 @@ ORDER BY c.id`, userID)
 	states := make([]ChannelReadState, 0)
 	for rows.Next() {
 		var state ChannelReadState
-		if err := rows.Scan(&state.ChannelID, &state.LastReadMessageID, &state.UnreadCount); err != nil {
+		if err := rows.Scan(&state.ChannelID, &state.LastReadMessageID, &state.LatestMessageID, &state.UnreadCount); err != nil {
 			return nil, err
 		}
 		states = append(states, state)
@@ -229,7 +229,7 @@ ON CONFLICT(user_id, channel_id) DO UPDATE SET
 	if err != nil {
 		return ChannelReadState{}, err
 	}
-	return ChannelReadState{ChannelID: channelID, LastReadMessageID: latestID, UnreadCount: 0}, nil
+	return ChannelReadState{ChannelID: channelID, LastReadMessageID: latestID, LatestMessageID: latestID, UnreadCount: 0}, nil
 }
 
 func validChannelType(channelType ChannelType) bool {

@@ -51,6 +51,7 @@ type Channel struct {
 type ChannelReadState struct {
 	ChannelID         int64 `json:"channelId"`
 	LastReadMessageID int64 `json:"lastReadMessageId"`
+	LatestMessageID   int64 `json:"latestMessageId"`
 	UnreadCount       int   `json:"unreadCount"`
 }
 

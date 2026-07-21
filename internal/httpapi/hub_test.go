@@ -87,6 +87,23 @@ func TestHubPresenceSnapshotReplacesPendingValue(t *testing.T) {
 	assertPresenceSnapshot(t, observer, []int64{1, 2, 3})
 }
 
+func TestHubOrdinaryQueueOverflowStopsClient(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	client := newClient(store.User{ID: 5})
+	hub.register(client)
+	for range cap(client.send) {
+		client.send <- []byte(`{"type":"message_created"}`)
+	}
+
+	hub.Broadcast("channel_created", map[string]any{"id": 9})
+
+	select {
+	case <-client.done:
+	case <-time.After(time.Second):
+		t.Fatal("overflowed client was not stopped")
+	}
+}
+
 func TestHubPeriodicallyRebroadcastsPresence(t *testing.T) {
 	hub := newHub(15 * time.Second)
 	client := newClient(store.User{ID: 4})

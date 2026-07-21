@@ -359,14 +359,14 @@ func TestChannelsIsolateMessagesRetentionAndReadState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(states) != 2 || states[0].UnreadCount != 100 || states[1].UnreadCount != 1 {
+	if len(states) != 2 || states[0].UnreadCount != 100 || states[0].LatestMessageID != firstMessages[len(firstMessages)-1].ID || states[1].UnreadCount != 1 || states[1].LatestMessageID != secondMessage.ID {
 		t.Fatalf("initial read states = %+v", states)
 	}
 	state, err := db.MarkChannelRead(ctx, admin.ID, firstText.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if state.UnreadCount != 0 || state.LastReadMessageID != firstMessages[len(firstMessages)-1].ID {
+	if state.UnreadCount != 0 || state.LastReadMessageID != firstMessages[len(firstMessages)-1].ID || state.LatestMessageID != state.LastReadMessageID {
 		t.Fatalf("marked read state = %+v", state)
 	}
 	states, err = db.ListChannelReadStates(ctx, admin.ID)

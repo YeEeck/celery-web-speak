@@ -69,6 +69,7 @@ func (s *Server) writeWebSocket(conn *websocket.Conn, c *client) {
 	for {
 		select {
 		case <-c.done:
+			_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "event queue overflow"))
 			return
 		case payload := <-c.presence:
 			if !writeWebSocketMessage(conn, payload) {
