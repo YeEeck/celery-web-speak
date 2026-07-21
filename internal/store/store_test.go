@@ -418,6 +418,40 @@ func TestChannelLifecycleProtectsLastTypeAndCascadesMessages(t *testing.T) {
 	}
 }
 
+func TestClearTemporaryBanPreservesChannelReadState(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	member, err := db.CreateUser(ctx, "read_state_member", "已读状态成员", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	channel, err := db.FirstChannel(ctx, ChannelTypeText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message, err := db.CreateChannelMessage(ctx, channel.ID, admin, "封禁前已读")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.MarkChannelRead(ctx, member.ID, channel.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTemporaryBan(ctx, admin.ID, member.ID, time.Now().Add(time.Hour), "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ClearTemporaryBan(ctx, admin.ID, member.ID); err != nil {
+		t.Fatal(err)
+	}
+	states, err := db.ListChannelReadStates(ctx, member.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(states) != 1 || states[0].LastReadMessageID != message.ID || states[0].UnreadCount != 0 {
+		t.Fatalf("read states after clearing temporary ban = %+v", states)
+	}
+}
+
 func TestLegacyMessageMigrationPreservesAccountsAndDropsMessages(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy-channels.db")
 	db, err := Open(path)
@@ -509,6 +543,13 @@ func TestDeleteUserAnonymizesAccountAndPreservesHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	channel, err := db.FirstChannel(ctx, ChannelTypeText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.MarkChannelRead(ctx, target.ID, channel.ID); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.SetTemporaryBan(ctx, admin.ID, target.ID, time.Now().Add(30*time.Minute), "delete test"); err != nil {
 		t.Fatal(err)
 	}
@@ -536,12 +577,18 @@ func TestDeleteUserAnonymizesAccountAndPreservesHistory(t *testing.T) {
 	if _, err := db.UserBySession(ctx, token); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("session after delete error = %v, want ErrNotFound", err)
 	}
-	var sessionCount int
+	var sessionCount, readStateCount int
 	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions WHERE user_id = ?", target.ID).Scan(&sessionCount); err != nil {
 		t.Fatal(err)
 	}
 	if sessionCount != 0 {
 		t.Fatalf("session count after delete = %d, want 0", sessionCount)
+	}
+	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM channel_read_states WHERE user_id = ?", target.ID).Scan(&readStateCount); err != nil {
+		t.Fatal(err)
+	}
+	if readStateCount != 0 {
+		t.Fatalf("read state count after delete = %d, want 0", readStateCount)
 	}
 	if err := db.DeleteUser(ctx, admin.ID, target.ID, target.Username); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second delete error = %v, want ErrNotFound", err)

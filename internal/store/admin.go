@@ -168,9 +168,6 @@ func (s *Store) ClearTemporaryBan(ctx context.Context, actorID, userID int64) er
 	if _, err := tx.ExecContext(ctx, "DELETE FROM temporary_bans WHERE user_id = ?", userID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM channel_read_states WHERE user_id = ?", userID); err != nil {
-		return err
-	}
 	if err := insertAudit(ctx, tx, actorID, &userID, "clear_temporary_ban", ""); err != nil {
 		return err
 	}
@@ -255,6 +252,9 @@ WHERE id = ? AND deleted_at IS NULL`, deletedUsername, formatTime(now), formatTi
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM temporary_bans WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM channel_read_states WHERE user_id = ?", userID); err != nil {
 		return err
 	}
 	details := fmt.Sprintf("username=%q deleted_at=%s", username, formatTime(now))

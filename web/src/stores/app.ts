@@ -318,7 +318,10 @@ export const useAppStore = defineStore('app', () => {
         state.messages.push(message)
         trimMessagesToRetention(message.channelId)
       }
-      if (message.id > readState.lastReadMessageId) readState.unreadCount += 1
+      if (message.id > readState.lastReadMessageId) {
+        const retention = channels.value.find((channel) => channel.id === message.channelId)?.messageRetention ?? 500
+        readState.unreadCount = Math.min(readState.unreadCount + 1, retention)
+      }
       readState.latestMessageId = message.id
       if (message.channelId === activeTextChannelId.value && message.userId !== user.value?.id) useSoundStore().play('message')
     } else if (type === 'message_deleted') {
@@ -357,7 +360,9 @@ export const useAppStore = defineStore('app', () => {
     channels.value.sort((a, b) => a.id - b.id)
     if (channel.type === 'text') {
       ensureMessageState(channel.id)
-      ensureReadState(channel.id)
+      const readState = ensureReadState(channel.id)
+      readState.unreadCount = Math.min(readState.unreadCount, channel.messageRetention ?? 500)
+      trimMessagesToRetention(channel.id)
     }
     normalizeChannelState()
   }
