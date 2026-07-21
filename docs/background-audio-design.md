@@ -463,6 +463,7 @@ LiveKit 不转码或服务端混音，服务器 CPU 主要增加包转发。多�
 
 - 扩展 LiveKit Token 与动态禁言来源。
 - 实现背景音 Web 状态机、AudioWorklet、发送增益和 publication。
+- AudioWorklet 模块必须作为同源静态资源发布，禁止被构建工具内联为 `data:` URL；发布验收需要检查产物中存在独立 worklet 文件。
 - 扩展远端音量、音乐状态与麦克风说话检测。
 - 完成无 Bridge 环境的隐藏与回归测试。
 
