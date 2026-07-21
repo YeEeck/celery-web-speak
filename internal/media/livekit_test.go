@@ -2,7 +2,9 @@ package media
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/webhook"
@@ -58,20 +60,20 @@ func TestReplaceSnapshotDetectsChangesAndRejectsStaleRefresh(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
 	participant := VoiceParticipant{UserID: 12, Identity: Identity(12), Name: "测试成员", JoinedAt: 1234}
 	rooms := map[int64]map[int64]VoiceParticipant{7: {12: participant}}
-	targets := map[int64]int64{12: 7}
+	targets := map[int64]voiceTarget{12: {ChannelID: 7, ExpiresAt: time.Now().Add(time.Minute)}}
 
-	revision := service.snapshotRevision()
+	revision, _ := service.snapshotState()
 	changed, applied := service.replaceSnapshot(revision, rooms, targets)
 	if !changed || !applied {
 		t.Fatalf("initial replace = changed %t, applied %t", changed, applied)
 	}
-	revision = service.snapshotRevision()
+	revision, _ = service.snapshotState()
 	changed, applied = service.replaceSnapshot(revision, rooms, targets)
 	if changed || !applied {
 		t.Fatalf("identical replace = changed %t, applied %t", changed, applied)
 	}
 
-	staleRevision := service.snapshotRevision()
+	staleRevision, _ := service.snapshotState()
 	service.ApplyWebhook(context.Background(), &livekit.WebhookEvent{
 		Event: webhook.EventParticipantLeft,
 		Room:  &livekit.Room{Name: RoomName(7)},
@@ -85,5 +87,63 @@ func TestReplaceSnapshotDetectsChangesAndRejectsStaleRefresh(t *testing.T) {
 	}
 	if got := service.VoiceRooms(); len(got) != 1 || len(got[0].Participants) != 0 {
 		t.Fatalf("stale replace overwrote webhook state: %+v", got)
+	}
+}
+
+func TestLatestIssuedVoiceTokenRejectsDelayedOlderJoin(t *testing.T) {
+	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	now := time.Date(2026, time.July, 21, 3, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	newGeneration := uint64(now.UnixNano())
+	oldGeneration := newGeneration - 1
+	service.targets[12] = voiceTarget{ChannelID: 8, Generation: newGeneration, ExpiresAt: now.Add(voiceTokenTTL)}
+
+	oldJoin := participantEvent(webhook.EventParticipantJoined, 7, 12, oldGeneration)
+	if service.ApplyWebhook(context.Background(), oldJoin) {
+		t.Fatal("delayed old token changed the room snapshot")
+	}
+	if rooms := service.VoiceRooms(); len(rooms) != 0 {
+		t.Fatalf("old token participant remained in snapshot: %+v", rooms)
+	}
+
+	newJoin := participantEvent(webhook.EventParticipantJoined, 8, 12, newGeneration)
+	if !service.ApplyWebhook(context.Background(), newJoin) {
+		t.Fatal("latest token did not join its target room")
+	}
+	if service.ApplyWebhook(context.Background(), oldJoin) {
+		t.Fatal("old token replaced the latest connected participant")
+	}
+	rooms := service.VoiceRooms()
+	if len(rooms) != 1 || rooms[0].ChannelID != 8 || len(rooms[0].Participants) != 1 {
+		t.Fatalf("rooms after delayed old join = %+v", rooms)
+	}
+}
+
+func TestDeleteRoomsExceptRemovesOrphanSnapshotAfterAPIFailure(t *testing.T) {
+	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	if !service.ApplyWebhook(context.Background(), participantEvent(webhook.EventParticipantJoined, 99, 12, 0)) {
+		t.Fatal("orphan participant did not enter snapshot")
+	}
+	changed, err := service.DeleteRoomsExcept(context.Background(), map[int64]struct{}{7: {}})
+	if !changed || err == nil {
+		t.Fatalf("prune result = changed %t, error %v; want changed with API error", changed, err)
+	}
+	if rooms := service.VoiceRooms(); len(rooms) != 0 {
+		t.Fatalf("orphan room remained in snapshot: %+v", rooms)
+	}
+}
+
+func participantEvent(event string, channelID, userID int64, generation uint64) *livekit.WebhookEvent {
+	return &livekit.WebhookEvent{
+		Event: event,
+		Room:  &livekit.Room{Name: RoomName(channelID)},
+		Participant: &livekit.ParticipantInfo{
+			Identity: Identity(userID),
+			Name:     "测试成员",
+			Attributes: map[string]string{
+				"user_id":                fmt.Sprint(userID),
+				VoiceGenerationAttribute: fmt.Sprint(generation),
+			},
+		},
 	}
 }

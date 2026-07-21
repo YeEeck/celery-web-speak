@@ -50,9 +50,7 @@ func New(cfg config.Config, db *store.Store, mediaService *media.Service, logger
 		CheckOrigin:      s.checkOrigin,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	if _, err := mediaService.Refresh(ctx); err != nil {
-		logger.Warn("refresh livekit rooms", "error", err)
-	}
+	s.reconcileVoiceRooms(ctx, "startup")
 	cancel()
 	return s
 }
