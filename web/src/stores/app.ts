@@ -28,6 +28,7 @@ export const useAppStore = defineStore('app', () => {
   const socketStatus = ref<'offline' | 'connecting' | 'online'>('offline')
   let socket: WebSocket | null = null
   let reconnectTimer: number | undefined
+  let pageLifecycleInstalled = false
 
   const isAdmin = computed(() => user.value?.role === 'channel_admin' || user.value?.role === 'server_admin')
   const isServerAdmin = computed(() => user.value?.role === 'server_admin')
@@ -41,6 +42,7 @@ export const useAppStore = defineStore('app', () => {
   const activeUnreadCount = computed(() => activeTextChannelId.value === null ? 0 : channelReadStates.value[activeTextChannelId.value]?.unreadCount ?? 0)
 
   async function initialize() {
+    installPageLifecycle()
     try {
       await bootstrap()
     } catch (error) {
@@ -217,6 +219,30 @@ export const useAppStore = defineStore('app', () => {
     }
     socket = null
     socketStatus.value = 'offline'
+  }
+
+  function installPageLifecycle() {
+    if (pageLifecycleInstalled) return
+    pageLifecycleInstalled = true
+    window.addEventListener('pagehide', closeSocketForPageExit)
+    window.addEventListener('pageshow', reconnectSocketAfterRestore)
+  }
+
+  function closeSocketForPageExit() {
+    if (reconnectTimer) window.clearTimeout(reconnectTimer)
+    reconnectTimer = undefined
+    if (socket) {
+      socket.onclose = null
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close(1000, 'page closed')
+      }
+    }
+    socket = null
+    socketStatus.value = 'offline'
+  }
+
+  function reconnectSocketAfterRestore() {
+    if (user.value && !socket) connectSocket()
   }
 
   function handleEvent(type: string, data: unknown) {
