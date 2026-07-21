@@ -49,7 +49,6 @@ export interface DesktopApplicationAudioBridge {
   resume(sessionId: string): Promise<ApplicationAudioSnapshot>
   stop(sessionId: string): Promise<ApplicationAudioSnapshot>
   onSnapshot(listener: (snapshot: ApplicationAudioSnapshot) => void): () => void
-  onPcmPort(listener: (event: ApplicationAudioPcmPortEvent) => void): () => void
 }
 
 export async function connectApplicationAudioBridge(): Promise<{
@@ -76,14 +75,26 @@ export function isApplicationAudioSnapshot(value: unknown): value is Application
   return isSnapshot(value)
 }
 
-export function isApplicationAudioPcmPortEvent(value: unknown): value is ApplicationAudioPcmPortEvent {
-  if (!isRecord(value) || typeof value.sessionId !== 'string' || !value.sessionId) return false
-  return typeof MessagePort !== 'undefined' && value.port instanceof MessagePort
+export function onApplicationAudioPcmPort(
+  listener: (event: ApplicationAudioPcmPortEvent) => void,
+) {
+  const handleMessage = (event: MessageEvent) => {
+    if (event.source !== window || event.origin !== window.location.origin || event.ports.length !== 1) return
+    if (!isRecord(event.data)) return
+    if (event.data.type !== 'celery:application-audio:pcm-port') return
+    if (event.data.protocol !== APPLICATION_AUDIO_PROTOCOL || typeof event.data.sessionId !== 'string' || !event.data.sessionId) {
+      event.ports[0].close()
+      return
+    }
+    listener({ sessionId: event.data.sessionId, port: event.ports[0] })
+  }
+  window.addEventListener('message', handleMessage)
+  return () => window.removeEventListener('message', handleMessage)
 }
 
 function isBridge(value: unknown): value is DesktopApplicationAudioBridge {
   if (!isRecord(value)) return false
-  return ['hello', 'getSnapshot', 'start', 'pause', 'resume', 'stop', 'onSnapshot', 'onPcmPort']
+  return ['hello', 'getSnapshot', 'start', 'pause', 'resume', 'stop', 'onSnapshot']
     .every((method) => typeof value[method] === 'function')
 }
 
