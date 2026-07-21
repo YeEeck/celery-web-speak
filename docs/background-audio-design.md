@@ -354,6 +354,9 @@ Bridge 协商版本一致且 `event.ports.length === 1` 的消息。port 必须�
 
 preload 必须在调用 `start()` 的 Promise 完成前后都允许 port 到达；Web 因此按 `sessionId` 暂存
 至多一个尚未消费的 port。Web 完成 LiveKit 发布后持有该 port，停止、失败、离开频道或页面卸载时关闭。
+创建 AudioWorklet 管线或收到当前 session 快照不代表 port 已附加；只有首个 port 已实际转交给
+AudioWorklet 后，后续同 session port 才能按重复消息关闭。快照、`start()` 返回值与页面
+`MessageEvent` 三者均不得假设固定到达顺序。
 
 ### 初始错误码
 
