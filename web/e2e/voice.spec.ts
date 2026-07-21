@@ -144,6 +144,7 @@ test('同一账号加入新语音频道会断开旧房间连接', async ({ brows
     await expect(contexts[0].page.locator('.voice-connection-panel')).toHaveCount(0, { timeout: 20_000 })
     const switchedPreview = contexts[0].page.locator('.voice-channel-block').filter({ hasText: channelName })
     await expect(switchedPreview.locator('.voice-member-name').filter({ hasText: account.displayName })).toBeVisible({ timeout: 20_000 })
+    await expect(defaultPreview.locator('.voice-member-name').filter({ hasText: account.displayName })).toHaveCount(0, { timeout: 2_000 })
   } finally {
     await Promise.all(contexts.map(({ context }) => context.close()))
     await request.delete(`/api/channels/${channel.id}`)

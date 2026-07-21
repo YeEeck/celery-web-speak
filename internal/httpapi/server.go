@@ -26,14 +26,17 @@ type contextKey int
 const userContextKey contextKey = iota
 
 type Server struct {
-	cfg       config.Config
-	store     *store.Store
-	media     *media.Service
-	hub       *Hub
-	logger    *slog.Logger
-	limiterMu sync.Mutex
-	limits    map[int64][]time.Time
-	upgrader  websocket.Upgrader
+	cfg                   config.Config
+	store                 *store.Store
+	media                 *media.Service
+	hub                   *Hub
+	logger                *slog.Logger
+	limiterMu             sync.Mutex
+	limits                map[int64][]time.Time
+	voiceReconcileMu      sync.Mutex
+	voiceRefreshMu        sync.Mutex
+	voiceRefreshScheduled bool
+	upgrader              websocket.Upgrader
 }
 
 func New(cfg config.Config, db *store.Store, mediaService *media.Service, logger *slog.Logger) *Server {

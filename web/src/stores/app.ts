@@ -15,6 +15,7 @@ interface MessageState {
 }
 
 const ACTIVE_TEXT_CHANNEL_KEY = 'cws.activeTextChannelId'
+const VOICE_ROOMS_REFRESH_DELAY_MS = 350
 
 export const useAppStore = defineStore('app', () => {
   const ready = ref(false)
@@ -32,6 +33,7 @@ export const useAppStore = defineStore('app', () => {
   let pageLifecycleInstalled = false
   let synchronizingSocket: WebSocket | null = null
   let socketActivityVersion = 0
+  let voiceRoomsRefreshTimer: number | undefined
   const messageLoadVersions = new Map<number, number>()
 
   const isAdmin = computed(() => user.value?.role === 'channel_admin' || user.value?.role === 'server_admin')
@@ -272,6 +274,8 @@ export const useAppStore = defineStore('app', () => {
   function stopSocket() {
     if (reconnectTimer) window.clearTimeout(reconnectTimer)
     reconnectTimer = undefined
+    if (voiceRoomsRefreshTimer) window.clearTimeout(voiceRoomsRefreshTimer)
+    voiceRoomsRefreshTimer = undefined
     if (socket) {
       socket.onclose = null
       socket.close()
@@ -304,6 +308,19 @@ export const useAppStore = defineStore('app', () => {
 
   function reconnectSocketAfterRestore() {
     if (user.value && !socket) connectSocket()
+  }
+
+  function requestVoiceRoomsRefresh() {
+    if (voiceRoomsRefreshTimer !== undefined) return
+    voiceRoomsRefreshTimer = window.setTimeout(() => {
+      voiceRoomsRefreshTimer = undefined
+      if (socket?.readyState !== WebSocket.OPEN) return
+      try {
+        socket.send(JSON.stringify({ type: 'refresh_voice_rooms' }))
+      } catch {
+        // The periodic server reconciliation remains the fallback if the socket closes concurrently.
+      }
+    }, VOICE_ROOMS_REFRESH_DELAY_MS)
   }
 
   function handleEvent(type: string, data: unknown) {
@@ -441,7 +458,7 @@ export const useAppStore = defineStore('app', () => {
     ready, user, users, channels, textChannels, voiceChannels, activeTextChannelId, activeTextChannel,
     voiceRooms, messages, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
     channelReadStates, onlineIds, socketStatus, isAdmin, isServerAdmin,
-    initialize, bootstrap, login, register, logout, selectTextChannel, loadChannelMessages,
+    initialize, bootstrap, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh,
     sendMessage, loadEarlier, markActiveChannelRead, updateProfile, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,
   }

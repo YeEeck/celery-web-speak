@@ -8,6 +8,7 @@ import (
 )
 
 const voiceReconcileTimeout = 5 * time.Second
+const voiceEventRefreshDelay = 400 * time.Millisecond
 
 func (s *Server) RunVoiceReconciler(ctx context.Context) {
 	interval := s.cfg.VoiceReconcileInterval
@@ -26,13 +27,18 @@ func (s *Server) RunVoiceReconciler(ctx context.Context) {
 	}
 }
 
-func (s *Server) reconcileVoiceRooms(parent context.Context, source string) {
+func (s *Server) reconcileVoiceRooms(parent context.Context, source string) bool {
+	if !s.voiceReconcileMu.TryLock() {
+		return false
+	}
+	defer s.voiceReconcileMu.Unlock()
+
 	ctx, cancel := context.WithTimeout(parent, voiceReconcileTimeout)
 	defer cancel()
 	channels, err := s.store.ListChannels(ctx)
 	if err != nil {
 		s.logger.Warn("list voice channels for reconciliation", "source", source, "error", err)
-		return
+		return true
 	}
 	validChannels := make(map[int64]struct{})
 	for _, channel := range channels {
@@ -43,7 +49,7 @@ func (s *Server) reconcileVoiceRooms(parent context.Context, source string) {
 	changed, err := s.media.Refresh(ctx)
 	if err != nil {
 		s.logger.Warn("reconcile livekit rooms", "source", source, "error", err)
-		return
+		return true
 	}
 	pruned, pruneErr := s.media.DeleteRoomsExcept(ctx, validChannels)
 	if pruneErr != nil {
@@ -51,7 +57,7 @@ func (s *Server) reconcileVoiceRooms(parent context.Context, source string) {
 	}
 	changed = changed || pruned
 	if !changed {
-		return
+		return true
 	}
 	rooms := s.media.VoiceRooms()
 	participants := 0
@@ -60,4 +66,24 @@ func (s *Server) reconcileVoiceRooms(parent context.Context, source string) {
 	}
 	s.logger.Info("reconciled livekit rooms", "source", source, "rooms", len(rooms), "participants", participants)
 	s.hub.Broadcast("voice_rooms", rooms)
+	return true
+}
+
+func (s *Server) scheduleVoiceRoomRefresh(source string) {
+	s.voiceRefreshMu.Lock()
+	if s.voiceRefreshScheduled {
+		s.voiceRefreshMu.Unlock()
+		return
+	}
+	s.voiceRefreshScheduled = true
+	s.voiceRefreshMu.Unlock()
+
+	time.AfterFunc(voiceEventRefreshDelay, func() {
+		s.voiceRefreshMu.Lock()
+		s.voiceRefreshScheduled = false
+		s.voiceRefreshMu.Unlock()
+		if !s.reconcileVoiceRooms(context.Background(), source) {
+			s.scheduleVoiceRoomRefresh(source)
+		}
+	})
 }

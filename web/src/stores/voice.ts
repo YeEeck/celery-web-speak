@@ -164,6 +164,7 @@ export const useVoiceStore = defineStore('voice', () => {
       syncParticipants()
       participantSoundsReady = true
       useSoundStore().play('join')
+      app.requestVoiceRoomsRefresh()
     } catch (error) {
       participantSoundsReady = false
       room?.disconnect()
@@ -176,6 +177,8 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   async function leave() {
+    const app = useAppStore()
+    const wasJoined = room !== null
     await stopApplicationAudio()
     voiceSession += 1
     participantSoundsReady = false
@@ -194,6 +197,7 @@ export const useVoiceStore = defineStore('voice', () => {
     deafenedSyncError.value = ''
     microphoneActivity.destroy()
     useSoundStore().setSuppressed(false)
+    if (wasJoined) app.requestVoiceRoomsRefresh()
   }
 
   async function toggleMute() {
@@ -394,6 +398,7 @@ export const useVoiceStore = defineStore('voice', () => {
         syncParticipants()
         queueDeafenedSync(deafened.value)
         participantSoundsReady = true
+        useAppStore().requestVoiceRoomsRefresh()
       })
       .on(RoomEvent.Disconnected, () => {
         if (room === target) {
@@ -411,6 +416,7 @@ export const useVoiceStore = defineStore('voice', () => {
           deafenedSyncError.value = ''
           microphoneActivity.destroy()
           useSoundStore().setSuppressed(false)
+          useAppStore().requestVoiceRoomsRefresh()
         }
       })
   }
@@ -418,6 +424,7 @@ export const useVoiceStore = defineStore('voice', () => {
   function handleParticipantChange(target: Room, sound: 'join' | 'leave') {
     if (room !== target) return
     syncParticipants()
+    useAppStore().requestVoiceRoomsRefresh()
     if (participantSoundsReady && status.value === 'connected') useSoundStore().play(sound)
   }
 

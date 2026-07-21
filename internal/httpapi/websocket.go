@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -13,7 +14,12 @@ const (
 	webSocketPingInterval     = 5 * time.Second
 	presenceLeaseDuration     = 15 * time.Second
 	presenceBroadcastInterval = 15 * time.Second
+	voiceRoomsRefreshMessage  = "refresh_voice_rooms"
 )
+
+type webSocketControlMessage struct {
+	Type string `json:"type"`
+}
 
 func (s *Server) RunPresenceBroadcaster(ctx context.Context) {
 	s.hub.RunPresenceBroadcaster(ctx, presenceBroadcastInterval)
@@ -43,13 +49,25 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	})
 	var readErr error
 	for {
-		if _, _, readErr = conn.ReadMessage(); readErr != nil {
+		var payload []byte
+		if _, payload, readErr = conn.ReadMessage(); readErr != nil {
 			break
 		}
+		s.handleWebSocketControlMessage(payload)
 	}
 	s.hub.unregister(c, isGracefulWebSocketClose(readErr))
 	_ = conn.Close()
 	<-done
+}
+
+func (s *Server) handleWebSocketControlMessage(payload []byte) {
+	var message webSocketControlMessage
+	if json.Unmarshal(payload, &message) != nil {
+		return
+	}
+	if message.Type == voiceRoomsRefreshMessage {
+		s.scheduleVoiceRoomRefresh("client_event")
+	}
 }
 
 func isGracefulWebSocketClose(err error) bool {
