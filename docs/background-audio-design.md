@@ -343,6 +343,28 @@ interface ApplicationAudioSnapshot {
 
 快照不得包含窗口标题、应用名、路径、PID、HWND 或可执行文件信息。
 
+### PCM Port 页面事件
+
+PCM Port 不经过 Bridge 的 Promise 返回值或高频回调传输。remote preload 收到 Main 通过
+`webContents.postMessage` 转交的 port 后，使用同窗口 `postMessage` 向 main world 转交一次：
+
+```ts
+interface ApplicationAudioPcmPortMessage {
+  type: 'celery:application-audio:pcm-port'
+  protocol: 1
+  sessionId: string
+}
+
+window.postMessage(message, window.location.origin, [pcmPort])
+```
+
+Web 只接受 `event.source === window`、`event.origin === window.location.origin`、协议版本与当前
+Bridge 协商版本一致且 `event.ports.length === 1` 的消息。port 必须与当前 `sessionId` 匹配；旧会话、
+重复 port 和未知消息立即关闭。该事件不包含窗口或进程身份信息。
+
+preload 必须在调用 `start()` 的 Promise 完成前后都允许 port 到达；Web 因此按 `sessionId` 暂存
+至多一个尚未消费的 port。Web 完成 LiveKit 发布后持有该 port，停止、失败、离开频道或页面卸载时关闭。
+
 ### 初始错误码
 
 - `unsupported_platform`
