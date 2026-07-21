@@ -3,11 +3,14 @@ package media
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/webhook"
+	"github.com/yeck/celery-web-speak/internal/store"
 )
 
 func TestRoomNameRoundTrip(t *testing.T) {
@@ -20,6 +23,40 @@ func TestRoomNameRoundTrip(t *testing.T) {
 		if _, ok := ParseRoomName(invalid); ok {
 			t.Fatalf("invalid room name %q was accepted", invalid)
 		}
+	}
+}
+
+func TestVoiceTokenAllowsMicrophoneAndBackgroundAudio(t *testing.T) {
+	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	credentials, err := service.JoinCredentials(context.Background(), store.User{
+		ID: 12, Username: "member", DisplayName: "成员",
+	}, 7)
+	if err != nil {
+		t.Fatalf("join credentials: %v", err)
+	}
+	verifier, err := auth.ParseAPIToken(credentials.Token)
+	if err != nil {
+		t.Fatalf("parse token: %v", err)
+	}
+	_, claims, err := verifier.Verify("secret")
+	if err != nil {
+		t.Fatalf("verify token: %v", err)
+	}
+	want := voicePublishSources()
+	got := claims.Video.GetCanPublishSources()
+	if !slices.Equal(got, want) {
+		t.Fatalf("publish sources = %v, want %v", got, want)
+	}
+}
+
+func TestVoiceParticipantPermissionTracksServerMute(t *testing.T) {
+	allowed := voiceParticipantPermission(true)
+	if !allowed.CanPublish || !slices.Equal(allowed.CanPublishSources, voicePublishSources()) {
+		t.Fatalf("allowed permission = %+v", allowed)
+	}
+	muted := voiceParticipantPermission(false)
+	if muted.CanPublish || len(muted.CanPublishSources) != 0 {
+		t.Fatalf("muted permission = %+v", muted)
 	}
 }
 

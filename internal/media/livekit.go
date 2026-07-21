@@ -111,7 +111,7 @@ func (s *Service) JoinCredentials(ctx context.Context, user store.User, channelI
 		CanSubscribeMetrics: &canSubscribeMetrics,
 	}
 	if canPublish {
-		grant.CanPublishSources = []string{"microphone"}
+		grant.SetCanPublishSources(voicePublishSources())
 	}
 	token, err := auth.NewAccessToken(s.apiKey, s.apiSecret).
 		SetIdentity(Identity(user.ID)).
@@ -146,22 +146,33 @@ func (s *Service) SetCanPublish(ctx context.Context, userID int64, canPublish bo
 	if channelID == 0 {
 		return nil
 	}
-	sources := []livekit.TrackSource(nil)
-	if canPublish {
-		sources = []livekit.TrackSource{livekit.TrackSource_MICROPHONE}
-	}
 	_, err := s.room.UpdateParticipant(ctx, &livekit.UpdateParticipantRequest{
-		Room:     RoomName(channelID),
-		Identity: Identity(userID),
-		Permission: &livekit.ParticipantPermission{
-			CanSubscribe:        true,
-			CanPublish:          canPublish,
-			CanPublishData:      false,
-			CanPublishSources:   sources,
-			CanSubscribeMetrics: true,
-		},
+		Room:       RoomName(channelID),
+		Identity:   Identity(userID),
+		Permission: voiceParticipantPermission(canPublish),
 	})
 	return err
+}
+
+func voicePublishSources() []livekit.TrackSource {
+	return []livekit.TrackSource{
+		livekit.TrackSource_MICROPHONE,
+		livekit.TrackSource_SCREEN_SHARE_AUDIO,
+	}
+}
+
+func voiceParticipantPermission(canPublish bool) *livekit.ParticipantPermission {
+	sources := []livekit.TrackSource(nil)
+	if canPublish {
+		sources = voicePublishSources()
+	}
+	return &livekit.ParticipantPermission{
+		CanSubscribe:        true,
+		CanPublish:          canPublish,
+		CanPublishData:      false,
+		CanPublishSources:   sources,
+		CanSubscribeMetrics: true,
+	}
 }
 
 func (s *Service) UpdateName(ctx context.Context, userID int64, displayName string) error {
