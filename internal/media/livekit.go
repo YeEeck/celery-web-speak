@@ -200,7 +200,8 @@ func (s *Service) SetChannelDeafened(ctx context.Context, userID, channelID int6
 func (s *Service) RemoveParticipant(ctx context.Context, userID int64) error {
 	s.mu.Lock()
 	channelIDs := make(map[int64]struct{})
-	if target := s.targets[userID]; target.ChannelID > 0 {
+	target := s.targets[userID]
+	if target.ChannelID > 0 {
 		channelIDs[target.ChannelID] = struct{}{}
 	}
 	for channelID, participants := range s.rooms {
@@ -209,7 +210,12 @@ func (s *Service) RemoveParticipant(ctx context.Context, userID int64) error {
 			delete(participants, userID)
 		}
 	}
-	delete(s.targets, userID)
+	if target.valid(s.now()) {
+		target.ChannelID = 0
+		s.targets[userID] = target
+	} else {
+		delete(s.targets, userID)
+	}
 	if len(channelIDs) > 0 {
 		s.revision++
 	}
@@ -227,7 +233,8 @@ func (s *Service) DeleteRoom(ctx context.Context, channelID int64) error {
 	delete(s.rooms, channelID)
 	for userID, target := range s.targets {
 		if target.ChannelID == channelID {
-			delete(s.targets, userID)
+			target.ChannelID = 0
+			s.targets[userID] = target
 		}
 	}
 	s.revision++
@@ -246,7 +253,7 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 	rooms := make(map[int64]map[int64]VoiceParticipant)
 	targets := make(map[int64]voiceTarget)
 	for userID, target := range issuedTargets {
-		if target.active(now) {
+		if target.valid(now) {
 			targets[userID] = target
 		}
 	}
@@ -265,7 +272,7 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 			if !ok {
 				continue
 			}
-			if target, exists := issuedTargets[participant.UserID]; exists && target.active(now) && !target.accepts(channelID, participant.Generation) {
+			if target, exists := issuedTargets[participant.UserID]; exists && target.valid(now) && !target.accepts(channelID, participant.Generation) {
 				removals = append(removals, livekit.RoomParticipantIdentity{Room: roomInfo.Name, Identity: participant.Identity})
 				continue
 			}
@@ -316,7 +323,7 @@ func (s *Service) ApplyWebhook(ctx context.Context, event *livekit.WebhookEvent)
 		}
 		s.mu.Lock()
 		previous := s.targets[participant.UserID]
-		if previous.active(s.now()) && !previous.accepts(channelID, participant.Generation) {
+		if previous.valid(s.now()) && !previous.accepts(channelID, participant.Generation) {
 			s.mu.Unlock()
 			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: RoomName(channelID), Identity: participant.Identity})
 			return false
@@ -352,19 +359,11 @@ func (s *Service) ApplyWebhook(ctx context.Context, event *livekit.WebhookEvent)
 			return false
 		}
 		delete(s.rooms[channelID], participant.UserID)
-		if s.targets[participant.UserID].ChannelID == channelID && s.targets[participant.UserID].Generation <= participant.Generation {
-			delete(s.targets, participant.UserID)
-		}
 		s.revision++
 		s.mu.Unlock()
 		return true
 	case webhook.EventRoomFinished:
 		s.mu.Lock()
-		for userID := range s.rooms[channelID] {
-			if s.targets[userID].ChannelID == channelID {
-				delete(s.targets, userID)
-			}
-		}
 		delete(s.rooms, channelID)
 		s.revision++
 		s.mu.Unlock()
@@ -495,12 +494,12 @@ func (s *Service) nextGenerationLocked(now time.Time) uint64 {
 	return generation
 }
 
-func (target voiceTarget) active(now time.Time) bool {
-	return target.ChannelID > 0 && target.ExpiresAt.After(now)
+func (target voiceTarget) valid(now time.Time) bool {
+	return target.ExpiresAt.After(now)
 }
 
 func (target voiceTarget) accepts(channelID int64, generation uint64) bool {
-	return generation >= target.Generation && (generation != target.Generation || channelID == target.ChannelID)
+	return target.ChannelID > 0 && generation >= target.Generation && (generation != target.Generation || channelID == target.ChannelID)
 }
 
 func targetFromParticipant(channelID int64, participant VoiceParticipant, now time.Time) voiceTarget {

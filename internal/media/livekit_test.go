@@ -117,6 +117,12 @@ func TestLatestIssuedVoiceTokenRejectsDelayedOlderJoin(t *testing.T) {
 	if len(rooms) != 1 || rooms[0].ChannelID != 8 || len(rooms[0].Participants) != 1 {
 		t.Fatalf("rooms after delayed old join = %+v", rooms)
 	}
+	if !service.ApplyWebhook(context.Background(), participantEvent(webhook.EventParticipantLeft, 8, 12, newGeneration)) {
+		t.Fatal("latest participant leave did not update snapshot")
+	}
+	if service.ApplyWebhook(context.Background(), oldJoin) {
+		t.Fatal("old token was accepted after the latest participant left")
+	}
 }
 
 func TestDeleteRoomsExceptRemovesOrphanSnapshotAfterAPIFailure(t *testing.T) {
