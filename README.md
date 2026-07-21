@@ -136,6 +136,7 @@ TRUSTED_ORIGINS=https://voice.example.com
 | `LIVEKIT_NODE_IP` | 写入 ICE 候选、供客户端直接连接媒体服务的 IP | 填写 `127.0.0.1`、Docker 网桥 IP 或客户端无法路由的内网 IP |
 | `LIVEKIT_PUBLIC_URL` | 浏览器连接 LiveKit 信令的 WSS 地址 | HTTPS 页面使用 `ws://`，或错误添加内部端口 `:7880` |
 | `TRUSTED_ORIGINS` | 允许建立业务 WebSocket 的网页来源 | 与浏览器地址的协议、主机或非标准端口不完全一致 |
+| `VOICE_RECONCILE_INTERVAL` | 全量校准 LiveKit 语音房间的周期，默认 `15s`，`0` 表示禁用 | 间隔过短会增加 RoomService 查询量，禁用后漏传 Webhook 只能等待启动或业务连接建立时修复 |
 
 如果服务器直接持有公网 IP，`LIVEKIT_NODE_IP` 就填写该 IP。如果服务器位于 NAT 后面，则填写 NAT 设备的公网 IP，并将媒体端口原样映射到服务器。若使用 FRP、端口穿透或另一台入口机，应填写客户端最终连接到的公网 IP，并保持外部和内部端口一致。
 
