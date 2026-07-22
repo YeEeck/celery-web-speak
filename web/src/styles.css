@@ -219,7 +219,7 @@ select { appearance: auto; }
 .current-user > span { display: grid; min-width: 0; }
 .current-user strong, .current-user small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .current-user strong { font-size: 12px; }.current-user small { color: var(--faint); font-size: 10px; }
-.control-buttons { display: flex; gap: 4px; }
+.control-buttons { display: flex; gap: 2px; }
 .icon-button.active { color: var(--success-fg); background: var(--hover); }
 .icon-button.active:hover:not(:disabled), .icon-button.active:focus-visible { color: var(--success-fg); background: var(--active); }
 .application-audio-popover { position: absolute; z-index: 8; right: 8px; bottom: calc(100% + 8px); width: min(264px, calc(100vw - 16px)); padding: 12px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--elevated); box-shadow: 0 10px 28px rgba(0,0,0,.42); }
