@@ -1,6 +1,23 @@
 name: celery-web-speak
 
 services:
+  gateway:
+    image: caddy:2.11
+    profiles: ["gateway"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "${HTTPS_PORT:-443}:${HTTPS_PORT:-443}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    environment:
+      PUBLIC_IP: ${PUBLIC_IP:?set PUBLIC_IP}
+      HTTPS_PORT: ${HTTPS_PORT:-443}
+    depends_on:
+      - app
+      - livekit
+
   app:
     image: ${APP_IMAGE:-ghcr.io/yeck/celery-web-speak:latest}
     restart: unless-stopped
@@ -11,15 +28,15 @@ services:
       ADDR: ":8080"
       DATABASE_PATH: /data/celery.db
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
-      SESSION_COOKIE_NAME: celery_session
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-celery_session}
       BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       LIVEKIT_URL: http://livekit:7880
-      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:?set LIVEKIT_PUBLIC_URL}
+      LIVEKIT_PUBLIC_URL: wss://${PUBLIC_IP:?set PUBLIC_IP}:${HTTPS_PORT:-443}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET}
       VOICE_RECONCILE_INTERVAL: ${VOICE_RECONCILE_INTERVAL:-15s}
-      TRUSTED_ORIGINS: ${TRUSTED_ORIGINS:?set TRUSTED_ORIGINS}
+      TRUSTED_ORIGINS: https://${PUBLIC_IP:?set PUBLIC_IP}:${HTTPS_PORT:-443}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - app-data:/data
@@ -39,14 +56,14 @@ services:
           level: info
           json: true
         rtc:
-          node_ip: "${LIVEKIT_NODE_IP:?set LIVEKIT_NODE_IP}"
-          tcp_port: 7881
-          udp_port: 7882
+          node_ip: "${PUBLIC_IP:?set PUBLIC_IP}"
+          tcp_port: ${LIVEKIT_TCP_PORT:-7881}
+          udp_port: ${LIVEKIT_UDP_PORT:-7882}
         turn:
           enabled: true
-          udp_port: 3478
-          relay_range_start: 30000
-          relay_range_end: 30099
+          udp_port: ${LIVEKIT_TURN_PORT:-3478}
+          relay_range_start: ${LIVEKIT_RELAY_START:-30000}
+          relay_range_end: ${LIVEKIT_RELAY_END:-30099}
         room:
           empty_timeout: 300
           departure_timeout: 20
@@ -56,10 +73,11 @@ services:
             - "http://app:8080/api/livekit/webhook"
     ports:
       - "127.0.0.1:${LIVEKIT_HTTP_PORT:-7880}:7880"
-      - "7881:7881/tcp"
-      - "7882:7882/udp"
-      - "3478:3478/udp"
-      - "30000-30099:30000-30099/udp"
+      - "${LIVEKIT_TCP_PORT:-7881}:${LIVEKIT_TCP_PORT:-7881}/tcp"
+      - "${LIVEKIT_UDP_PORT:-7882}:${LIVEKIT_UDP_PORT:-7882}/udp"
+      - "${LIVEKIT_TURN_PORT:-3478}:${LIVEKIT_TURN_PORT:-3478}/udp"
+      - "${LIVEKIT_RELAY_START:-30000}-${LIVEKIT_RELAY_END:-30099}:${LIVEKIT_RELAY_START:-30000}-${LIVEKIT_RELAY_END:-30099}/udp"
 
 volumes:
   app-data:
+  caddy-data:

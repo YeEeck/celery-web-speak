@@ -8,7 +8,7 @@
 Browser (Vue 3)
   | HTTPS: 页面与 /api/*       | WSS: /api/ws
   v                            v
-Nginx ----------------------> Go Application ------> SQLite (/data/celery.db)
+Caddy Gateway (可选) --------> Go Application ------> SQLite (/data/celery.db)
   |                              |
   | WSS: /rtc                    | HTTP: RoomService API
   v                              v
@@ -18,7 +18,7 @@ LiveKit Server <----------- internal Docker network
 Browser
 ```
 
-Nginx 位于 Compose 外部，终止 HTTPS，并代理应用 HTTP、业务 WebSocket 与 LiveKit 信令。WebRTC 媒体不经过 Go 或 Nginx，而是由浏览器直接连接 LiveKit 暴露的媒体与 TURN 端口。
+默认启用 Caddy Gateway（`caddy:2.11`，通过 Compose profiles 可选禁用），终止 HTTPS 并代理应用 HTTP、业务 WebSocket 与 LiveKit 信令。Gateway 使用 Let's Encrypt IP 证书（shortlived profile）自动签发与续期，无需外部 Nginx 或手动证书管理。禁用 Gateway 时需部署方自行提供 HTTPS 反代（参考 `deploy/nginx.conf.example`）。WebRTC 媒体不经过 Go 或 Gateway，而是由浏览器直接连接 LiveKit 暴露的媒体与 TURN 端口。
 
 Go 应用提供嵌入式前端、认证与管理 API、文字聊天 WebSocket、LiveKit 访问令牌、Webhook 和房间管理。SQLite 保存频道、消息、已读位置及账号数据；在线状态、发送限流、WebSocket 客户端集合和语音房间占用快照保存在 Go 进程内存中，LiveKit 保存实际媒体房间状态。
 
@@ -29,7 +29,7 @@ Go 应用提供嵌入式前端、认证与管理 API、文字聊天 WebSocket、
 - 数据库：`modernc.org/sqlite` pure Go 驱动；构建时使用 `CGO_ENABLED=0`。
 - 密码：bcrypt 默认成本哈希，不保存明文密码。
 - 会话与邀请码：随机不透明令牌；匹配时使用 SHA-256 哈希。新邀请码额外保存仅服务器管理员可读取的原码，旧记录不补造原码。
-- 部署：Go 应用镜像、LiveKit 官方镜像和 `app-data` 持久卷组成 Docker Compose；Nginx 与证书由部署方管理。
+- 部署：Go 应用镜像、LiveKit 官方镜像、Caddy Gateway（可选）和持久卷组成 Docker Compose；默认通过 Gateway 自动管理 HTTPS 证书，也可禁用后由部署方自行管理反代与证书。
 
 ## 前端结构
 
@@ -123,7 +123,7 @@ Dockerfile 使用 Node 22 构建 Vue 产物，再使用 Go 1.26 将 `internal/we
 
 推送 `v*` Git 标签或手动运行 GitHub Actions 会使用 Buildx 构建 `linux/amd64` 镜像，并向 GHCR 同时推送版本标签和 `latest`。生产 `compose.yml` 只拉取预构建镜像；`compose.build.yml` 仅用于开发机现场构建。
 
-生产 Compose 只持久化 `/data` 下的 SQLite 数据。LiveKit 配置由环境变量注入且房间状态是临时的，不挂载持久卷。应用和 LiveKit 信令分别仅绑定到宿主机 `127.0.0.1:8080` 与 `127.0.0.1:7880`，媒体和 TURN 端口直接对外开放。
+生产 Compose 持久化 `app-data`（SQLite）和 `caddy-data`（TLS 证书）。LiveKit 配置由环境变量注入且房间状态是临时的，不挂载持久卷。应用和 LiveKit 信令分别仅绑定到宿主机 `127.0.0.1:8080` 与 `127.0.0.1:7880`（调试用），媒体和 TURN 端口直接对外开放。Gateway 启用时独占宿主机 80 和 HTTPS 端口；LiveKit 媒体端口支持通过环境变量自定义。
 
 ## 稳定性与扩展限制
 
@@ -134,4 +134,4 @@ Dockerfile 使用 Node 22 构建 Vue 产物，再使用 Go 1.26 将 `internal/we
 - LiveKit 使用 Opus 单声道、DTX、RED、回声消除、噪声抑制与浏览器自动增益控制；管理员修改码率后客户端重新发布本地音轨。
 - UDP receive buffer 通过仓库提供的 sysctl 配置提升；媒体优先使用 7882/UDP，7881/TCP 为回退，TURN 使用 3478/UDP 和 30000-30099/UDP 中继范围。
 - 在线状态、WebSocket Hub、消息限流、语音目标房间和 LiveKit 房间快照均为单实例内存状态。增加多个 Go 或 LiveKit 实例前，必须引入共享协调与状态层，不能直接复制当前 Compose。
-- 当前备份范围只需覆盖 `app-data` SQLite 卷；证书、Nginx 和主机防火墙由部署方独立管理。
+- 当前备份范围需覆盖 `app-data` SQLite 卷和 `caddy-data` 证书卷；禁用 Gateway 时证书、反代和主机防火墙由部署方独立管理。

@@ -1,0 +1,21 @@
+{
+	https_port {$HTTPS_PORT:443}
+}
+
+{$PUBLIC_IP} {
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+			profile shortlived
+		}
+	}
+
+	@livekit path /rtc
+	handle @livekit {
+		reverse_proxy livekit:7880
+	}
+
+	handle {
+		reverse_proxy app:8080
+	}
+}
