@@ -40,7 +40,7 @@ function switchMode(next: 'login' | 'register') {
 <template>
   <main class="auth-screen">
     <section class="auth-brand">
-      <span class="brand-mark large">C</span>
+      <img class="brand-mark large" src="/favicon.svg" alt="" />
       <div>
         <h1>Celery Web Speak</h1>
         <p>小组语音 · 频道文字 · 即时在线</p>

@@ -12,6 +12,31 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
 })
 
+test('应用图标用于浏览器和服务器栏', async ({ page, isMobile }) => {
+  const favicon = page.locator('link[rel="icon"]')
+  await expect(favicon).toHaveAttribute('href', '/favicon.svg')
+  await expect(favicon).toHaveAttribute('sizes', 'any')
+
+  const serverIcon = page.locator('.server-icon')
+  await expect(serverIcon).toHaveAttribute('src', '/favicon.svg')
+  const imageState = await serverIcon.evaluate((element) => {
+    const image = element as HTMLImageElement
+    return {
+      complete: image.complete,
+      naturalWidth: image.naturalWidth,
+      naturalHeight: image.naturalHeight,
+    }
+  })
+  expect(imageState).toEqual({ complete: true, naturalWidth: 512, naturalHeight: 512 })
+
+  if (!isMobile) {
+    await expect(serverIcon).toBeVisible()
+    const bounds = await serverIcon.boundingBox()
+    expect(bounds?.width).toBe(46)
+    expect(bounds?.height).toBe(46)
+  }
+})
+
 test('登录、聊天和管理员设置可用', async ({ page }) => {
   const message = `端到端检查 ${Date.now()}`
   await page.getByPlaceholder('发送消息到 #文字聊天').fill(message)

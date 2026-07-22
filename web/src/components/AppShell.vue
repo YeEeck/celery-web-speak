@@ -74,7 +74,9 @@ function selectTextChannel(channelId: number) {
 <template>
   <main :class="['app-shell', { 'members-collapsed': wideMemberLayout && !desktopMembersVisible }]">
     <nav class="server-rail" aria-label="服务器">
-      <button class="server-button active" title="Celery Web Speak">C</button>
+      <button class="server-button active" type="button" title="Celery Web Speak">
+        <img class="server-icon" src="/favicon.svg" alt="" />
+      </button>
       <span class="rail-divider" />
       <span class="rail-status" :class="app.socketStatus" title="业务连接状态"><Radio :size="18" /></span>
     </nav>

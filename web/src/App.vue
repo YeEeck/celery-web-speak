@@ -27,11 +27,11 @@ function reload() {
 
 <template>
   <main v-if="!app.ready" class="boot-screen" aria-live="polite">
-    <span class="brand-mark">C</span>
+    <img class="brand-mark" src="/favicon.svg" alt="" />
     <span>正在连接 Celery Web Speak</span>
   </main>
   <main v-else-if="startupError" class="boot-screen error-state">
-    <span class="brand-mark">C</span>
+    <img class="brand-mark" src="/favicon.svg" alt="" />
     <strong>无法连接服务器</strong>
     <span>{{ startupError }}</span>
     <button class="primary-button" @click="reload">重新加载</button>
