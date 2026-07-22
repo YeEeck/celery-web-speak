@@ -74,8 +74,8 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
           </span>
         </button>
         <div v-if="expandedVolume === participant.userId && !participant.isLocal" class="participant-volume">
-          <label class="participant-volume-control">
-            <span class="participant-volume-name"><Mic :size="13" />麦克风音量</span>
+          <div class="participant-volume-control">
+            <span class="participant-volume-icon"><Mic :size="14" /></span>
             <input
               type="range"
               min="0"
@@ -84,11 +84,17 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
               :value="participant.microphoneVolume"
               aria-label="麦克风音量"
               @input="voice.setParticipantMicrophoneVolume(participant.userId, Number(($event.target as HTMLInputElement).value))"
+              @dblclick="voice.resetParticipantMicrophoneVolume(participant.userId)"
             />
-            <span>{{ Math.round(participant.microphoneVolume * 100) }}%</span>
-          </label>
-          <label v-if="participant.backgroundAudioAvailable" class="participant-volume-control">
-            <span class="participant-volume-name"><Music2 :size="13" />背景音音量</span>
+            <button
+              class="participant-volume-value"
+              :class="{ muted: participant.microphoneMuted }"
+              :title="participant.microphoneMuted ? '取消静音' : '静音'"
+              @click="voice.toggleParticipantMicrophoneMute(participant.userId)"
+            >{{ participant.microphoneMuted ? '0%' : `${Math.round(participant.microphoneVolume * 100)}%` }}</button>
+          </div>
+          <div v-if="participant.backgroundAudioAvailable" class="participant-volume-control">
+            <span class="participant-volume-icon"><Music2 :size="14" /></span>
             <input
               type="range"
               min="0"
@@ -97,9 +103,15 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
               :value="participant.backgroundAudioVolume"
               aria-label="背景音音量"
               @input="voice.setParticipantBackgroundAudioVolume(participant.userId, Number(($event.target as HTMLInputElement).value))"
+              @dblclick="voice.resetParticipantBackgroundAudioVolume(participant.userId)"
             />
-            <span>{{ Math.round(participant.backgroundAudioVolume * 100) }}%</span>
-          </label>
+            <button
+              class="participant-volume-value"
+              :class="{ muted: participant.backgroundAudioMuted }"
+              :title="participant.backgroundAudioMuted ? '取消静音' : '静音'"
+              @click="voice.toggleParticipantBackgroundAudioMute(participant.userId)"
+            >{{ participant.backgroundAudioMuted ? '0%' : `${Math.round(participant.backgroundAudioVolume * 100)}%` }}</button>
+          </div>
         </div>
         <span v-if="userFor(participant)?.voiceMuted" class="server-muted">已禁言</span>
       </div>
