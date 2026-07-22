@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ChevronRight, MicOff, Music2, Signal, Volume2, VolumeX } from '@lucide/vue'
+import { ChevronRight, Mic, MicOff, Music2, Signal, Volume2, VolumeX } from '@lucide/vue'
 import { ConnectionQuality } from 'livekit-client'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
@@ -74,17 +74,32 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
           </span>
         </button>
         <div v-if="expandedVolume === participant.userId && !participant.isLocal" class="participant-volume">
-          <Volume2 :size="14" />
-          <input
-            type="range"
-            min="0"
-            max="3"
-            step="0.05"
-            :value="participant.volume"
-            aria-label="用户音量"
-            @input="voice.setParticipantVolume(participant.userId, Number(($event.target as HTMLInputElement).value))"
-          />
-          <span>{{ Math.round(participant.volume * 100) }}%</span>
+          <label class="participant-volume-control">
+            <span class="participant-volume-name"><Mic :size="13" />麦克风音量</span>
+            <input
+              type="range"
+              min="0"
+              max="3"
+              step="0.05"
+              :value="participant.microphoneVolume"
+              aria-label="麦克风音量"
+              @input="voice.setParticipantMicrophoneVolume(participant.userId, Number(($event.target as HTMLInputElement).value))"
+            />
+            <span>{{ Math.round(participant.microphoneVolume * 100) }}%</span>
+          </label>
+          <label v-if="participant.backgroundAudioAvailable" class="participant-volume-control">
+            <span class="participant-volume-name"><Music2 :size="13" />背景音音量</span>
+            <input
+              type="range"
+              min="0"
+              max="3"
+              step="0.05"
+              :value="participant.backgroundAudioVolume"
+              aria-label="背景音音量"
+              @input="voice.setParticipantBackgroundAudioVolume(participant.userId, Number(($event.target as HTMLInputElement).value))"
+            />
+            <span>{{ Math.round(participant.backgroundAudioVolume * 100) }}%</span>
+          </label>
         </div>
         <span v-if="userFor(participant)?.voiceMuted" class="server-muted">已禁言</span>
       </div>

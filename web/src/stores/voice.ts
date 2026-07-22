@@ -48,10 +48,12 @@ export interface VoiceParticipant {
   isLocal: boolean
   isSpeaking: boolean
   microphoneEnabled: boolean
+  backgroundAudioAvailable: boolean
   backgroundAudioPlaying: boolean
   deafened: boolean
   quality: ConnectionQuality
-  volume: number
+  microphoneVolume: number
+  backgroundAudioVolume: number
   role: Role
   joinedAt: number | null
 }
@@ -286,11 +288,19 @@ export const useVoiceStore = defineStore('voice', () => {
     })
   }
 
-  function setParticipantVolume(userId: number, volume: number) {
+  function setParticipantMicrophoneVolume(userId: number, volume: number) {
     const normalized = clampVolume(volume)
     localStorage.setItem(`cws.volume.${userId}`, String(normalized))
     const participant = participantStates.value.find((item) => item.userId === userId)
-    if (participant) participant.volume = normalized
+    if (participant) participant.microphoneVolume = normalized
+    applyVolume(userId)
+  }
+
+  function setParticipantBackgroundAudioVolume(userId: number, volume: number) {
+    const normalized = clampVolume(volume)
+    localStorage.setItem(`cws.backgroundAudioVolume.${userId}`, String(normalized))
+    const participant = participantStates.value.find((item) => item.userId === userId)
+    if (participant) participant.backgroundAudioVolume = normalized
     applyVolume(userId)
   }
 
@@ -475,10 +485,12 @@ export const useVoiceStore = defineStore('voice', () => {
       isLocal,
       isSpeaking: microphoneActivity.isSpeaking(participant.identity),
       microphoneEnabled: participant.isMicrophoneEnabled,
+      backgroundAudioAvailable: hasBackgroundAudio(participant),
       backgroundAudioPlaying: isBackgroundAudioPlaying(participant),
       deafened: isLocal ? deafened.value : participant.attributes[DEAFENED_ATTRIBUTE] === 'true',
       quality: participant.connectionQuality,
-      volume: getSavedVolume(userId),
+      microphoneVolume: getSavedVolume(userId),
+      backgroundAudioVolume: getSavedBackgroundAudioVolume(userId),
       role: participantRole(participant),
       joinedAt: existing ? existing.joinedAt : participantJoinedAt(participant),
     }
@@ -855,17 +867,22 @@ export const useVoiceStore = defineStore('voice', () => {
     return getSavedLevel(`cws.volume.${userId}`)
   }
 
+  function getSavedBackgroundAudioVolume(userId: number): number {
+    return getSavedLevel(`cws.backgroundAudioVolume.${userId}`)
+  }
+
   function applyAllVolumes() {
     participantStates.value.forEach((participant) => applyVolume(participant.userId))
   }
 
   function applyVolume(userId: number) {
     if (!room) return
-    const gain = deafened.value ? 0 : Math.max(0, getSavedVolume(userId) * outputVolume.value)
+    const microphoneGain = deafened.value ? 0 : clampVolume(getSavedVolume(userId) * outputVolume.value)
+    const backgroundAudioGain = deafened.value ? 0 : clampVolume(getSavedBackgroundAudioVolume(userId) * outputVolume.value)
     room.remoteParticipants.forEach((participant) => {
       if (participantUserId(participant) === userId) {
-        participant.setVolume(gain, Track.Source.Microphone)
-        participant.setVolume(gain, Track.Source.ScreenShareAudio)
+        participant.setVolume(microphoneGain, Track.Source.Microphone)
+        participant.setVolume(backgroundAudioGain, Track.Source.ScreenShareAudio)
       }
     })
   }
@@ -901,7 +918,8 @@ export const useVoiceStore = defineStore('voice', () => {
     toggleDeafen,
     switchInput,
     switchOutput,
-    setParticipantVolume,
+    setParticipantMicrophoneVolume,
+    setParticipantBackgroundAudioVolume,
     setMicrophoneGain,
     setOutputVolume,
     setEchoCancellation,
@@ -948,6 +966,10 @@ function clampApplicationAudioVolume(value: number) {
 function isBackgroundAudioPlaying(participant: Participant) {
   const publication = participant.getTrackPublication(Track.Source.ScreenShareAudio)
   return Boolean(publication && !publication.isMuted)
+}
+
+function hasBackgroundAudio(participant: Participant) {
+  return Boolean(participant.getTrackPublication(Track.Source.ScreenShareAudio))
 }
 
 function isSourcePickerCancellation(snapshot: ApplicationAudioSnapshot) {
