@@ -160,7 +160,7 @@ select { appearance: auto; }
 .form-error { color: var(--danger-fg); font-size: 13px; }
 .form-success { color: var(--success-fg); font-size: 13px; }
 
-.app-shell { height: 100%; display: grid; grid-template-columns: 72px 280px minmax(360px, 1fr) 240px; grid-template-rows: minmax(0, 1fr); background: var(--main); }
+.app-shell { height: 100%; display: grid; grid-template-columns: 72px 300px minmax(360px, 1fr) 240px; grid-template-rows: minmax(0, 1fr); background: var(--main); }
 #voice-audio-root { position: fixed; width: 0; height: 0; overflow: hidden; }
 .server-rail { background: var(--rail); padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .server-button { width: 46px; height: 46px; border-radius: 14px; border: 0; background: var(--active); color: var(--text); font-weight: 800; font-size: 20px; cursor: pointer; transition: border-radius .15s, background .15s; }
@@ -219,7 +219,7 @@ select { appearance: auto; }
 .current-user > span { display: grid; min-width: 0; }
 .current-user strong, .current-user small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .current-user strong { font-size: 12px; }.current-user small { color: var(--faint); font-size: 10px; }
-.control-buttons { display: flex; }
+.control-buttons { display: flex; gap: 4px; }
 .icon-button.active { color: var(--success-fg); background: var(--hover); }
 .icon-button.active:hover:not(:disabled), .icon-button.active:focus-visible { color: var(--success-fg); background: var(--active); }
 .application-audio-popover { position: absolute; z-index: 8; right: 8px; bottom: calc(100% + 8px); width: min(264px, calc(100vw - 16px)); padding: 12px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--elevated); box-shadow: 0 10px 28px rgba(0,0,0,.42); }
@@ -389,7 +389,7 @@ select { appearance: auto; }
 .drawer-scrim { display: none; }.mobile-only { display: none; }
 
 @media (min-width: 1141px) {
-  .app-shell.members-collapsed { grid-template-columns: 72px 280px minmax(360px, 1fr); }
+  .app-shell.members-collapsed { grid-template-columns: 72px 300px minmax(360px, 1fr); }
   .app-shell.members-collapsed > .member-list { display: none; }
 }
 
@@ -399,7 +399,7 @@ select { appearance: auto; }
 }
 
 @media (max-width: 1140px) {
-  .app-shell { grid-template-columns: 72px 280px minmax(340px, 1fr); }
+  .app-shell { grid-template-columns: 72px 300px minmax(340px, 1fr); }
   .app-shell > .member-list { display: none; }
   .member-toggle { display: inline-grid; }
   .drawer-scrim.member-scrim { position: fixed; z-index: 44; inset: 0; display: flex; justify-content: flex-end; background: rgba(0,0,0,.58); }
