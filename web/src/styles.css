@@ -157,11 +157,16 @@ h1, h2, h3, p { margin: 0; }
 form, .settings-section { display: grid; gap: 16px; }
 label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 700; }
 label > span:first-child { text-transform: none; }
-.input-wrap { min-height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--input); border: 1px solid transparent; border-radius: 4px; color: var(--faint); }
+.input-wrap { min-height: 42px; display: flex; align-items: center; gap: 10px; padding: 0 12px; background: var(--input); border: 1px solid transparent; border-radius: 4px; color: var(--faint); transition: border-color var(--dur) var(--ease); }
+.input-wrap:hover { border-color: var(--line); }
 .input-wrap:focus-within { border-color: var(--brand); }
 input, textarea, select { width: 100%; border: 1px solid var(--border-input); border-radius: 4px; background: var(--input); color: var(--text); padding: 10px 11px; }
 .input-wrap input { border: 0; padding: 0; background: transparent; outline: none; }
 select { appearance: auto; }
+/* 表单文本控件统一交互：default → hover(--line) → focus(--brand)，select/range/checkbox 除外 */
+input:not([type="range"]):not([type="checkbox"]), textarea { transition: border-color var(--dur) var(--ease); }
+input:not([type="range"]):not([type="checkbox"]):hover, textarea:hover { border-color: var(--line); }
+input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-color: var(--brand); outline: none; }
 .submit-button { width: 100%; margin-top: 4px; }
 .submit-button span { flex: 1; }
 .form-error { color: var(--danger-fg); font-size: 13px; }
