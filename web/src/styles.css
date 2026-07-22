@@ -217,7 +217,9 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .quality-bars i.lit { background: var(--green); }
 .participant-volume { display: grid; gap: 6px; padding: 4px 8px 8px 14px; color: var(--faint); font-size: 10px; }
 .participant-volume-control { display: grid; grid-template-columns: 20px minmax(0, 1fr) 38px; gap: 6px; align-items: center; }
-.participant-volume-icon { display: inline-flex; justify-content: center; color: var(--faint); }
+.participant-volume-icon { border: 0; padding: 0; background: transparent; display: inline-flex; justify-content: center; align-items: center; color: var(--faint); cursor: pointer; transition: var(--t-fast); }
+.participant-volume-icon:hover { color: var(--text); }
+.participant-volume-icon.muted { color: var(--danger-fg); }
 .participant-volume input { min-width: 0; padding: 0; accent-color: var(--brand); }
 .participant-volume-value { border: 0; padding: 0; background: transparent; color: var(--faint); font-size: 10px; text-align: right; cursor: pointer; transition: var(--t-fast); }
 .participant-volume-value:hover { color: var(--text); }

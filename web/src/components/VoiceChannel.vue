@@ -75,7 +75,12 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
         </button>
         <div v-if="expandedVolume === participant.userId && !participant.isLocal" class="participant-volume">
           <div class="participant-volume-control">
-            <span class="participant-volume-icon"><Mic :size="14" /></span>
+            <button
+              class="participant-volume-icon"
+              :class="{ muted: participant.microphoneMuted }"
+              :title="participant.microphoneMuted ? '取消静音' : '静音'"
+              @click="voice.toggleParticipantMicrophoneMute(participant.userId)"
+            ><component :is="participant.microphoneMuted ? MicOff : Mic" :size="14" /></button>
             <input
               type="range"
               min="0"
@@ -89,12 +94,17 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
             <button
               class="participant-volume-value"
               :class="{ muted: participant.microphoneMuted }"
-              :title="participant.microphoneMuted ? '取消静音' : '静音'"
-              @click="voice.toggleParticipantMicrophoneMute(participant.userId)"
-            >{{ participant.microphoneMuted ? '0%' : `${Math.round(participant.microphoneVolume * 100)}%` }}</button>
+              title="重置为 100%"
+              @click="voice.resetParticipantMicrophoneVolume(participant.userId)"
+            >{{ Math.round(participant.microphoneVolume * 100) }}%</button>
           </div>
           <div v-if="participant.backgroundAudioAvailable" class="participant-volume-control">
-            <span class="participant-volume-icon"><Music2 :size="14" /></span>
+            <button
+              class="participant-volume-icon"
+              :class="{ muted: participant.backgroundAudioMuted }"
+              :title="participant.backgroundAudioMuted ? '取消静音' : '静音'"
+              @click="voice.toggleParticipantBackgroundAudioMute(participant.userId)"
+            ><component :is="participant.backgroundAudioMuted ? VolumeX : Music2" :size="14" /></button>
             <input
               type="range"
               min="0"
@@ -108,9 +118,9 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
             <button
               class="participant-volume-value"
               :class="{ muted: participant.backgroundAudioMuted }"
-              :title="participant.backgroundAudioMuted ? '取消静音' : '静音'"
-              @click="voice.toggleParticipantBackgroundAudioMute(participant.userId)"
-            >{{ participant.backgroundAudioMuted ? '0%' : `${Math.round(participant.backgroundAudioVolume * 100)}%` }}</button>
+              title="重置为 100%"
+              @click="voice.resetParticipantBackgroundAudioVolume(participant.userId)"
+            >{{ Math.round(participant.backgroundAudioVolume * 100) }}%</button>
           </div>
         </div>
         <span v-if="userFor(participant)?.voiceMuted" class="server-muted">已禁言</span>
