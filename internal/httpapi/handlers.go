@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -112,6 +113,18 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, credentials)
+}
+
+func (s *Server) handleVoiceLeave(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	err := s.media.RemoveParticipant(ctx, user.ID)
+	cancel()
+	if err != nil {
+		s.logger.Warn("remove voice participant on leave", "user_id", user.ID, "error", err)
+	}
+	s.hub.Broadcast("voice_rooms", s.media.VoiceRooms())
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleVoiceState(w http.ResponseWriter, r *http.Request) {

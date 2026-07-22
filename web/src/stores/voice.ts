@@ -121,6 +121,13 @@ export const useVoiceStore = defineStore('voice', () => {
     return [...participantStates.value].sort((a, b) => compareParticipants(a, b, app.users))
   })
 
+  // 页面关闭时主动通知后端离开语音频道，避免依赖 LiveKit 的断开检测延迟（关闭标签页/窗口时
+  // LiveKit 可能需要数十秒才能通过心跳超时发现连接已断开，导致成员列表出现幽灵状态）。
+  window.addEventListener('pagehide', () => {
+    if (!joined.value) return
+    navigator.sendBeacon('/api/voice/leave')
+  })
+
   async function join(channelId: number) {
     if (room && connectedChannelId.value === channelId) return
     if (status.value === 'connecting') return
