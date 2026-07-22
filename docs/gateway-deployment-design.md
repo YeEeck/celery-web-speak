@@ -71,7 +71,8 @@ Browser <── 7881/TCP, 7882/UDP, 3478/UDP, 30000-30099/UDP
 |------|------|--------|--------|
 | 80/TCP | ACME 挑战 + HTTP→HTTPS 重定向 | 否 | gateway |
 | HTTPS_PORT（默认 443）/TCP | HTTPS 服务 | 是 | gateway |
-| 8080/TCP | app HTTP（仅 127.0.0.1） | 否 | app（调试用） |
+| 8080/TCP | app HTTP（仅 127.0.0.1，宿主机端口可配置） | APP_HTTP_PORT | app（调试用） |
+| 7880/TCP | LiveKit HTTP（仅 127.0.0.1，宿主机端口可配置） | LIVEKIT_HTTP_PORT | livekit（调试用） |
 | LIVEKIT_TCP_PORT（默认 7881）/TCP | WebRTC TCP | 是 | livekit |
 | LIVEKIT_UDP_PORT（默认 7882）/UDP | WebRTC UDP | 是 | livekit |
 | LIVEKIT_TURN_PORT（默认 3478）/UDP | TURN | 是 | livekit |
@@ -139,16 +140,19 @@ LIVEKIT_CONFIG: |
 
 ### D8: 消除的 .env 变量
 
-以下变量从 `.env.example` 中移除（硬编码或由推导替代）：
+以下变量从 `.env.example` 中移除（由推导替代）：
 
-- `LIVEKIT_PUBLIC_URL`（推导）
-- `TRUSTED_ORIGINS`（推导）
+- `LIVEKIT_PUBLIC_URL`（推导为 `wss://${PUBLIC_IP}:${HTTPS_PORT:-443}`）
+- `TRUSTED_ORIGINS`（推导为 `https://${PUBLIC_IP}:${HTTPS_PORT:-443}`）
 - `LIVEKIT_NODE_IP`（= PUBLIC_IP）
-- `COOKIE_SECURE`（硬编码 `true`）
-- `SESSION_COOKIE_NAME`（硬编码 `celery_session`）
-- `APP_HTTP_PORT`（内部固定 8080，不再映射外部可配置端口）
-- `LIVEKIT_HTTP_PORT`（内部固定 7880）
-- `VOICE_RECONCILE_INTERVAL`（硬编码 `15s`）
+
+以下变量保留在 `.env.example` 中，带默认值，用户可按需覆盖：
+
+- `APP_HTTP_PORT`（默认 8080，localhost 调试映射的宿主机端口）
+- `LIVEKIT_HTTP_PORT`（默认 7880，localhost 调试映射的宿主机端口）
+- `COOKIE_SECURE`（默认 true）
+- `SESSION_COOKIE_NAME`（默认 celery_session）
+- `VOICE_RECONCILE_INTERVAL`（默认 15s）
 
 ## .env.example 最终形态
 
@@ -183,6 +187,17 @@ LIVEKIT_UDP_PORT=7882
 LIVEKIT_TURN_PORT=3478
 LIVEKIT_RELAY_START=30000
 LIVEKIT_RELAY_END=30099
+
+# 应用 HTTP 调试端口（仅绑定 127.0.0.1）
+APP_HTTP_PORT=8080
+
+# LiveKit HTTP 调试端口（仅绑定 127.0.0.1）
+LIVEKIT_HTTP_PORT=7880
+
+# 应用行为
+COOKIE_SECURE=true
+SESSION_COOKIE_NAME=celery_session
+VOICE_RECONCILE_INTERVAL=15s
 
 # 时区
 TZ=Asia/Shanghai
@@ -252,21 +267,21 @@ services:
     environment:
       ADDR: ":8080"
       DATABASE_PATH: /data/celery.db
-      COOKIE_SECURE: "true"
-      SESSION_COOKIE_NAME: celery_session
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-celery_session}
       BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-}
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
       LIVEKIT_URL: http://livekit:7880
       LIVEKIT_PUBLIC_URL: wss://${PUBLIC_IP:?set PUBLIC_IP}:${HTTPS_PORT:-443}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET}
-      VOICE_RECONCILE_INTERVAL: "15s"
+      VOICE_RECONCILE_INTERVAL: ${VOICE_RECONCILE_INTERVAL:-15s}
       TRUSTED_ORIGINS: https://${PUBLIC_IP:?set PUBLIC_IP}:${HTTPS_PORT:-443}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - app-data:/data
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${APP_HTTP_PORT:-8080}:8080"
 
   livekit:
     image: livekit/livekit-server:v1.13.4
@@ -297,6 +312,7 @@ services:
           urls:
             - "http://app:8080/api/livekit/webhook"
     ports:
+      - "127.0.0.1:${LIVEKIT_HTTP_PORT:-7880}:7880"
       - "${LIVEKIT_TCP_PORT:-7881}:${LIVEKIT_TCP_PORT:-7881}/tcp"
       - "${LIVEKIT_UDP_PORT:-7882}:${LIVEKIT_UDP_PORT:-7882}/udp"
       - "${LIVEKIT_TURN_PORT:-3478}:${LIVEKIT_TURN_PORT:-3478}/udp"
