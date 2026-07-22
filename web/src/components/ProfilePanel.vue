@@ -219,7 +219,6 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           <p class="profile-hint">主题与强调色仅保存在当前浏览器。</p>
         </section>
       </div>
-      <footer class="panel-footer"><span class="profile-hint">音频、音效与主题设置即时生效。账号修改使用各自保存按钮。</span></footer>
     </section>
   </div>
 </template>

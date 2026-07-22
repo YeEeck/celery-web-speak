@@ -43,7 +43,7 @@ function switchMode(next: 'login' | 'register') {
       <span class="brand-mark large">C</span>
       <div>
         <h1>Celery Web Speak</h1>
-        <p>保持联系，专注于声音。</p>
+        <p>小组语音 · 频道文字 · 即时在线</p>
       </div>
     </section>
 
