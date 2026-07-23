@@ -97,7 +97,7 @@ BOOTSTRAP_ADMIN_PASSWORD=一段足够长的随机密码
 LIVEKIT_API_KEY=生成的Key
 LIVEKIT_API_SECRET=生成的Secret
 
-APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.6
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.3.6
 COMPOSE_PROFILES=gateway
 HTTPS_PORT=443
 ```

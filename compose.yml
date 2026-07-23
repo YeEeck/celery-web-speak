@@ -19,7 +19,7 @@ services:
       - livekit
 
   app:
-    image: ${APP_IMAGE:-ghcr.io/yeck/celery-web-speak:latest}
+    image: ${APP_IMAGE:-ghcr.io/yeeeck/celery-web-speak:latest}
     restart: unless-stopped
     depends_on:
       livekit:

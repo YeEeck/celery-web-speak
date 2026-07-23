@@ -173,7 +173,7 @@ LIVEKIT_API_SECRET=
 # ═══ 可选（有默认值）═══
 
 # 应用镜像（支持不同 registry 或版本）
-APP_IMAGE=ghcr.io/yeck/celery-web-speak:latest
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:latest
 
 # 启用 gateway（注释掉则禁用，需自行配置 HTTPS 反代）
 COMPOSE_PROFILES=gateway
@@ -266,7 +266,7 @@ services:
       - livekit
 
   app:
-    image: ${APP_IMAGE:-ghcr.io/yeck/celery-web-speak:latest}
+    image: ${APP_IMAGE:-ghcr.io/yeeeck/celery-web-speak:latest}
     restart: unless-stopped
     depends_on:
       livekit:

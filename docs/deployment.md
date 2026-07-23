@@ -74,7 +74,7 @@ BOOTSTRAP_ADMIN_PASSWORD=一段足够长的随机密码
 LIVEKIT_API_KEY=生成的Key
 LIVEKIT_API_SECRET=生成的Secret
 
-APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.6
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.3.6
 COMPOSE_PROFILES=gateway
 HTTPS_PORT=443
 ```
@@ -279,7 +279,7 @@ git checkout v0.3.6
 同步修改 `.env` 中的镜像版本：
 
 ```env
-APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.6
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.3.6
 ```
 
 检查配置并替换容器：
