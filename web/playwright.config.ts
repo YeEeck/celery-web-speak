@@ -4,6 +4,8 @@ export default defineConfig({
   testDir: './e2e',
   outputDir: './test-results',
   reporter: 'list',
+  // All projects mutate the same backend database, so parallel workers are not isolated.
+  workers: 1,
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080',
     trace: 'retain-on-failure',

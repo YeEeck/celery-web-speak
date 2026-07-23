@@ -144,7 +144,8 @@ test('紧凑视口下用户设置页签与内容不重叠', async ({ page, isMob
   await page.getByRole('button', { name: '音效', exact: true }).click()
 
   const layout = await page.locator('.settings-panel').evaluate((panel) => {
-    const [header, tabs, content, footer] = Array.from(panel.children).map((element) => element.getBoundingClientRect())
+    const panelRect = panel.getBoundingClientRect()
+    const [header, tabs, content] = Array.from(panel.children).map((element) => element.getBoundingClientRect())
     return {
       headerBottom: header.bottom,
       tabsTop: tabs.top,
@@ -152,13 +153,13 @@ test('紧凑视口下用户设置页签与内容不重叠', async ({ page, isMob
       tabsHeight: tabs.height,
       contentTop: content.top,
       contentBottom: content.bottom,
-      footerTop: footer.top,
+      panelBottom: panelRect.bottom,
     }
   })
   expect(layout.tabsTop).toBeGreaterThanOrEqual(layout.headerBottom - 1)
   expect(layout.tabsHeight).toBeGreaterThanOrEqual(40)
   expect(layout.contentTop).toBeGreaterThanOrEqual(layout.tabsBottom - 1)
-  expect(layout.footerTop).toBeGreaterThanOrEqual(layout.contentBottom - 1)
+  expect(layout.contentBottom).toBeLessThanOrEqual(layout.panelBottom + 1)
 })
 
 test('操作提示音默认开启并持久化到浏览器', async ({ page, isMobile }) => {
@@ -412,7 +413,7 @@ test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ pa
   const channelSidebar = page.locator('.app-shell > .channel-sidebar')
 
   await expect(permanentList).toBeVisible()
-  await expect(channelSidebar).toHaveCSS('width', '280px')
+  await expect(channelSidebar).toHaveCSS('width', '300px')
   await expect(channelSidebar.locator('.current-user small')).toHaveText('未连接语音')
   await expect.poll(() => channelSidebar.locator('.current-user small').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
   await expect(memberButton).toHaveAttribute('aria-pressed', 'true')
@@ -430,7 +431,7 @@ test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ pa
   await expect(permanentList).toBeVisible()
   await page.setViewportSize({ width: 1140, height: 800 })
   await expect(channelSidebar).toBeVisible()
-  await expect(channelSidebar).toHaveCSS('width', '280px')
+  await expect(channelSidebar).toHaveCSS('width', '300px')
   await expect(permanentList).toBeHidden()
   await expect(memberButton).toHaveAttribute('aria-pressed', 'false')
   await memberButton.click()
