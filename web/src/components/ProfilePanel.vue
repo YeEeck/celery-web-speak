@@ -6,7 +6,7 @@ import { useSoundStore, type NotificationSound, type SoundPresetId, SOUND_PRESET
 import { useThemeStore } from '../stores/theme'
 import { useVoiceStore } from '../stores/voice'
 
-defineEmits<{ close: [] }>()
+defineEmits<{ close: []; changelog: [] }>()
 const app = useAppStore()
 const voice = useVoiceStore()
 const sounds = useSoundStore()
@@ -133,6 +133,8 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
             <span v-if="passwordError" class="form-error">{{ passwordError }}</span>
             <span v-else-if="passwordMessage" class="form-success">{{ passwordMessage }}</span>
           </div>
+          <h3>关于</h3>
+          <button class="changelog-entry-button" @click="$emit('changelog')">更新日志</button>
         </section>
 
         <section v-else-if="tab === 'audio'" class="profile-audio-layout">

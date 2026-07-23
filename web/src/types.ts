@@ -82,3 +82,20 @@ export interface VoiceCredentials {
 	roomName: string
 	channelId: number
 }
+
+export interface ChangelogEntry {
+  version: string
+  date: string
+  changes: string[]
+}
+
+export interface ChangelogResponse {
+  entries: ChangelogEntry[]
+  total: number
+  page: number
+  size: number
+}
+
+export interface VersionResponse {
+  version: string
+}

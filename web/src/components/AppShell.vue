@@ -2,13 +2,18 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Hash, Radio, ServerCog, X } from '@lucide/vue'
 import AdminPanel from './AdminPanel.vue'
+import ChangelogModal from './ChangelogModal.vue'
 import ChatPane from './ChatPane.vue'
 import MemberList from './MemberList.vue'
 import ProfilePanel from './ProfilePanel.vue'
 import UserControls from './UserControls.vue'
 import VoiceChannel from './VoiceChannel.vue'
+import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
+import type { VersionResponse } from '../types'
+
+const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
 
 const app = useAppStore()
 const voice = useVoiceStore()
@@ -18,6 +23,8 @@ const desktopMembersVisible = ref(true)
 const wideMemberLayout = ref(window.matchMedia('(min-width: 1141px)').matches)
 const profileOpen = ref(false)
 const adminOpen = ref(false)
+const changelogOpen = ref(false)
+const currentVersion = ref('')
 let wideMemberQuery: MediaQueryList | null = null
 let mobileQuery: MediaQueryList | null = null
 
@@ -40,6 +47,7 @@ onMounted(() => {
   mobileQuery = window.matchMedia('(max-width: 760px)')
   wideMemberQuery.addEventListener('change', handleWideMemberLayout)
   mobileQuery.addEventListener('change', closeTemporaryDrawers)
+  void checkVersionAndShowChangelog()
 })
 onBeforeUnmount(() => {
   wideMemberQuery?.removeEventListener('change', handleWideMemberLayout)
@@ -68,6 +76,26 @@ function closeTemporaryDrawers() {
 function selectTextChannel(channelId: number) {
   void app.selectTextChannel(channelId)
   channelsOpen.value = false
+}
+
+async function checkVersionAndShowChangelog() {
+  try {
+    const data = await request<VersionResponse>('/api/version')
+    currentVersion.value = data.version
+    const lastSeen = localStorage.getItem(LAST_SEEN_VERSION_KEY)
+    if (lastSeen !== data.version) {
+      changelogOpen.value = true
+    }
+  } catch {
+    // 静默跳过，不弹窗
+  }
+}
+
+function closeChangelog() {
+  changelogOpen.value = false
+  if (currentVersion.value) {
+    localStorage.setItem(LAST_SEEN_VERSION_KEY, currentVersion.value)
+  }
 }
 </script>
 
@@ -120,7 +148,8 @@ function selectTextChannel(channelId: number) {
     </div>
 
     <div id="voice-audio-root" aria-hidden="true" />
-    <ProfilePanel v-if="profileOpen" @close="profileOpen = false" />
+    <ProfilePanel v-if="profileOpen" @close="profileOpen = false" @changelog="changelogOpen = true" />
     <AdminPanel v-if="adminOpen" @close="adminOpen = false" />
+    <ChangelogModal v-if="changelogOpen" @close="closeChangelog" />
   </main>
 </template>
