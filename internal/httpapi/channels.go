@@ -32,14 +32,15 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Name             string `json:"name"`
-		AudioBitrateKbps int    `json:"audioBitrateKbps"`
-		MessageRetention int    `json:"messageRetention"`
+		Name                       string `json:"name"`
+		AudioBitrateKbps           int    `json:"audioBitrateKbps"`
+		BackgroundAudioBitrateKbps int    `json:"backgroundAudioBitrateKbps"`
+		MessageRetention           int    `json:"messageRetention"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	channel, err := s.store.UpdateChannel(r.Context(), currentUser(r).ID, channelID, input.Name, input.AudioBitrateKbps, input.MessageRetention)
+	channel, err := s.store.UpdateChannel(r.Context(), currentUser(r).ID, channelID, input.Name, input.AudioBitrateKbps, input.BackgroundAudioBitrateKbps, input.MessageRetention)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return

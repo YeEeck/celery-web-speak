@@ -136,6 +136,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if err := s.migrateChannels(ctx); err != nil {
 		return fmt.Errorf("migrate channels: %w", err)
 	}
+	if err := s.ensureBackgroundAudioBitrateColumn(ctx); err != nil {
+		return fmt.Errorf("migrate background audio bitrate: %w", err)
+	}
 	return nil
 }
 
@@ -301,6 +304,15 @@ func (s *Store) ensureInviteCodeColumn(ctx context.Context) error {
 		return err
 	}
 	_, err = s.db.ExecContext(ctx, "ALTER TABLE invites ADD COLUMN code TEXT")
+	return err
+}
+
+func (s *Store) ensureBackgroundAudioBitrateColumn(ctx context.Context) error {
+	has, err := s.tableHasColumn(ctx, "channels", "background_audio_bitrate_kbps")
+	if err != nil || has {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "ALTER TABLE channels ADD COLUMN background_audio_bitrate_kbps INTEGER")
 	return err
 }
 
