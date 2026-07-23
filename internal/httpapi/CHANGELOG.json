@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.3.8",
+    "date": "2026-07-23",
+    "changes": [
+      "feat: 新增版本更新日志弹窗，登录后首次进入自动展示",
+      "feat: 用户设置账号页新增「更新日志」手动查看入口",
+      "feat: 新增 /api/version 和 /api/changelog 接口",
+      "docs: 新增发版流程文档"
+    ]
+  },
+  {
     "version": "0.3.7",
     "date": "2026-07-23",
     "changes": [
