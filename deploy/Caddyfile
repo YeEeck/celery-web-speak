@@ -2,7 +2,7 @@
 	https_port {$HTTPS_PORT:443}
 }
 
-{$PUBLIC_IP} {
+{$PUBLIC_IP}:{$HTTPS_PORT:443} {
 	tls {
 		issuer acme {
 			dir https://acme-v02.api.letsencrypt.org/directory
