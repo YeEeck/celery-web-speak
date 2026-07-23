@@ -279,7 +279,7 @@ func TestMessageRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.UpdateChannel(ctx, admin.ID, text.ID, text.Name, 0, 0, 100); err != nil {
+	if _, err := db.UpdateChannel(ctx, admin.ID, text.ID, text.Name, 0, 0, false, false, 100); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 105; i++ {
@@ -332,10 +332,10 @@ func TestChannelsIsolateMessagesRetentionAndReadState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.UpdateChannel(ctx, admin.ID, firstText.ID, firstText.Name, 0, 0, 100); err != nil {
+	if _, err := db.UpdateChannel(ctx, admin.ID, firstText.ID, firstText.Name, 0, 0, false, false, 100); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.UpdateChannel(ctx, admin.ID, secondText.ID, secondText.Name, 0, 0, 100); err != nil {
+	if _, err := db.UpdateChannel(ctx, admin.ID, secondText.ID, secondText.Name, 0, 0, false, false, 100); err != nil {
 		t.Fatal(err)
 	}
 	for index := 0; index < 105; index++ {
@@ -379,6 +379,34 @@ func TestChannelsIsolateMessagesRetentionAndReadState(t *testing.T) {
 	}
 	if states[0].UnreadCount != 0 || states[1].UnreadCount != 1 {
 		t.Fatalf("updated read states = %+v", states)
+	}
+}
+
+func TestVoiceChannelAudioSettings(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	channel, err := db.FirstChannel(ctx, ChannelTypeVoice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if channel.AudioBitrateKbps != 64 || channel.BackgroundAudioBitrateKbps != 128 || !channel.AudioRedEnabled || channel.BackgroundAudioRedEnabled {
+		t.Fatalf("default voice audio settings = %+v", channel)
+	}
+	created, err := db.CreateChannel(ctx, admin.ID, ChannelTypeVoice, "另一个语音频道")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.AudioBitrateKbps != 64 || created.BackgroundAudioBitrateKbps != 128 || !created.AudioRedEnabled || created.BackgroundAudioRedEnabled {
+		t.Fatalf("created voice audio settings = %+v", created)
+	}
+
+	updated, err := db.UpdateChannel(ctx, admin.ID, channel.ID, channel.Name, 80, 160, false, true, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.AudioBitrateKbps != 80 || updated.BackgroundAudioBitrateKbps != 160 || updated.AudioRedEnabled || !updated.BackgroundAudioRedEnabled {
+		t.Fatalf("updated voice audio settings = %+v", updated)
 	}
 }
 
@@ -658,4 +686,3 @@ func TestDeleteUserRejectsSelf(t *testing.T) {
 		t.Fatalf("self delete error = %v, want ErrSelfAction", err)
 	}
 }
-

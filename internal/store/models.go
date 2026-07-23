@@ -34,14 +34,16 @@ type User struct {
 }
 
 type Channel struct {
-	ID                       int64       `json:"id"`
-	Type                     ChannelType `json:"type"`
-	Name                     string      `json:"name"`
-	AudioBitrateKbps         int         `json:"audioBitrateKbps,omitempty"`
-	BackgroundAudioBitrateKbps int       `json:"backgroundAudioBitrateKbps,omitempty"`
-	MessageRetention         int         `json:"messageRetention,omitempty"`
-	CreatedAt                time.Time   `json:"createdAt"`
-	UpdatedAt                time.Time   `json:"updatedAt"`
+	ID                         int64       `json:"id"`
+	Type                       ChannelType `json:"type"`
+	Name                       string      `json:"name"`
+	AudioBitrateKbps           int         `json:"audioBitrateKbps,omitempty"`
+	BackgroundAudioBitrateKbps int         `json:"backgroundAudioBitrateKbps,omitempty"`
+	AudioRedEnabled            bool        `json:"audioRedEnabled"`
+	BackgroundAudioRedEnabled  bool        `json:"backgroundAudioRedEnabled"`
+	MessageRetention           int         `json:"messageRetention,omitempty"`
+	CreatedAt                  time.Time   `json:"createdAt"`
+	UpdatedAt                  time.Time   `json:"updatedAt"`
 }
 
 type ChannelReadState struct {

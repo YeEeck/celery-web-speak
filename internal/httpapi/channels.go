@@ -35,12 +35,22 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 		Name                       string `json:"name"`
 		AudioBitrateKbps           int    `json:"audioBitrateKbps"`
 		BackgroundAudioBitrateKbps int    `json:"backgroundAudioBitrateKbps"`
+		AudioRedEnabled            *bool  `json:"audioRedEnabled"`
+		BackgroundAudioRedEnabled  *bool  `json:"backgroundAudioRedEnabled"`
 		MessageRetention           int    `json:"messageRetention"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	channel, err := s.store.UpdateChannel(r.Context(), currentUser(r).ID, channelID, input.Name, input.AudioBitrateKbps, input.BackgroundAudioBitrateKbps, input.MessageRetention)
+	audioRedEnabled := true
+	if input.AudioRedEnabled != nil {
+		audioRedEnabled = *input.AudioRedEnabled
+	}
+	backgroundAudioRedEnabled := false
+	if input.BackgroundAudioRedEnabled != nil {
+		backgroundAudioRedEnabled = *input.BackgroundAudioRedEnabled
+	}
+	channel, err := s.store.UpdateChannel(r.Context(), currentUser(r).ID, channelID, input.Name, input.AudioBitrateKbps, input.BackgroundAudioBitrateKbps, audioRedEnabled, backgroundAudioRedEnabled, input.MessageRetention)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return

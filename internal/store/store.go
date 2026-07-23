@@ -139,6 +139,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if err := s.ensureBackgroundAudioBitrateColumn(ctx); err != nil {
 		return fmt.Errorf("migrate background audio bitrate: %w", err)
 	}
+	if err := s.ensureChannelRedColumns(ctx); err != nil {
+		return fmt.Errorf("migrate channel RED settings: %w", err)
+	}
 	return nil
 }
 
@@ -309,10 +312,34 @@ func (s *Store) ensureInviteCodeColumn(ctx context.Context) error {
 
 func (s *Store) ensureBackgroundAudioBitrateColumn(ctx context.Context) error {
 	has, err := s.tableHasColumn(ctx, "channels", "background_audio_bitrate_kbps")
-	if err != nil || has {
+	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, "ALTER TABLE channels ADD COLUMN background_audio_bitrate_kbps INTEGER")
+	if !has {
+		if _, err := s.db.ExecContext(ctx, "ALTER TABLE channels ADD COLUMN background_audio_bitrate_kbps INTEGER"); err != nil {
+			return err
+		}
+	}
+	_, err = s.db.ExecContext(ctx, "UPDATE channels SET background_audio_bitrate_kbps = 128 WHERE type = 'voice' AND background_audio_bitrate_kbps IS NULL")
+	return err
+}
+
+func (s *Store) ensureChannelRedColumns(ctx context.Context) error {
+	for _, column := range []string{"audio_red_enabled", "background_audio_red_enabled"} {
+		has, err := s.tableHasColumn(ctx, "channels", column)
+		if err != nil {
+			return err
+		}
+		if !has {
+			if _, err := s.db.ExecContext(ctx, "ALTER TABLE channels ADD COLUMN "+column+" INTEGER"); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE channels SET audio_red_enabled = 1 WHERE type = 'voice' AND audio_red_enabled IS NULL"); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, "UPDATE channels SET background_audio_red_enabled = 0 WHERE type = 'voice' AND background_audio_red_enabled IS NULL")
 	return err
 }
 
