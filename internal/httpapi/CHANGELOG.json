@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.3.9",
+    "date": "2026-07-23",
+    "changes": [
+      "chore: 关闭 LiveKit 内置 TURN，移除 TURN 入口与中继端口",
+      "docs: 公网部署端口精简为 80/TCP、443/TCP、7881/TCP 和 7882/UDP"
+    ]
+  },
+  {
     "version": "0.3.8",
     "date": "2026-07-23",
     "changes": [
