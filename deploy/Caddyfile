@@ -1,8 +1,13 @@
 {
 	https_port {$HTTPS_PORT:443}
+	default_sni {$PUBLIC_IP}
 }
 
-{$PUBLIC_IP} {
+http://{$PUBLIC_IP} {
+	redir https://{$PUBLIC_IP}:{$HTTPS_PORT:443}{uri} permanent
+}
+
+https://{$PUBLIC_IP}:{$HTTPS_PORT:443} {
 	tls {
 		issuer acme {
 			dir https://acme-v02.api.letsencrypt.org/directory
@@ -10,7 +15,7 @@
 		}
 	}
 
-	@livekit path /rtc
+	@livekit path /rtc /rtc/*
 	handle @livekit {
 		reverse_proxy livekit:7880
 	}
