@@ -30,6 +30,8 @@ export interface Channel {
 	name: string
 	audioBitrateKbps?: number
 	backgroundAudioBitrateKbps?: number
+	audioRedEnabled?: boolean
+	backgroundAudioRedEnabled?: boolean
 	messageRetention?: number
 	createdAt: string
 	updatedAt: string

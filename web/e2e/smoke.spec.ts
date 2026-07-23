@@ -10,6 +10,8 @@ test.beforeEach(async ({ page }) => {
   await page.getByLabel('密码').fill(password)
   await page.getByRole('button', { name: '登录', exact: true }).click()
   await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+  const changelog = page.getByRole('dialog', { name: '更新日志' })
+  if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
 })
 
 test('应用图标用于浏览器和服务器栏', async ({ page, isMobile }) => {
@@ -51,6 +53,8 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '管理控制台' })).toBeVisible()
   await page.getByLabel('选择频道').selectOption({ label: '语音 语音频道' })
   await expect(page.getByText('Opus 发送码率')).toBeVisible()
+  await expect(page.getByLabel('语音 RED 丢包冗余')).toBeChecked()
+  await expect(page.getByLabel('背景音 RED 丢包冗余')).not.toBeChecked()
   await page.getByTitle('关闭').last().click()
 
   const viewport = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
@@ -494,6 +498,8 @@ test('服务器管理员可通过登录名确认删除账号', async ({ page, re
     await targetPage.getByLabel('密码').fill(account.password)
     await targetPage.getByRole('button', { name: '登录', exact: true }).click()
     await expect(targetPage.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+    const targetChangelog = targetPage.getByRole('dialog', { name: '更新日志' })
+    if (await targetChangelog.isVisible()) await targetChangelog.getByTitle('关闭').click()
     await targetPage.getByPlaceholder('发送消息到 #文字聊天').fill(historicalMessage)
     await targetPage.getByTitle('发送消息').click()
     await expect(page.getByText(historicalMessage, { exact: true })).toBeVisible()

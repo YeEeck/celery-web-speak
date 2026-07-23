@@ -14,6 +14,8 @@ const selectedChannel = computed(() => app.channels.find((channel) => channel.id
 const channelName = ref(selectedChannel.value?.name ?? '')
 const bitrate = ref(selectedChannel.value?.audioBitrateKbps ?? 64)
 const backgroundBitrate = ref(selectedChannel.value?.backgroundAudioBitrateKbps ?? 128)
+const audioRedEnabled = ref(selectedChannel.value?.audioRedEnabled ?? true)
+const backgroundAudioRedEnabled = ref(selectedChannel.value?.backgroundAudioRedEnabled ?? false)
 const retention = ref(selectedChannel.value?.messageRetention ?? 500)
 const newChannelType = ref<ChannelType>('text')
 const newChannelName = ref('')
@@ -47,6 +49,8 @@ watch(selectedChannel, (channel) => {
   channelName.value = channel?.name ?? ''
   bitrate.value = channel?.audioBitrateKbps ?? 64
   backgroundBitrate.value = channel?.backgroundAudioBitrateKbps ?? 128
+  audioRedEnabled.value = channel?.audioRedEnabled ?? true
+  backgroundAudioRedEnabled.value = channel?.backgroundAudioRedEnabled ?? false
   retention.value = channel?.messageRetention ?? 500
 })
 
@@ -85,6 +89,8 @@ async function saveSettings() {
         name: channelName.value,
         audioBitrateKbps: channel.type === 'voice' ? bitrate.value : 0,
         backgroundAudioBitrateKbps: channel.type === 'voice' ? backgroundBitrate.value : 0,
+        audioRedEnabled: channel.type === 'voice' && audioRedEnabled.value,
+        backgroundAudioRedEnabled: channel.type === 'voice' && backgroundAudioRedEnabled.value,
         messageRetention: channel.type === 'text' ? retention.value : 0,
       }),
     })
@@ -350,6 +356,14 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
               <span>背景音码率 <strong>{{ backgroundBitrate }} kbps</strong></span>
               <input v-model.number="backgroundBitrate" type="range" min="64" max="256" step="16" />
               <span class="range-labels"><small>64 kbps</small><small>256 kbps</small></span>
+            </label>
+            <label v-if="selectedChannel.type === 'voice'" class="setting-toggle">
+              <span>语音 RED 丢包冗余</span>
+              <input v-model="audioRedEnabled" type="checkbox" aria-label="语音 RED 丢包冗余" />
+            </label>
+            <label v-if="selectedChannel.type === 'voice'" class="setting-toggle">
+              <span>背景音 RED 丢包冗余</span>
+              <input v-model="backgroundAudioRedEnabled" type="checkbox" aria-label="背景音 RED 丢包冗余" />
             </label>
             <label v-else><span>保留消息数量</span><input v-model.number="retention" type="number" min="100" max="5000" step="100" /></label>
             <div class="channel-admin-actions">

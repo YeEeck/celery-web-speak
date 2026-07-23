@@ -30,8 +30,20 @@ let mobileQuery: MediaQueryList | null = null
 
 const membersVisible = computed(() => wideMemberLayout.value ? desktopMembersVisible.value : membersOpen.value)
 
-watch(() => app.voiceChannels.find((channel) => channel.id === voice.connectedChannelId)?.audioBitrateKbps, (value, oldValue) => {
-  if (oldValue !== undefined && value !== oldValue && voice.joined) void voice.applyBitrateChange()
+watch(() => {
+  const channel = app.voiceChannels.find((item) => item.id === voice.connectedChannelId)
+  if (!channel) return null
+  return {
+    microphone: `${channel.audioBitrateKbps ?? 64}:${channel.audioRedEnabled ?? true}`,
+    backgroundAudio: `${channel.backgroundAudioBitrateKbps ?? 128}:${channel.backgroundAudioRedEnabled ?? false}`,
+  }
+}, (value, oldValue) => {
+  if (!value || !oldValue || !voice.joined) return
+  const microphoneChanged = value.microphone !== oldValue.microphone
+  const backgroundAudioChanged = value.backgroundAudio !== oldValue.backgroundAudio
+  if (microphoneChanged || backgroundAudioChanged) {
+    void voice.applyPublishSettingsChange(microphoneChanged, backgroundAudioChanged)
+  }
 })
 watch(() => app.voiceChannels.some((channel) => channel.id === voice.connectedChannelId), (exists) => {
   if (!exists && voice.joined) void voice.leave()

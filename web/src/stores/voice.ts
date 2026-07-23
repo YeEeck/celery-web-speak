@@ -156,7 +156,7 @@ export const useVoiceStore = defineStore('voice', () => {
         publishDefaults: {
           audioPreset: { maxBitrate: (channel.audioBitrateKbps ?? 64) * 1000 },
           dtx: true,
-          red: true,
+          red: channel.audioRedEnabled ?? true,
           forceStereo: false,
         },
       }))
@@ -403,15 +403,15 @@ export const useVoiceStore = defineStore('voice', () => {
     localStorage.setItem(NOISE_SUPPRESSION_KEY, String(value))
   }
 
-  async function applyBitrateChange() {
+  async function applyPublishSettingsChange(microphoneChanged: boolean, backgroundAudioChanged: boolean) {
     if (!room) return
     const target = room
-    if (!muted.value && !useAppStore().user?.voiceMuted) {
+    if (microphoneChanged && !muted.value && !useAppStore().user?.voiceMuted) {
       await target.localParticipant.setMicrophoneEnabled(false)
       await target.localParticipant.setMicrophoneEnabled(true, undefined, publishOptions())
       await attachMicrophoneGain(target)
     }
-    if (applicationAudioTrack) {
+    if (backgroundAudioChanged && applicationAudioTrack) {
       const track = applicationAudioTrack
       const generation = applicationAudioGeneration
       const wasPaused = applicationAudioState.value === 'paused'
@@ -906,7 +906,7 @@ export const useVoiceStore = defineStore('voice', () => {
     return {
       audioPreset: { maxBitrate: (channel?.audioBitrateKbps ?? 64) * 1000 },
       dtx: true,
-      red: true,
+      red: channel?.audioRedEnabled ?? true,
       forceStereo: false,
     }
   }
@@ -917,7 +917,7 @@ export const useVoiceStore = defineStore('voice', () => {
       source: Track.Source.ScreenShareAudio,
       audioPreset: { maxBitrate: (channel?.backgroundAudioBitrateKbps ?? 128) * 1000 },
       dtx: false,
-      red: true,
+      red: channel?.backgroundAudioRedEnabled ?? false,
       forceStereo: true,
     }
   }
@@ -1013,7 +1013,7 @@ export const useVoiceStore = defineStore('voice', () => {
     resumeApplicationAudio,
     stopApplicationAudio,
     setApplicationAudioVolume,
-    applyBitrateChange,
+    applyPublishSettingsChange,
     syncServerMute,
     retryDeafenedSync,
     refreshDevices,
