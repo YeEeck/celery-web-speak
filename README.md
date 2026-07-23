@@ -2,7 +2,7 @@
 
 Celery Web Speak 是一个面向小型固定群体的公开多频道在线语音与文字聊天工具。文字频道与语音频道彼此独立，前端使用 Vue 3，业务服务使用 Go 与 SQLite，语音通过 LiveKit SFU 和 UDP TURN 集中转发。
 
-当前稳定版本为 `v0.3.4`，生产部署建议固定使用明确版本的预构建镜像。
+当前稳定版本为 `v0.3.5`，生产部署建议固定使用明确版本的预构建镜像。
 
 ## 功能
 
@@ -82,7 +82,7 @@ Caddy 只承载网页、业务 WebSocket 和 LiveKit 信令，不转发音频数
 默认镜像地址是 `ghcr.io/yeck/celery-web-speak:latest`。正式部署建议使用明确版本，而不是长期跟随 `latest`：
 
 ```env
-APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.4
+APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.5
 ```
 
 仓库的 GitHub Actions 会在推送 `v*` 标签或手动运行工作流时构建 amd64 镜像。若 GHCR 包是私有的，先在服务器登录：
@@ -128,7 +128,7 @@ BOOTSTRAP_ADMIN_PASSWORD=一段足够长的随机密码
 LIVEKIT_API_KEY=生成的Key
 LIVEKIT_API_SECRET=生成的Secret
 
-APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.4
+APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.5
 COMPOSE_PROFILES=gateway
 HTTPS_PORT=443
 ```
@@ -295,7 +295,7 @@ docker compose logs --since=10m livekit
 更新前先备份数据，然后拉取仓库变更并修改 `.env` 中固定的镜像版本：
 
 ```env
-APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.4
+APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.5
 ```
 
 从 `v0.1.x` 升级到 `v0.2.0` 时，应用会将数据库迁移到公开多频道结构。账号、会话、邀请码、封禁和审计记录会保留；旧单频道文字消息与单例频道设置无法映射到新的分频道模型，会被移除，并创建默认的“文字聊天”和“语音频道”。升级前必须完成 SQLite 备份。
