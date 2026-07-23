@@ -4,7 +4,7 @@
 >
 > 设计日期：2026-07-23。
 >
-> 当前部署基线：v0.3.0（手动 Nginx + 手动证书）。
+> 原部署基线：v0.3.0（手动 Nginx + 手动证书）。
 
 ## 背景
 
@@ -39,7 +39,7 @@ Caddy Gateway (caddy:2.11)
   |  80: ACME HTTP-01 挑战 + 301 重定向
   |  443 (或 HTTPS_PORT): TLS 终止
   |
-  |-- /rtc --> livekit:7880 (WSS 信令)
+  |-- /rtc, /rtc/* --> livekit:7880 (WSS 信令)
   |-- /*   --> app:8080    (HTTP + WS)
   |
   v (Docker internal network)
@@ -95,7 +95,7 @@ Caddyfile 使用 Caddy 原生 `{$VAR:default}` 语法引用环境变量：
 - `{$PUBLIC_IP}`：站点地址（无默认值，必填）。
 - `{$HTTPS_PORT:443}`：HTTPS 监听端口。
 
-Caddy 全局选项设置 `https_port {$HTTPS_PORT:443}`。80 端口行为（ACME + 重定向）无需额外配置。
+Caddy 全局选项设置 `https_port {$HTTPS_PORT:443}` 和 `default_sni {$PUBLIC_IP}`。浏览器访问裸 IP 时通常不发送 SNI，`default_sni` 用于从持久化存储中选择对应的 IP 证书。HTTP 站点显式重定向到带 `HTTPS_PORT` 的 URL，避免非标准端口被自动重定向丢失。
 
 ### D6: 派生环境变量
 
@@ -208,9 +208,14 @@ TZ=Asia/Shanghai
 ```
 {
 	https_port {$HTTPS_PORT:443}
+	default_sni {$PUBLIC_IP}
 }
 
-{$PUBLIC_IP} {
+http://{$PUBLIC_IP} {
+	redir https://{$PUBLIC_IP}:{$HTTPS_PORT:443}{uri} permanent
+}
+
+https://{$PUBLIC_IP}:{$HTTPS_PORT:443} {
 	tls {
 		issuer acme {
 			dir https://acme-v02.api.letsencrypt.org/directory
@@ -218,7 +223,7 @@ TZ=Asia/Shanghai
 		}
 	}
 
-	@livekit path /rtc
+	@livekit path /rtc /rtc/*
 	handle @livekit {
 		reverse_proxy livekit:7880
 	}
@@ -233,7 +238,9 @@ TZ=Asia/Shanghai
 - Caddy 自动处理 WebSocket 升级（无需手动设置 Upgrade/Connection 头）。
 - WebSocket 连接无默认超时限制，语音长连接不会被断开。
 - ACME HTTP-01 挑战由 Caddy 在 80 端口自动响应，优先于 reverse_proxy 路由。
-- HTTP 访问自动 301 重定向到 HTTPS。
+- HTTP 访问显式 301 重定向到包含 `HTTPS_PORT` 的 HTTPS 地址。
+- `/rtc` 和 `/rtc/*` 均转发至 LiveKit，覆盖实际信令路径 `/rtc/v1`。
+- `default_sni` 覆盖裸 IP 客户端不发送 SNI 的场景。
 
 ## compose.yml 服务结构
 
@@ -328,8 +335,8 @@ volumes:
 1. 准备一台有公网 IP 的 VPS，开放防火墙端口：80/TCP、443/TCP、7881/TCP、7882/UDP、3478/UDP、30000-30099/UDP。
 2. 克隆 repo，复制 `.env.example` 为 `.env`。
 3. 填写：`PUBLIC_IP`、`BOOTSTRAP_ADMIN_PASSWORD`、`LIVEKIT_API_KEY`、`LIVEKIT_API_SECRET`。
-4. `docker compose up -d`。
-5. 浏览器访问 `https://<PUBLIC_IP>`，首次加载时 Caddy 自动签发证书（数秒）。
+4. `docker compose config --quiet && docker compose pull && docker compose up -d`。
+5. 浏览器访问 `https://<PUBLIC_IP>`；若配置了非标准端口，则访问 `https://<PUBLIC_IP>:<HTTPS_PORT>`。首次加载时 Caddy 自动签发证书（数秒）。
 
 ## 已知约束与风险
 
@@ -338,6 +345,7 @@ volumes:
 - **端口独占**：启用 gateway 后宿主机 80 和 HTTPS_PORT 被 Caddy 独占。已有服务占用这些端口的用户应禁用 gateway 走高级部署。
 - **非标准 HTTPS 端口**：`HTTPS_PORT` 非 443 时，用户访问需带端口号（`https://IP:8443`），80 端口仍用于 ACME 挑战。
 - **LE 速率限制**：证书持久化依赖 `caddy-data` volume。`docker compose down -v` 会删除 volume 导致重新签发，频繁操作可能触发限制。
+- **裸 IP 无 SNI**：浏览器和 curl 访问 IP 地址时通常不发送 SNI，必须保留 Caddyfile 的 `default_sni {$PUBLIC_IP}`，否则即使证书已签发也会出现 TLS `internal error`。
 
 ## 文件变更清单
 

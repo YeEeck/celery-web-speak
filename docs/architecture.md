@@ -10,7 +10,7 @@ Browser (Vue 3)
   v                            v
 Caddy Gateway (可选) --------> Go Application ------> SQLite (/data/celery.db)
   |                              |
-  | WSS: /rtc                    | HTTP: RoomService API
+  | WSS: /rtc, /rtc/*            | HTTP: RoomService API
   v                              v
 LiveKit Server <----------- internal Docker network
   ^
@@ -18,7 +18,7 @@ LiveKit Server <----------- internal Docker network
 Browser
 ```
 
-默认启用 Caddy Gateway（`caddy:2.11`，通过 Compose profiles 可选禁用），终止 HTTPS 并代理应用 HTTP、业务 WebSocket 与 LiveKit 信令。Gateway 使用 Let's Encrypt IP 证书（shortlived profile）自动签发与续期，无需外部 Nginx 或手动证书管理。禁用 Gateway 时需部署方自行提供 HTTPS 反代（参考 `deploy/nginx.conf.example`）。WebRTC 媒体不经过 Go 或 Gateway，而是由浏览器直接连接 LiveKit 暴露的媒体与 TURN 端口。
+默认启用 Caddy Gateway（`caddy:2.11`，通过 Compose profiles 可选禁用），终止 HTTPS 并将 `/rtc`、`/rtc/*` 转发至 LiveKit，其余 HTTP 与业务 WebSocket 请求转发至 Go 应用。Gateway 使用 Let's Encrypt `shortlived` profile 自动签发和续期公网 IP 证书；`default_sni` 使不发送 SNI 的裸 IP 浏览器连接也能选中证书，显式 HTTP 路由确保非标准 `HTTPS_PORT` 的重定向保留端口。禁用 Gateway 时需部署方自行提供 HTTPS 反代（参考 `deploy/nginx.conf.example`）。WebRTC 媒体不经过 Go 或 Gateway，而是由浏览器直接连接 LiveKit 暴露的媒体与 TURN 端口。
 
 Go 应用提供嵌入式前端、认证与管理 API、文字聊天 WebSocket、LiveKit 访问令牌、Webhook 和房间管理。SQLite 保存频道、消息、已读位置及账号数据；在线状态、发送限流、WebSocket 客户端集合和语音房间占用快照保存在 Go 进程内存中，LiveKit 保存实际媒体房间状态。
 
@@ -123,7 +123,7 @@ Dockerfile 使用 Node 22 构建 Vue 产物，再使用 Go 1.26 将 `internal/we
 
 推送 `v*` Git 标签或手动运行 GitHub Actions 会使用 Buildx 构建 `linux/amd64` 镜像，并向 GHCR 同时推送版本标签和 `latest`。生产 `compose.yml` 只拉取预构建镜像；`compose.build.yml` 仅用于开发机现场构建。
 
-生产 Compose 持久化 `app-data`（SQLite）和 `caddy-data`（TLS 证书）。LiveKit 配置由环境变量注入且房间状态是临时的，不挂载持久卷。应用和 LiveKit 信令分别仅绑定到宿主机 `127.0.0.1:8080` 与 `127.0.0.1:7880`（调试用），媒体和 TURN 端口直接对外开放。Gateway 启用时独占宿主机 80 和 HTTPS 端口；LiveKit 媒体端口支持通过环境变量自定义。
+生产 Compose 持久化 `app-data`（SQLite）和 `caddy-data`（ACME 账号、TLS 证书与私钥）。LiveKit 配置由环境变量注入且房间状态是临时的，不挂载持久卷。应用和 LiveKit 信令分别仅绑定到宿主机 `127.0.0.1:${APP_HTTP_PORT}` 与 `127.0.0.1:${LIVEKIT_HTTP_PORT}`（默认 8080 与 7880，仅供调试），媒体和 TURN 端口直接对外开放。Gateway 启用时独占宿主机 80 和 `HTTPS_PORT`；LiveKit TCP、UDP、TURN 入口和中继范围均支持通过环境变量自定义。
 
 ## 稳定性与扩展限制
 

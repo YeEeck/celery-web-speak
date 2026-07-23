@@ -2,7 +2,7 @@
 
 Celery Web Speak 是一个面向小型固定群体的公开多频道在线语音与文字聊天工具。文字频道与语音频道彼此独立，前端使用 Vue 3，业务服务使用 Go 与 SQLite，语音通过 LiveKit SFU 和 UDP TURN 集中转发。
 
-当前稳定版本为 `v0.3.0`，文档、预构建镜像和数据库迁移说明均以该版本为基线。
+当前稳定版本为 `v0.3.4`，生产部署建议固定使用明确版本的预构建镜像。
 
 ## 功能
 
@@ -50,39 +50,39 @@ Celery Web Speak 是一个面向小型固定群体的公开多频道在线语音
 
 ## 生产部署
 
-生产服务器只拉取预构建的应用镜像和 LiveKit 官方镜像，不进行 Go、Node 或原生模块编译。推荐在具有固定公网 IPv4 的 Linux amd64 主机上部署。
+生产服务器只拉取预构建的应用镜像、LiveKit 官方镜像和 Caddy 官方镜像，不进行 Go、Node 或原生模块编译。推荐在具有固定公网 IPv4 的 Linux amd64 主机上部署。默认 Gateway 路径直接为公网 IP 申请浏览器信任的 HTTPS 证书，不要求准备域名、Nginx 或外部证书工具。
 
 ### 部署拓扑
 
 ```text
 浏览器
-  | HTTPS/WSS 443
+  | HTTPS/WSS（HTTPS_PORT，默认 443）
   v
-Nginx ─────── 127.0.0.1:8080  应用、API、文字 WebSocket
-  └───────── 127.0.0.1:7880  LiveKit /rtc 信令
+Caddy Gateway ───── app:8080      页面、API、文字 WebSocket
+  └─────────────── livekit:7880  LiveKit /rtc/* 信令
 
-浏览器 ───── 公网 IP:7882/UDP  WebRTC 首选媒体路径
-       ├─── 公网 IP:7881/TCP  ICE/TCP 回退
-       └─── 公网 IP:3478/UDP  TURN
+浏览器 ───── 公网 IP:LIVEKIT_UDP_PORT  WebRTC 首选媒体路径
+       ├─── 公网 IP:LIVEKIT_TCP_PORT  ICE/TCP 回退
+       └─── 公网 IP:LIVEKIT_TURN_PORT 与中继端口范围  TURN
 ```
 
-Nginx 只承载网页、业务 WebSocket 和 LiveKit 信令，不转发音频数据。音频通过 WebRTC 端口直接进入 LiveKit。
+Caddy 只承载网页、业务 WebSocket 和 LiveKit 信令，不转发音频数据。音频通过 WebRTC 端口直接进入 LiveKit。应用和 LiveKit 的 HTTP 端口仍仅绑定宿主机 `127.0.0.1`，用于本机诊断。
 
 ### 前置条件
 
 - Linux amd64 主机，建议至少 2 核 CPU、4 GB 内存
 - Docker Engine 和 Docker Compose v2
-- 固定公网 IPv4，或能执行等价端口映射的公网入口
-- 已配置的 HTTPS 证书；可以是域名证书或与公网 IP 匹配的 IP 证书
-- 云安全组和主机防火墙都允许所需端口
-- Nginx 能访问本机 `127.0.0.1:8080` 和 `127.0.0.1:7880`
+- 固定公网 IPv4；位于 NAT 后面时，公网入口必须将配置的所有端口原样映射到主机
+- 80/TCP 能从公网访问，供 Let's Encrypt HTTP-01 验证和后续续期使用
+- 云安全组和主机防火墙允许 Gateway、WebRTC 与 TURN 所需端口
+- 宿主机的 80/TCP 和 `HTTPS_PORT` 未被其他服务占用
 
 ### 1. 准备应用镜像
 
 默认镜像地址是 `ghcr.io/yeck/celery-web-speak:latest`。正式部署建议使用明确版本，而不是长期跟随 `latest`：
 
 ```env
-APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.0
+APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.4
 ```
 
 仓库的 GitHub Actions 会在推送 `v*` 标签或手动运行工作流时构建 amd64 镜像。若 GHCR 包是私有的，先在服务器登录：
@@ -117,34 +117,48 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-使用公网 IP 访问时，关键配置如下：
+默认 Gateway 部署至少填写以下配置：
 
 ```env
-LIVEKIT_NODE_IP=203.0.113.10
-LIVEKIT_PUBLIC_URL=wss://203.0.113.10
-TRUSTED_ORIGINS=https://203.0.113.10
+PUBLIC_IP=203.0.113.10
+
+BOOTSTRAP_ADMIN_USERNAME=admin
+BOOTSTRAP_ADMIN_PASSWORD=一段足够长的随机密码
+
+LIVEKIT_API_KEY=生成的Key
+LIVEKIT_API_SECRET=生成的Secret
+
+APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.4
+COMPOSE_PROFILES=gateway
+HTTPS_PORT=443
 ```
 
-使用域名访问时，只有信令和网页使用域名，媒体层仍建议明确填写公网 IPv4：
+`PUBLIC_IP` 同时用于 Caddy IP 证书、浏览器访问地址、应用允许的 Origin，以及 LiveKit 向浏览器发布的 ICE/TURN 地址。Compose 自动推导以下配置，不要再在 `.env` 中填写旧变量：
 
-```env
-LIVEKIT_NODE_IP=203.0.113.10
-LIVEKIT_PUBLIC_URL=wss://voice.example.com
-TRUSTED_ORIGINS=https://voice.example.com
-```
+| 派生配置 | Compose 中的值 |
+| --- | --- |
+| LiveKit 节点地址 | `${PUBLIC_IP}` |
+| `LIVEKIT_PUBLIC_URL` | `wss://${PUBLIC_IP}:${HTTPS_PORT}` |
+| `TRUSTED_ORIGINS` | `https://${PUBLIC_IP}:${HTTPS_PORT}` |
 
-三个变量的职责不同：
+`HTTPS_PORT` 默认为 443。设置为 9443 等非标准端口时，必须开放该 TCP 端口，并使用 `https://203.0.113.10:9443` 访问；80 端口仍然必须开放，Caddy 会将 HTTP 请求重定向到带端口的 HTTPS 地址。
 
-| 变量 | 含义 | 常见错误 |
+媒体和调试端口可按需覆盖：
+
+| 变量 | 默认值 | 用途 |
 | --- | --- | --- |
-| `LIVEKIT_NODE_IP` | 写入 ICE 候选、供客户端直接连接媒体服务的 IP | 填写 `127.0.0.1`、Docker 网桥 IP 或客户端无法路由的内网 IP |
-| `LIVEKIT_PUBLIC_URL` | 浏览器连接 LiveKit 信令的 WSS 地址 | HTTPS 页面使用 `ws://`，或错误添加内部端口 `:7880` |
-| `TRUSTED_ORIGINS` | 允许建立业务 WebSocket 的网页来源 | 与浏览器地址的协议、主机或非标准端口不完全一致 |
-| `VOICE_RECONCILE_INTERVAL` | 全量校准 LiveKit 语音房间的周期，默认 `15s`，`0` 表示禁用 | 间隔过短会增加 RoomService 查询量，禁用后漏传 Webhook 只能等待启动或业务连接建立时修复 |
+| `LIVEKIT_TCP_PORT` | `7881` | ICE/TCP 回退 |
+| `LIVEKIT_UDP_PORT` | `7882` | WebRTC 首选媒体路径 |
+| `LIVEKIT_TURN_PORT` | `3478` | TURN UDP 入口 |
+| `LIVEKIT_RELAY_START` / `LIVEKIT_RELAY_END` | `30000` / `30099` | TURN UDP 中继范围 |
+| `APP_HTTP_PORT` | `8080` | 应用在宿主机的 localhost 调试端口 |
+| `LIVEKIT_HTTP_PORT` | `7880` | LiveKit 在宿主机的 localhost 调试端口 |
 
-如果服务器直接持有公网 IP，`LIVEKIT_NODE_IP` 就填写该 IP。如果服务器位于 NAT 后面，则填写 NAT 设备的公网 IP，并将媒体端口原样映射到服务器。若使用 FRP、端口穿透或另一台入口机，应填写客户端最终连接到的公网 IP，并保持外部和内部端口一致。
+如果服务器位于 NAT 后面，`PUBLIC_IP` 填写客户端最终连接的公网 IP，并将 HTTPS、媒体和 TURN 端口按相同外部端口映射到服务器。仅映射 `LIVEKIT_TCP_PORT` 可能通过 ICE/TCP 建立通话，但稳定部署仍应提供 UDP 媒体和 TURN 端口。
 
-仅穿透 `7881/TCP` 也可能通过 ICE/TCP 建立通话，但它是回退路径。稳定部署仍应提供 `7882/UDP` 和 TURN UDP；否则在 TCP 拥塞或严格 NAT 下更容易出现延迟和断线。
+其他可选行为变量包括 `COOKIE_SECURE=true`、`SESSION_COOKIE_NAME=celery_session`、`VOICE_RECONCILE_INTERVAL=15s` 和 `TZ=Asia/Shanghai`。生产 Gateway 必须保持 `COOKIE_SECURE=true`；语音状态校准间隔设为 `0` 会禁用后台兜底校准。
+
+默认 Compose 的公开 URL 与可信 Origin 固定由 `PUBLIC_IP` 和 `HTTPS_PORT` 推导。需要域名、多站点或不同内外端口映射时，应禁用 Gateway，并通过 Compose override 同时覆盖应用公开 URL、可信 Origin 和 LiveKit 节点配置；`deploy/nginx.conf.example` 仅作为自管反向代理参考。
 
 ### 4. 配置内核与防火墙
 
@@ -166,58 +180,54 @@ sudo ufw allow 3478/udp
 sudo ufw allow 30000:30099/udp
 ```
 
-云服务器还需要在安全组中开放相同端口。不要向公网开放 `8080/TCP` 和 `7880/TCP`；Compose 已将它们限制绑定到 `127.0.0.1`。
+如果 `HTTPS_PORT` 不是 443，将上面的 443/TCP 替换为实际端口。若修改任意 LiveKit 端口或中继范围，防火墙和云安全组必须使用相同的新值。不要向公网开放 `APP_HTTP_PORT` 和 `LIVEKIT_HTTP_PORT`；Compose 已将它们限制绑定到 `127.0.0.1`。
 
-| 端口 | 协议 | 用途 | 是否经过 Nginx |
+| 默认端口 | 协议 | 用途 | 暴露服务 |
 | --- | --- | --- | --- |
-| 80 | TCP | 跳转到 HTTPS | 是 |
-| 443 | TCP | 网页、API、业务 WebSocket、LiveKit WSS 信令 | 是 |
-| 7881 | TCP | WebRTC ICE/TCP 回退 | 否 |
-| 7882 | UDP | WebRTC 首选媒体路径 | 否 |
-| 3478 | UDP | TURN 入口 | 否 |
-| 30000-30099 | UDP | TURN 中继分配 | 否 |
+| 80 | TCP | ACME HTTP-01、跳转到 HTTPS | Gateway |
+| 443 | TCP | 网页、API、业务 WebSocket、LiveKit WSS 信令 | Gateway |
+| 7881 | TCP | WebRTC ICE/TCP 回退 | LiveKit |
+| 7882 | UDP | WebRTC 首选媒体路径 | LiveKit |
+| 3478 | UDP | TURN 入口 | LiveKit |
+| 30000-30099 | UDP | TURN 中继分配 | LiveKit |
 
-### 5. 接入 Nginx 和证书
+### 5. 启动 Gateway 与服务
 
-将 [Nginx 示例](deploy/nginx.conf.example) 合并到现有配置，并至少替换以下内容：
-
-- 两处 `server_name 203.0.113.10`
-- `ssl_certificate` 和 `ssl_certificate_key` 路径
-- 如果修改了 `APP_HTTP_PORT` 或 `LIVEKIT_HTTP_PORT`，同步修改两个 upstream 端口
-
-LiveKit Client 2.x 当前使用 `/rtc/v1` 建立信令连接，因此 Nginx 必须代理整个 `/rtc` 前缀，不能只精确匹配 `/rtc`。示例已经使用 `location ^~ /rtc`。
-
-检查并重新加载配置：
-
-```bash
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-证书申请、IP 证书短周期续期和私钥权限由部署方管理。应用容器不读取证书，也不会修改 Nginx。
-
-### 6. 启动服务
-
-先检查环境变量插值结果。该命令不会启动容器：
+先检查 Compose 环境变量插值结果。该命令不会启动容器：
 
 ```bash
 docker compose config --quiet
 ```
 
-然后拉取并启动：
+拉取并启动全部服务：
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-检查容器和本机健康端点：
+`.env` 中的 `COMPOSE_PROFILES=gateway` 会自动启用 Gateway profile。Caddy 监听 80 和 `HTTPS_PORT`，首次启动时向 Let's Encrypt 申请 `shortlived` 公网 IP 证书，之后自动续期。ACME 账号、证书和私钥保存在 `caddy-data` 卷中；不要使用 `docker compose down -v` 作为常规更新命令。
+
+Caddyfile 同时处理几个容易忽略的 IP 部署细节：
+
+- `default_sni` 为不发送 SNI 的裸 IP 浏览器连接选择 IP 证书。
+- HTTP 跳转显式保留非标准 `HTTPS_PORT`。
+- `/rtc` 和 `/rtc/*` 都代理至 LiveKit，覆盖实际信令地址 `/rtc/v1`。
+- WebSocket 升级由 Caddy 自动处理。
+
+禁用 Gateway 时，删除或注释 `.env` 中的 `COMPOSE_PROFILES=gateway`，然后自行提供 HTTPS 入口。[Nginx 示例](deploy/nginx.conf.example) 可作为高级参考，但域名或不同外部地址场景还需要 Compose override 覆盖默认派生的公开 URL 与 Origin。
+
+### 6. 验证部署
+
+检查容器、本机应用和三项服务日志：
 
 ```bash
 docker compose ps
 curl -fsS http://127.0.0.1:8080/api/health
-docker compose logs --tail=100 app livekit
+docker compose logs --tail=100 gateway app livekit
 ```
+
+修改过 `APP_HTTP_PORT` 时，将健康检查中的 8080 替换为实际端口。
 
 预期健康接口返回：
 
@@ -225,13 +235,14 @@ docker compose logs --tail=100 app livekit
 {"status":"ok"}
 ```
 
-再从公网检查 Nginx 和证书：
+再从公网检查 HTTP 跳转、TLS 证书和应用健康接口；非标准端口需要在 URL 中显式填写：
 
 ```bash
-curl -fsS https://voice.example.com/api/health
+curl -I http://203.0.113.10/
+curl -v https://203.0.113.10/api/health
 ```
 
-LiveKit 启动日志应包含配置的 `nodeIP`、`rtc.portTCP: 7881`、`rtc.portUDP: 7882` 和 TURN 启动信息，不应持续出现 UDP receive buffer 过小的警告。
+第一条命令的 `Location` 应包含实际 `HTTPS_PORT`。第二条命令应完成可信证书校验并返回 `{"status":"ok"}`；正式验证不要加 `-k`，否则无法发现证书信任问题。LiveKit 日志应包含配置的 `nodeIP`、TCP/UDP 媒体端口和 TURN 信息，不应持续出现 UDP receive buffer 过小的警告。
 
 ### 7. 首次登录
 
@@ -258,11 +269,14 @@ docker compose up -d app
 
 | 现象 | 主要检查项 |
 | --- | --- |
-| 网页正常，但浏览器提示 `could not establish pc connection` | 确认 `LIVEKIT_NODE_IP` 是客户端可达 IP；检查 `7882/UDP` 和 `7881/TCP` 的安全组、NAT 与端口穿透 |
-| WSS 连接后反复 `signalReconnecting` | 检查 Nginx 是否代理 `/rtc/v1`、Upgrade/Connection 头以及 3600 秒超时 |
-| 只开放 `7881/TCP` 后能够通话 | 当前正在使用 ICE/TCP 回退；继续开放 `7882/UDP` 和 TURN UDP 以获得更稳定的媒体路径 |
-| `/rtc/v1` 返回 404 或应用首页 | Nginx 仍在精确匹配 `/rtc`；改为 `location ^~ /rtc` |
-| 登录成功后立即回到登录页 | 生产必须通过 HTTPS 访问；检查 `COOKIE_SECURE=true` 和 `TRUSTED_ORIGINS` 是否匹配实际来源 |
+| 浏览器提示 `ERR_SSL_PROTOCOL_ERROR` 或 curl 收到 TLS `internal error` | 确认 Gateway 已使用当前 `deploy/Caddyfile` 重建；检查 Caddy 日志中是否成功签发 IP 证书，并确认配置保留 `default_sni {$PUBLIC_IP}` |
+| 证书无法签发或续期 | 确认 `PUBLIC_IP` 指向本机公网入口、80/TCP 可从公网访问，并查看 `docker compose logs gateway` 中的 ACME 错误 |
+| HTTP 跳转后丢失非标准 HTTPS 端口 | 确认 Caddyfile 使用显式 HTTP `redir`，并重建 Gateway 容器使配置生效 |
+| 网页正常，但浏览器提示 `could not establish pc connection` | 确认 `PUBLIC_IP` 是客户端可达地址；检查配置的 LiveKit TCP/UDP 端口、安全组、NAT 与端口映射 |
+| WSS 连接后反复 `signalReconnecting` | 检查 Gateway 日志，并确认当前 Caddyfile 将 `/rtc` 和 `/rtc/*` 代理到 `livekit:7880` |
+| 只开放默认 `7881/TCP` 后能够通话 | 当前正在使用 ICE/TCP 回退；继续开放配置的 UDP 媒体端口和 TURN UDP 以获得更稳定的媒体路径 |
+| `/rtc/v1` 返回 404 或应用首页 | Gateway 未加载当前 Caddyfile，或自管反代没有代理整个 `/rtc` 前缀 |
+| 登录成功后立即回到登录页 | 生产必须通过 HTTPS 访问；确认浏览器 URL 与由 `PUBLIC_IP`、`HTTPS_PORT` 推导的可信 Origin 完全一致 |
 | 浏览器无法访问麦克风 | 使用有效 HTTPS，检查浏览器站点权限；普通公网 HTTP 不属于安全上下文 |
 | 同一账号加入新语音频道后旧连接断开 | 服务端在所有 LiveKit 房间间强制每个账号只有一个语音连接，这是预期行为 |
 | LiveKit 提示 UDP receive buffer 过小 | 安装 `deploy/99-celery-web-speak.conf` 并执行 `sysctl --system` |
@@ -278,10 +292,10 @@ docker compose logs --since=10m livekit
 
 ### 更新与回滚
 
-更新前先备份数据，然后修改 `.env` 中固定的镜像版本：
+更新前先备份数据，然后拉取仓库变更并修改 `.env` 中固定的镜像版本：
 
 ```env
-APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.0
+APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.4
 ```
 
 从 `v0.1.x` 升级到 `v0.2.0` 时，应用会将数据库迁移到公开多频道结构。账号、会话、邀请码、封禁和审计记录会保留；旧单频道文字消息与单例频道设置无法映射到新的分频道模型，会被移除，并创建默认的“文字聊天”和“语音频道”。升级前必须完成 SQLite 备份。
@@ -289,14 +303,17 @@ APP_IMAGE=ghcr.io/yeck/celery-web-speak:v0.3.0
 执行滚动替换：
 
 ```bash
+git pull --ff-only
+docker compose config --quiet
 docker compose pull
 docker compose up -d
+docker compose up -d --force-recreate gateway
 docker compose ps
 ```
 
-如需回滚，将 `APP_IMAGE` 改回上一个已验证版本，再次执行 `docker compose up -d`。数据库迁移在应用启动时自动执行；从 `v0.2.0` 回滚到 `v0.1.x` 时必须同时恢复升级前的数据库备份，不能直接使用已迁移的数据卷。
+Gateway 通过只读 bind mount 读取 `deploy/Caddyfile`，文件内容变化不会改变 Compose 容器定义，因此更新 Caddyfile 后应显式重建 Gateway。不要删除 `caddy-data` 卷。如需回滚，将 `APP_IMAGE` 改回上一个已验证版本，再次执行 `docker compose up -d`；若同时回滚 Caddyfile，也要再次强制重建 Gateway。数据库迁移在应用启动时自动执行；从 `v0.2.0` 回滚到 `v0.1.x` 时必须同时恢复升级前的数据库备份，不能直接使用已迁移的数据卷。
 
-### SQLite 备份与恢复
+### SQLite 与 Caddy 数据备份
 
 默认 Compose 项目名为 `celery-web-speak`，SQLite 位于 Docker 卷 `celery-web-speak_app-data`。使用 `docker compose -p` 修改项目名后，卷名也会变化，可先执行 `docker volume ls` 确认。
 
@@ -313,6 +330,18 @@ docker run --rm \
 docker compose start app
 ```
 
+`caddy-data` 保存 ACME 账号、证书和私钥。它丢失后 Caddy 可以重新签发证书，但频繁重新签发可能触发 Let's Encrypt 速率限制。可在短暂停止 Gateway 后单独备份：
+
+```bash
+docker compose stop gateway
+docker run --rm \
+  -v celery-web-speak_caddy-data:/data:ro \
+  -v "$PWD/backups":/backup \
+  alpine:3.23 \
+  tar czf "/backup/caddy-$(date +%Y%m%d-%H%M%S).tar.gz" -C /data .
+docker compose start gateway
+```
+
 恢复前必须再次备份当前数据。确认备份文件名后，停止应用并将归档恢复到数据卷：
 
 ```bash
@@ -325,7 +354,7 @@ docker run --rm \
 docker compose start app
 ```
 
-恢复属于破坏性操作，必须在确认卷名和归档内容后执行。生产环境应将备份复制到服务器之外，并定期验证归档能够解压。
+SQLite 恢复属于破坏性操作，必须在确认卷名和归档内容后执行。恢复 `caddy-data` 时也必须先停止 Gateway，并保持原文件权限。生产环境应将两类备份复制到服务器之外，并定期验证归档能够解压。
 
 ## 本地开发
 

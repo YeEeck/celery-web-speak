@@ -11,7 +11,7 @@ Celery Web Speak 是一个面向小型固定群体的公开多频道在线语音
 - 日常同时在线不超过 5 人，设计上支持 10 人
 - 公网单机部署，Linux amd64，Docker Compose
 - 桌面 Chrome、桌面 Edge 和 Android Chrome
-- Nginx 负责 HTTPS/WSS 入口与证书管理
+- 默认由 Compose 内的 Caddy Gateway 负责 HTTPS/WSS 入口与公网 IP 证书管理，也可禁用 Gateway 后接入自管反向代理
 
 ## 用户与权限
 
