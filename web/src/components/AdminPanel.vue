@@ -13,6 +13,7 @@ const selectedChannelId = ref<number | null>(app.channels[0]?.id ?? null)
 const selectedChannel = computed(() => app.channels.find((channel) => channel.id === selectedChannelId.value) ?? null)
 const channelName = ref(selectedChannel.value?.name ?? '')
 const bitrate = ref(selectedChannel.value?.audioBitrateKbps ?? 64)
+const backgroundBitrate = ref(selectedChannel.value?.backgroundAudioBitrateKbps ?? 128)
 const retention = ref(selectedChannel.value?.messageRetention ?? 500)
 const newChannelType = ref<ChannelType>('text')
 const newChannelName = ref('')
@@ -45,6 +46,7 @@ const manageableUsers = computed(() => app.users.filter((user) => user.id !== ap
 watch(selectedChannel, (channel) => {
   channelName.value = channel?.name ?? ''
   bitrate.value = channel?.audioBitrateKbps ?? 64
+  backgroundBitrate.value = channel?.backgroundAudioBitrateKbps ?? 128
   retention.value = channel?.messageRetention ?? 500
 })
 
@@ -82,6 +84,7 @@ async function saveSettings() {
       body: JSON.stringify({
         name: channelName.value,
         audioBitrateKbps: channel.type === 'voice' ? bitrate.value : 0,
+        backgroundAudioBitrateKbps: channel.type === 'voice' ? backgroundBitrate.value : 0,
         messageRetention: channel.type === 'text' ? retention.value : 0,
       }),
     })
@@ -342,6 +345,11 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
               <span>Opus 发送码率 <strong>{{ bitrate }} kbps</strong></span>
               <input v-model.number="bitrate" type="range" min="32" max="128" step="8" />
               <span class="range-labels"><small>32 kbps</small><small>128 kbps</small></span>
+            </label>
+            <label v-if="selectedChannel.type === 'voice'" class="range-setting">
+              <span>背景音码率 <strong>{{ backgroundBitrate }} kbps</strong></span>
+              <input v-model.number="backgroundBitrate" type="range" min="64" max="256" step="16" />
+              <span class="range-labels"><small>64 kbps</small><small>256 kbps</small></span>
             </label>
             <label v-else><span>保留消息数量</span><input v-model.number="retention" type="number" min="100" max="5000" step="100" /></label>
             <div class="channel-admin-actions">

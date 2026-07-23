@@ -19,11 +19,6 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "list users", err)
 		return
 	}
-	settings, err := s.store.Settings(r.Context())
-	if err != nil {
-		s.internalError(w, "get settings", err)
-		return
-	}
 	messages, messagesHasMore, err := s.store.ListMessages(r.Context(), 0, 50)
 	if err != nil {
 		s.internalError(w, "list messages", err)
@@ -42,7 +37,6 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":              currentUser(r),
 		"users":             users,
-		"settings":          settings,
 		"messages":          messages,
 		"messagesHasMore":   messagesHasMore,
 		"onlineIds":         s.hub.OnlineUserIDs(),
@@ -139,19 +133,6 @@ func (s *Server) handleVoiceState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
-	var settings store.ChannelSettings
-	if !decodeJSON(w, r, &settings) {
-		return
-	}
-	if err := s.store.UpdateSettings(r.Context(), currentUser(r).ID, settings); err != nil {
-		s.writeStoreError(w, err)
-		return
-	}
-	s.hub.Broadcast("settings_updated", settings)
-	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
 }
 
 func (s *Server) allowMessage(userID int64) bool {

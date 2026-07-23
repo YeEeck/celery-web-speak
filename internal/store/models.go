@@ -33,19 +33,15 @@ type User struct {
 	CreatedAt         time.Time  `json:"createdAt"`
 }
 
-type ChannelSettings struct {
-	AudioBitrateKbps int `json:"audioBitrateKbps"`
-	MessageRetention int `json:"messageRetention"`
-}
-
 type Channel struct {
-	ID               int64       `json:"id"`
-	Type             ChannelType `json:"type"`
-	Name             string      `json:"name"`
-	AudioBitrateKbps int         `json:"audioBitrateKbps,omitempty"`
-	MessageRetention int         `json:"messageRetention,omitempty"`
-	CreatedAt        time.Time   `json:"createdAt"`
-	UpdatedAt        time.Time   `json:"updatedAt"`
+	ID                       int64       `json:"id"`
+	Type                     ChannelType `json:"type"`
+	Name                     string      `json:"name"`
+	AudioBitrateKbps         int         `json:"audioBitrateKbps,omitempty"`
+	BackgroundAudioBitrateKbps int       `json:"backgroundAudioBitrateKbps,omitempty"`
+	MessageRetention         int         `json:"messageRetention,omitempty"`
+	CreatedAt                time.Time   `json:"createdAt"`
+	UpdatedAt                time.Time   `json:"updatedAt"`
 }
 
 type ChannelReadState struct {

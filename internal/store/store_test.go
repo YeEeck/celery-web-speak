@@ -275,7 +275,11 @@ func TestMessageRetention(t *testing.T) {
 	db := newTestStore(t)
 	admin := bootstrapAdmin(t, db)
 	ctx := context.Background()
-	if err := db.UpdateSettings(ctx, admin.ID, ChannelSettings{AudioBitrateKbps: 64, MessageRetention: 100}); err != nil {
+	text, err := db.FirstChannel(ctx, ChannelTypeText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.UpdateChannel(ctx, admin.ID, text.ID, text.Name, 0, 0, 100); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 105; i++ {
@@ -328,10 +332,10 @@ func TestChannelsIsolateMessagesRetentionAndReadState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.UpdateChannel(ctx, admin.ID, firstText.ID, firstText.Name, 0, 100); err != nil {
+	if _, err := db.UpdateChannel(ctx, admin.ID, firstText.ID, firstText.Name, 0, 0, 100); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.UpdateChannel(ctx, admin.ID, secondText.ID, secondText.Name, 0, 100); err != nil {
+	if _, err := db.UpdateChannel(ctx, admin.ID, secondText.ID, secondText.Name, 0, 0, 100); err != nil {
 		t.Fatal(err)
 	}
 	for index := 0; index < 105; index++ {
@@ -655,18 +659,3 @@ func TestDeleteUserRejectsSelf(t *testing.T) {
 	}
 }
 
-func TestSettingsValidation(t *testing.T) {
-	db := newTestStore(t)
-	admin := bootstrapAdmin(t, db)
-	tests := []ChannelSettings{
-		{AudioBitrateKbps: 30, MessageRetention: 500},
-		{AudioBitrateKbps: 65, MessageRetention: 500},
-		{AudioBitrateKbps: 64, MessageRetention: 99},
-		{AudioBitrateKbps: 64, MessageRetention: 5001},
-	}
-	for _, settings := range tests {
-		if err := db.UpdateSettings(context.Background(), admin.ID, settings); err == nil {
-			t.Fatalf("UpdateSettings(%+v) unexpectedly succeeded", settings)
-		}
-	}
-}

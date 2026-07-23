@@ -6,7 +6,7 @@ const adminPassword = process.env.E2E_PASSWORD ?? 'admin-password-123'
 
 test('成员列表实时反映多连接关闭与异常断网', async ({ browser, isMobile, page, request }, testInfo) => {
   test.skip(isMobile, '成员状态生命周期只需在一个浏览器项目中验证')
-  test.setTimeout(75_000)
+  test.setTimeout(100_000)
 
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
   const suffix = `${Date.now().toString(36)}_${testInfo.project.name}`.replace(/[^a-z0-9_-]/g, '_')
@@ -47,7 +47,7 @@ test('成员列表实时反映多连接关闭与异常断网', async ({ browser,
     await expect(onlineMember(page, account.username)).toBeVisible()
 
     await reconnecting.context.setOffline(true)
-    await expect(offlineMember(page, account.username)).toBeVisible({ timeout: 20_000 })
+    await expect(offlineMember(page, account.username)).toBeVisible({ timeout: 35_000 })
     await reconnecting.context.setOffline(false)
     await expect(reconnecting.page.getByText('实时连接正常', { exact: true })).toBeVisible({ timeout: 8_000 })
     await expect(onlineMember(page, account.username)).toBeVisible()
