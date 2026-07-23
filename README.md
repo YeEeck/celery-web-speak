@@ -8,7 +8,7 @@ Celery Web Speak 是一个面向小型固定群体的公开多频道在线语音
 
 - 中文 Discord 风格桌面与 Android Chrome 界面
 - 公开文字与语音频道创建、改名、删除，以及分频道设置和实时状态
-- 可调 32-128 kbps Opus 单声道语音
+- 可调 32-128 kbps Opus 单声道语音，背景音独立 64-256 kbps 立体声码率
 - 静音、耳机静音、输入/输出设备选择和网络质量提示
 - 麦克风、扬声器及按用户独立麦克风和背景音音量支持 0%-300% 增益
 - 语音成员按角色与本次加入时间稳定排序，并显示当前说话人
@@ -133,13 +133,13 @@ COMPOSE_PROFILES=gateway
 HTTPS_PORT=443
 ```
 
-`PUBLIC_IP` 同时用于 Caddy IP 证书、浏览器访问地址、应用允许的 Origin，以及 LiveKit 向浏览器发布的 ICE/TURN 地址。Compose 自动推导以下配置，不要再在 `.env` 中填写旧变量：
+`PUBLIC_IP` 同时用于 Caddy IP 证书、浏览器访问地址、应用允许的 Origin，以及 LiveKit 向浏览器发布的 ICE/TURN 地址。Compose 自动推导以下配置，默认不需要在 `.env` 中填写：
 
-| 派生配置 | Compose 中的值 |
-| --- | --- |
-| LiveKit 节点地址 | `${PUBLIC_IP}` |
-| `LIVEKIT_PUBLIC_URL` | `wss://${PUBLIC_IP}:${HTTPS_PORT}` |
-| `TRUSTED_ORIGINS` | `https://${PUBLIC_IP}:${HTTPS_PORT}` |
+| 派生配置 | 默认值 | 可覆盖变量 |
+| --- | --- | --- |
+| LiveKit 节点地址 | `${PUBLIC_IP}` | — |
+| `LIVEKIT_PUBLIC_URL` | `wss://${PUBLIC_IP}:${HTTPS_PORT}` | `LIVEKIT_PUBLIC_URL` |
+| `TRUSTED_ORIGINS` | `https://${PUBLIC_IP}:${HTTPS_PORT}` | `TRUSTED_ORIGINS` |
 
 `HTTPS_PORT` 默认为 443。设置为 9443 等非标准端口时，必须开放该 TCP 端口，并使用 `https://203.0.113.10:9443` 访问；80 端口仍然必须开放，Caddy 会将 HTTP 请求重定向到带端口的 HTTPS 地址。
 
@@ -158,7 +158,14 @@ HTTPS_PORT=443
 
 其他可选行为变量包括 `COOKIE_SECURE=true`、`SESSION_COOKIE_NAME=celery_session`、`VOICE_RECONCILE_INTERVAL=15s` 和 `TZ=Asia/Shanghai`。生产 Gateway 必须保持 `COOKIE_SECURE=true`；语音状态校准间隔设为 `0` 会禁用后台兜底校准。
 
-默认 Compose 的公开 URL 与可信 Origin 固定由 `PUBLIC_IP` 和 `HTTPS_PORT` 推导。需要域名、多站点或不同内外端口映射时，应禁用 Gateway，并通过 Compose override 同时覆盖应用公开 URL、可信 Origin 和 LiveKit 节点配置；`deploy/nginx.conf.example` 仅作为自管反向代理参考。
+默认 Compose 的公开 URL 与可信 Origin 由 `PUBLIC_IP` 和 `HTTPS_PORT` 推导。使用自有 Nginx + 域名部署时，在 `.env` 中覆盖这两个变量即可：
+
+```env
+LIVEKIT_PUBLIC_URL=wss://chat.example.com
+TRUSTED_ORIGINS=https://chat.example.com
+```
+
+此时应禁用 Gateway（注释 `COMPOSE_PROFILES=gateway`），`PUBLIC_IP` 仍须填写真实公网 IP 供 LiveKit ICE 使用。[Nginx 示例](deploy/nginx.conf.example) 可作为自管反向代理参考。
 
 ### 4. 配置内核与防火墙
 
@@ -215,7 +222,7 @@ Caddyfile 同时处理几个容易忽略的 IP 部署细节：
 - `/rtc` 和 `/rtc/*` 都代理至 LiveKit，覆盖实际信令地址 `/rtc/v1`。
 - WebSocket 升级由 Caddy 自动处理。
 
-禁用 Gateway 时，删除或注释 `.env` 中的 `COMPOSE_PROFILES=gateway`，然后自行提供 HTTPS 入口。[Nginx 示例](deploy/nginx.conf.example) 可作为高级参考，但域名或不同外部地址场景还需要 Compose override 覆盖默认派生的公开 URL 与 Origin。
+禁用 Gateway 时，删除或注释 `.env` 中的 `COMPOSE_PROFILES=gateway`，然后自行提供 HTTPS 入口。在 `.env` 中设置 `LIVEKIT_PUBLIC_URL` 和 `TRUSTED_ORIGINS` 指向你的域名或外部地址。[Nginx 示例](deploy/nginx.conf.example) 可作为高级参考。
 
 ### 6. 验证部署
 
@@ -382,8 +389,10 @@ npm run dev
 
 ```bash
 cp .env.example .env
-docker compose -f compose.yml -f compose.build.yml up --build
+docker compose -f compose.yml -f compose.build.yml -f compose.dev.yml up --build
 ```
+
+`compose.dev.yml` 覆盖 `LIVEKIT_PUBLIC_URL`、`TRUSTED_ORIGINS` 和 `COOKIE_SECURE`，使本地不走 Gateway 也能正常访问 WebSocket 和语音。
 
 ## 检查
 
