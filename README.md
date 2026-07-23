@@ -1,6 +1,6 @@
 # Celery Web Speak
 
-Celery Web Speak 是一个面向小型固定群体的公开多频道在线语音与文字聊天工具。文字频道与语音频道彼此独立，前端使用 Vue 3，业务服务使用 Go 与 SQLite，语音通过 LiveKit SFU 和 UDP TURN 集中转发。
+Celery Web Speak 是一个面向小型固定群体的公开多频道在线语音与文字聊天工具。文字频道与语音频道彼此独立，前端使用 Vue 3，业务服务使用 Go 与 SQLite，语音通过 LiveKit SFU 集中转发。
 
 当前稳定版本为 `v0.3.7`，生产部署建议固定使用明确版本的预构建镜像。
 
@@ -121,10 +121,8 @@ sudo sysctl --system
 | 443 | TCP | 网页、API、WebSocket 和 LiveKit 信令 |
 | 7881 | TCP | WebRTC ICE/TCP 回退 |
 | 7882 | UDP | WebRTC 首选媒体路径 |
-| 3478 | UDP | TURN 入口 |
-| 30000-30099 | UDP | TURN 中继范围 |
 
-80/TCP 在证书签发后仍须保持开放，以便续期。不要向公网开放仅供本机诊断的 8080/TCP 和 7880/TCP。
+80/TCP 在证书签发后仍须保持开放，以便续期。当前部署不启用 TURN；不要向公网开放仅供本机诊断的 8080/TCP 和 7880/TCP。
 
 ### 4. 启动和验证
 

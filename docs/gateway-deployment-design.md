@@ -47,7 +47,7 @@ app:8080 ──── livekit:7880
                  |
                  | WebRTC 媒体 (直接暴露到宿主机)
                  v
-Browser <── 7881/TCP, 7882/UDP, 3478/UDP, 30000-30099/UDP
+Browser <── 7881/TCP, 7882/UDP
 ```
 
 ## 已确认决策
@@ -75,10 +75,8 @@ Browser <── 7881/TCP, 7882/UDP, 3478/UDP, 30000-30099/UDP
 | 7880/TCP | LiveKit HTTP（仅 127.0.0.1，宿主机端口可配置） | LIVEKIT_HTTP_PORT | livekit（调试用） |
 | LIVEKIT_TCP_PORT（默认 7881）/TCP | WebRTC TCP | 是 | livekit |
 | LIVEKIT_UDP_PORT（默认 7882）/UDP | WebRTC UDP | 是 | livekit |
-| LIVEKIT_TURN_PORT（默认 3478）/UDP | TURN | 是 | livekit |
-| LIVEKIT_RELAY_START~END（默认 30000-30099）/UDP | TURN relay | 是 | livekit |
 
-Gateway 启用时独占宿主机 80 和 HTTPS_PORT。app 的 `127.0.0.1:8080` 映射始终保留（localhost only，无害且便于调试）。
+Gateway 启用时独占宿主机 80 和 HTTPS_PORT。app 的 `127.0.0.1:8080` 映射始终保留（localhost only，无害且便于调试）。LiveKit 内置 TURN 关闭，公网媒体只使用一个 TCP 和一个 UDP 端口。
 
 ### D4: Gateway 启用机制
 
@@ -123,10 +121,7 @@ LIVEKIT_CONFIG: |
     tcp_port: ${LIVEKIT_TCP_PORT:-7881}
     udp_port: ${LIVEKIT_UDP_PORT:-7882}
   turn:
-    enabled: true
-    udp_port: ${LIVEKIT_TURN_PORT:-3478}
-    relay_range_start: ${LIVEKIT_RELAY_START:-30000}
-    relay_range_end: ${LIVEKIT_RELAY_END:-30099}
+    enabled: false
   room:
     empty_timeout: 300
     departure_timeout: 20
@@ -138,13 +133,15 @@ LIVEKIT_CONFIG: |
 
 `ports` 映射同步使用相同变量。
 
-### D8: 消除的 .env 变量
+### D8: 精简与派生的 .env 变量
 
-以下变量从 `.env.example` 中移除（由推导替代）：
+以下变量从 `.env.example` 中移除，由 Compose 推导：
 
 - `LIVEKIT_PUBLIC_URL`（推导为 `wss://${PUBLIC_IP}:${HTTPS_PORT:-443}`）
 - `TRUSTED_ORIGINS`（推导为 `https://${PUBLIC_IP}:${HTTPS_PORT:-443}`）
 - `LIVEKIT_NODE_IP`（= PUBLIC_IP）
+
+关闭内置 TURN 后，同时删除 `LIVEKIT_TURN_PORT`、`LIVEKIT_RELAY_START` 和 `LIVEKIT_RELAY_END`。
 
 以下变量保留在 `.env.example` 中，带默认值，用户可按需覆盖：
 
@@ -184,9 +181,6 @@ HTTPS_PORT=443
 # LiveKit 媒体端口（如需规避云厂商端口限制可修改，需同步开放防火墙）
 LIVEKIT_TCP_PORT=7881
 LIVEKIT_UDP_PORT=7882
-LIVEKIT_TURN_PORT=3478
-LIVEKIT_RELAY_START=30000
-LIVEKIT_RELAY_END=30099
 
 # 应用 HTTP 调试端口（仅绑定 127.0.0.1）
 APP_HTTP_PORT=8080
@@ -307,10 +301,7 @@ services:
           tcp_port: ${LIVEKIT_TCP_PORT:-7881}
           udp_port: ${LIVEKIT_UDP_PORT:-7882}
         turn:
-          enabled: true
-          udp_port: ${LIVEKIT_TURN_PORT:-3478}
-          relay_range_start: ${LIVEKIT_RELAY_START:-30000}
-          relay_range_end: ${LIVEKIT_RELAY_END:-30099}
+          enabled: false
         room:
           empty_timeout: 300
           departure_timeout: 20
@@ -322,8 +313,6 @@ services:
       - "127.0.0.1:${LIVEKIT_HTTP_PORT:-7880}:7880"
       - "${LIVEKIT_TCP_PORT:-7881}:${LIVEKIT_TCP_PORT:-7881}/tcp"
       - "${LIVEKIT_UDP_PORT:-7882}:${LIVEKIT_UDP_PORT:-7882}/udp"
-      - "${LIVEKIT_TURN_PORT:-3478}:${LIVEKIT_TURN_PORT:-3478}/udp"
-      - "${LIVEKIT_RELAY_START:-30000}-${LIVEKIT_RELAY_END:-30099}:${LIVEKIT_RELAY_START:-30000}-${LIVEKIT_RELAY_END:-30099}/udp"
 
 volumes:
   app-data:
@@ -332,7 +321,7 @@ volumes:
 
 ## 用户部署流程（最终体验）
 
-1. 准备一台有公网 IP 的 VPS，开放防火墙端口：80/TCP、443/TCP、7881/TCP、7882/UDP、3478/UDP、30000-30099/UDP。
+1. 准备一台有公网 IP 的 VPS，开放防火墙端口：80/TCP、443/TCP、7881/TCP、7882/UDP。
 2. 克隆 repo，复制 `.env.example` 为 `.env`。
 3. 填写：`PUBLIC_IP`、`BOOTSTRAP_ADMIN_PASSWORD`、`LIVEKIT_API_KEY`、`LIVEKIT_API_SECRET`。
 4. `docker compose config --quiet && docker compose pull && docker compose up -d`。
@@ -346,6 +335,7 @@ volumes:
 - **非标准 HTTPS 端口**：`HTTPS_PORT` 非 443 时，用户访问需带端口号（`https://IP:8443`），80 端口仍用于 ACME 挑战。
 - **LE 速率限制**：证书持久化依赖 `caddy-data` volume。`docker compose down -v` 会删除 volume 导致重新签发，频繁操作可能触发限制。
 - **裸 IP 无 SNI**：浏览器和 curl 访问 IP 地址时通常不发送 SNI，必须保留 Caddyfile 的 `default_sni {$PUBLIC_IP}`，否则即使证书已签发也会出现 TLS `internal error`。
+- **无 TURN 回退**：严格限制 UDP 和非 443 TCP 的网络无法建立媒体连接；当前产品范围不提供 TURN/TLS 443 穿透。
 
 ## 文件变更清单
 

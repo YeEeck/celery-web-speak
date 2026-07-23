@@ -16,8 +16,7 @@ Caddy Gateway ───── app:8080      页面、API、文字 WebSocket
   └─────────────── livekit:7880  LiveKit /rtc/* 信令
 
 浏览器 ───── 公网 IP:LIVEKIT_UDP_PORT  WebRTC 首选媒体路径
-       ├─── 公网 IP:LIVEKIT_TCP_PORT  ICE/TCP 回退
-       └─── 公网 IP:LIVEKIT_TURN_PORT 与中继端口范围  TURN
+       └─── 公网 IP:LIVEKIT_TCP_PORT  ICE/TCP 回退
 ```
 
 Caddy 只承载网页、业务 WebSocket 和 LiveKit 信令，不转发音频数据。音频通过 WebRTC 端口直接进入 LiveKit。应用和 LiveKit 的 HTTP 端口仅绑定宿主机 `127.0.0.1`，用于本机诊断或宿主机上的自管反向代理。
@@ -33,7 +32,7 @@ Caddy 只承载网页、业务 WebSocket 和 LiveKit 信令，不转发音频数
 - 固定公网 IPv4 直接绑定到主机
 - 80/TCP 可从公网访问，供 Let's Encrypt HTTP-01 验证和续期
 - 宿主机的 80/TCP 和 443/TCP 未被其他服务占用
-- 云安全组与主机防火墙允许本文列出的 HTTPS、WebRTC 和 TURN 端口
+- 云安全组与主机防火墙允许本文列出的 HTTPS 和 WebRTC 端口
 
 位于 NAT、家庭路由器或端口映射之后的服务器需要额外配置，参见[在 NAT 后部署](#在-nat-后部署)。
 
@@ -96,10 +95,8 @@ sudo sysctl --system
 | 443 | TCP | 网页、API、业务 WebSocket、LiveKit WSS 信令 | Gateway |
 | 7881 | TCP | WebRTC ICE/TCP 回退 | LiveKit |
 | 7882 | UDP | WebRTC 首选媒体路径 | LiveKit |
-| 3478 | UDP | TURN 入口 | LiveKit |
-| 30000-30099 | UDP | TURN 中继分配 | LiveKit |
 
-不要向公网开放 `APP_HTTP_PORT` 和 `LIVEKIT_HTTP_PORT`。Compose 已将它们限制绑定到 `127.0.0.1`。
+当前部署不启用 TURN。不要向公网开放 `APP_HTTP_PORT` 和 `LIVEKIT_HTTP_PORT`；Compose 已将它们限制绑定到 `127.0.0.1`。
 
 ### 5. 启动服务
 
@@ -140,7 +137,7 @@ curl -fsS https://203.0.113.10/api/health
 
 ### 7. 首次登录与语音验收
 
-使用 `.env` 中的 `BOOTSTRAP_ADMIN_USERNAME` 和 `BOOTSTRAP_ADMIN_PASSWORD` 登录。通过管理控制台创建第二个账号或邀请码，然后用两个不同账号加入同一语音频道，确认双方能够听到声音。这个测试同时验证 Gateway 信令和公网 WebRTC/TURN 端口，不应只验证网页能够打开。
+使用 `.env` 中的 `BOOTSTRAP_ADMIN_USERNAME` 和 `BOOTSTRAP_ADMIN_PASSWORD` 登录。通过管理控制台创建第二个账号或邀请码，然后用两个不同账号加入同一语音频道，确认双方能够听到声音。这个测试同时验证 Gateway 信令和公网 WebRTC 端口，不应只验证网页能够打开。
 
 确认管理员可以登录后，清空 `.env` 中的初始密码并刷新应用容器环境：
 
@@ -158,7 +155,7 @@ docker compose up -d app
 
 ### 公网地址与派生配置
 
-`PUBLIC_IP` 同时用于 Caddy IP 证书、浏览器访问地址、应用允许的 Origin，以及 LiveKit 向浏览器发布的 ICE/TURN 地址。
+`PUBLIC_IP` 同时用于 Caddy IP 证书、浏览器访问地址、应用允许的 Origin，以及 LiveKit 向浏览器发布的 ICE 地址。
 
 默认 Gateway 会基于 `PUBLIC_IP` 和 `HTTPS_PORT` 设置以下公开地址：
 
@@ -177,12 +174,10 @@ docker compose up -d app
 | `HTTPS_PORT` | `443` | Gateway HTTPS |
 | `LIVEKIT_TCP_PORT` | `7881` | ICE/TCP 回退 |
 | `LIVEKIT_UDP_PORT` | `7882` | WebRTC 首选媒体路径 |
-| `LIVEKIT_TURN_PORT` | `3478` | TURN UDP 入口 |
-| `LIVEKIT_RELAY_START` / `LIVEKIT_RELAY_END` | `30000` / `30099` | TURN UDP 中继范围 |
 | `APP_HTTP_PORT` | `8080` | 应用在宿主机的 localhost 诊断端口 |
 | `LIVEKIT_HTTP_PORT` | `7880` | LiveKit 在宿主机的 localhost 诊断端口 |
 
-修改任意公开端口或中继范围后，Compose、云安全组、主机防火墙和 NAT 端口映射必须使用相同的新值。
+修改任意公开端口后，Compose、云安全组、主机防火墙和 NAT 端口映射必须使用相同的新值。
 
 ### 应用行为变量
 
@@ -218,9 +213,9 @@ TRUSTED_ORIGINS=https://203.0.113.10:9443
 
 ### 在 NAT 后部署
 
-`PUBLIC_IP` 应填写客户端最终连接的固定公网 IP，而不是服务器内网地址。公网入口必须将 HTTPS、LiveKit TCP/UDP、TURN 入口和完整 TURN 中继范围按相同外部端口映射到服务器。
+`PUBLIC_IP` 应填写客户端最终连接的固定公网 IP，而不是服务器内网地址。公网入口必须将 HTTPS 和 LiveKit TCP/UDP 按相同外部端口映射到服务器。
 
-只映射 `LIVEKIT_TCP_PORT` 时可能通过 ICE/TCP 建立通话，但稳定部署仍应提供 UDP 媒体和 TURN 端口。NAT 设备、云安全组与服务器防火墙都需要同步放行；如果公网入口不能提供 80/TCP，默认 Caddy 的 HTTP-01 证书路径不可用。
+只映射 `LIVEKIT_TCP_PORT` 时可能通过 ICE/TCP 建立通话，但稳定部署仍应提供 UDP 媒体端口。NAT 设备、云安全组与服务器防火墙都需要同步放行；如果公网入口不能提供 80/TCP，默认 Caddy 的 HTTP-01 证书路径不可用。
 
 ### 使用域名和自管 Nginx
 
@@ -261,8 +256,6 @@ sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw allow 7881/tcp
 sudo ufw allow 7882/udp
-sudo ufw allow 3478/udp
-sudo ufw allow 30000:30099/udp
 ```
 
 使用 firewalld、nftables 或云厂商防火墙时，按[标准端口表](#4-配置内核与网络入口)创建等价规则。不要向公网开放应用和 LiveKit 的 localhost 诊断端口。
@@ -354,7 +347,7 @@ docker compose start app
 | HTTP 跳转后丢失非标准 HTTPS 端口 | 确认 Caddyfile 使用显式 HTTP `redir`，并强制重建 Gateway |
 | 网页正常，但浏览器提示 `could not establish pc connection` | 确认 `PUBLIC_IP` 是客户端可达地址；检查 LiveKit TCP/UDP 端口、安全组、NAT 与端口映射 |
 | WSS 连接后反复 `signalReconnecting` | 检查 Gateway 日志，并确认当前 Caddyfile 将 `/rtc` 和 `/rtc/*` 代理到 `livekit:7880` |
-| 只开放 7881/TCP 后能够通话 | 当前正在使用 ICE/TCP 回退；继续开放 UDP 媒体和 TURN UDP 端口以获得更稳定的媒体路径 |
+| 只开放 7881/TCP 后能够通话 | 当前正在使用 ICE/TCP 回退；继续开放 7882/UDP 以获得更稳定的媒体路径 |
 | `/rtc/v1` 返回 404 或应用首页 | Gateway 未加载当前 Caddyfile，或自管反向代理没有代理整个 `/rtc` 前缀 |
 | 登录成功后立即回到登录页 | 生产必须通过 HTTPS 访问；确认浏览器 Origin 与 `TRUSTED_ORIGINS` 完全一致，并保持 `COOKIE_SECURE=true` |
 | 浏览器无法访问麦克风 | 使用有效 HTTPS，检查浏览器站点权限；普通公网 HTTP 不属于安全上下文 |
