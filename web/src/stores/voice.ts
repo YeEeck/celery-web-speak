@@ -915,7 +915,7 @@ export const useVoiceStore = defineStore('voice', () => {
     const channel = useAppStore().voiceChannels.find((item) => item.id === connectedChannelId.value)
     return {
       source: Track.Source.ScreenShareAudio,
-      audioPreset: { maxBitrate: (channel?.audioBitrateKbps ?? 64) * 1000 },
+      audioPreset: { maxBitrate: (channel?.backgroundAudioBitrateKbps ?? 128) * 1000 },
       dtx: false,
       red: true,
       forceStereo: true,

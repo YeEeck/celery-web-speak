@@ -29,6 +29,7 @@ export interface Channel {
 	type: ChannelType
 	name: string
 	audioBitrateKbps?: number
+	backgroundAudioBitrateKbps?: number
 	messageRetention?: number
 	createdAt: string
 	updatedAt: string
@@ -53,11 +54,6 @@ export interface VoiceRoom {
 	participants: VoiceRoomParticipant[]
 }
 
-export interface ChannelSettings {
-  audioBitrateKbps: number
-  messageRetention: number
-}
-
 export interface Invite {
   id: number
   code?: string
@@ -72,7 +68,6 @@ export interface Invite {
 export interface BootstrapData {
   user: User
   users: User[]
-  settings: ChannelSettings
   messages: Message[]
   messagesHasMore: boolean
 	onlineIds: number[]
