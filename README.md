@@ -21,7 +21,7 @@ Celery Web Speak 是一个面向小型固定群体的公开多频道在线语音
 - 服务器管理员、频道管理员、语音/文字禁言和临时/永久封禁
 - 服务器管理员可不可恢复地删除账号；历史消息匿名保留，原登录名可重新使用
 
-完整范围与权限矩阵见 [产品规格](docs/product-spec.md)，服务关系见 [技术架构](docs/architecture.md)。
+完整范围与权限矩阵见 [产品规格](docs/product-spec.md)，服务关系见 [技术架构](docs/architecture.md)，版本发布流程见 [发版流程](docs/release-process.md)。
 
 ## 客户端音频设置
 
