@@ -85,6 +85,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/voice/leave", s.requireAuth(http.HandlerFunc(s.handleVoiceLeave)))
 	mux.Handle("PATCH /api/voice/state", s.requireAuth(http.HandlerFunc(s.handleVoiceState)))
 	mux.Handle("GET /api/admin/invites", s.requireServerAdmin(http.HandlerFunc(s.handleListInvites)))
+	mux.Handle("GET /api/version", s.requireAuth(http.HandlerFunc(s.handleVersion)))
+	mux.Handle("GET /api/changelog", s.requireAuth(http.HandlerFunc(s.handleChangelog)))
 	mux.Handle("POST /api/admin/invites", s.requireServerAdmin(http.HandlerFunc(s.handleCreateInvite)))
 	mux.Handle("DELETE /api/admin/invites/{id}", s.requireServerAdmin(http.HandlerFunc(s.handleRevokeInvite)))
 	mux.Handle("DELETE /api/admin/invites/{id}/permanent", s.requireServerAdmin(http.HandlerFunc(s.handleDeleteInvite)))
