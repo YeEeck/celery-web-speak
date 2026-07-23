@@ -60,10 +60,7 @@ services:
           tcp_port: ${LIVEKIT_TCP_PORT:-7881}
           udp_port: ${LIVEKIT_UDP_PORT:-7882}
         turn:
-          enabled: true
-          udp_port: ${LIVEKIT_TURN_PORT:-3478}
-          relay_range_start: ${LIVEKIT_RELAY_START:-30000}
-          relay_range_end: ${LIVEKIT_RELAY_END:-30099}
+          enabled: false
         room:
           empty_timeout: 300
           departure_timeout: 20
@@ -75,8 +72,6 @@ services:
       - "127.0.0.1:${LIVEKIT_HTTP_PORT:-7880}:7880"
       - "${LIVEKIT_TCP_PORT:-7881}:${LIVEKIT_TCP_PORT:-7881}/tcp"
       - "${LIVEKIT_UDP_PORT:-7882}:${LIVEKIT_UDP_PORT:-7882}/udp"
-      - "${LIVEKIT_TURN_PORT:-3478}:${LIVEKIT_TURN_PORT:-3478}/udp"
-      - "${LIVEKIT_RELAY_START:-30000}-${LIVEKIT_RELAY_END:-30099}:${LIVEKIT_RELAY_START:-30000}-${LIVEKIT_RELAY_END:-30099}/udp"
 
 volumes:
   app-data:
