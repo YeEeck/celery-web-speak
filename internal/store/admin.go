@@ -147,7 +147,7 @@ func (s *Store) DeleteUser(ctx context.Context, actorID, userID int64, confirmat
 		return err
 	}
 	if actorPlatformAdmin == 0 {
-		return errors.New("server admin role required")
+		return errors.New("platform admin role required")
 	}
 
 	var username string
