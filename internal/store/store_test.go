@@ -634,12 +634,12 @@ VALUES (?, ?, 'legacy', ?, ?)`, member.ID, formatTime(legacyUntil), admin.ID, fo
 	}
 }
 
-func TestCannotDemoteLastServerAdmin(t *testing.T) {
+func TestCannotDemoteLastPlatformAdmin(t *testing.T) {
 	db := newTestStore(t)
 	admin := bootstrapAdmin(t, db)
 	err := db.SetRole(context.Background(), admin.ID, admin.ID, RoleMember)
-	if !errors.Is(err, ErrLastServerAdmin) {
-		t.Fatalf("demote error = %v, want ErrLastServerAdmin", err)
+	if !errors.Is(err, ErrLastPlatformAdmin) {
+		t.Fatalf("demote error = %v, want ErrLastPlatformAdmin", err)
 	}
 }
 
@@ -647,15 +647,15 @@ func TestSuspendedPlatformAdminDoesNotSatisfyLastAdminInvariant(t *testing.T) {
 	db := newTestStore(t)
 	admin := bootstrapAdmin(t, db)
 	ctx := context.Background()
-	second, err := db.CreateUser(ctx, "second_platform_admin", "第二管理员", "another-secure-password", RoleServerAdmin)
+	second, err := db.CreateUser(ctx, "second_platform_admin", "第二管理员", "another-secure-password", RolePlatformAdmin)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := db.SetPermanentBan(ctx, admin.ID, second.ID, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetRole(ctx, admin.ID, admin.ID, RoleMember); !errors.Is(err, ErrLastServerAdmin) {
-		t.Fatalf("demote with only suspended replacement = %v, want ErrLastServerAdmin", err)
+	if err := db.SetRole(ctx, admin.ID, admin.ID, RoleMember); !errors.Is(err, ErrLastPlatformAdmin) {
+		t.Fatalf("demote with only suspended replacement = %v, want ErrLastPlatformAdmin", err)
 	}
 	if err := db.SetPermanentBan(ctx, admin.ID, second.ID, false); err != nil {
 		t.Fatal(err)
@@ -678,7 +678,7 @@ func TestDeleteUserAnonymizesAccountAndPreservesHistory(t *testing.T) {
 	db := newTestStore(t)
 	admin := bootstrapAdmin(t, db)
 	ctx := context.Background()
-	target, err := db.CreateUser(ctx, "delete_target", "待删除管理员", "another-secure-password", RoleServerAdmin)
+	target, err := db.CreateUser(ctx, "delete_target", "待删除管理员", "another-secure-password", RolePlatformAdmin)
 	if err != nil {
 		t.Fatal(err)
 	}

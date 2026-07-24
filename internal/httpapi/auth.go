@@ -125,8 +125,8 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "invalid_invite", "邀请码无效、已过期或次数已用完")
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "目标不存在")
-	case errors.Is(err, store.ErrLastServerAdmin):
-		writeError(w, http.StatusConflict, "last_server_admin", "必须保留至少一名平台管理员")
+	case errors.Is(err, store.ErrLastPlatformAdmin):
+		writeError(w, http.StatusConflict, "last_platform_admin", "必须保留至少一名平台管理员")
 	case errors.Is(err, store.ErrSelfAction):
 		writeError(w, http.StatusBadRequest, "self_action", "不能对自己的账号执行此操作")
 	case errors.Is(err, store.ErrUsernameConfirm):

@@ -71,7 +71,7 @@ func TestPlatformUserRoleManagement(t *testing.T) {
 	}
 
 	recorder := serveGuildHTTPRequest(server, adminToken, http.MethodPatch, "/api/platform/users/"+formatID(admin.ID)+"/role", `{"role":"member"}`)
-	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "last_server_admin") {
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "last_platform_admin") {
 		t.Fatalf("last platform admin demotion = %d %s", recorder.Code, recorder.Body.String())
 	}
 
@@ -83,7 +83,7 @@ func TestPlatformUserRoleManagement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.Role != store.RoleServerAdmin || !updated.IsPlatformAdmin {
+	if updated.Role != store.RolePlatformAdmin || !updated.IsPlatformAdmin {
 		t.Fatalf("promoted user role/admin = %q/%t", updated.Role, updated.IsPlatformAdmin)
 	}
 

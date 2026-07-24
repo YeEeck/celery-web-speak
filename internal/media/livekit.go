@@ -82,25 +82,8 @@ func New(url, publicURL, apiKey, apiSecret string) *Service {
 
 func Identity(userID int64) string { return "user-" + strconv.FormatInt(userID, 10) }
 
-func RoomName(ids ...int64) string {
-	if len(ids) >= 2 {
-		return "guild-" + strconv.FormatInt(ids[0], 10) + "-channel-" + strconv.FormatInt(ids[1], 10)
-	}
-	if len(ids) == 1 {
-		return "channel-" + strconv.FormatInt(ids[0], 10)
-	}
-	return ""
-}
-
 func GuildRoomName(guildID, channelID int64) string {
-	return RoomName(guildID, channelID)
-}
-
-func ParseRoomName(name string) (int64, bool) {
-	if _, channelID, ok := ParseGuildRoomName(name); ok {
-		return channelID, true
-	}
-	return parseLegacyRoomName(name)
+	return "guild-" + strconv.FormatInt(guildID, 10) + "-channel-" + strconv.FormatInt(channelID, 10)
 }
 
 func parseLegacyRoomName(name string) (int64, bool) {
@@ -124,10 +107,7 @@ func (s *Service) JoinGuildCredentials(ctx context.Context, user store.User, mem
 
 func (s *Service) joinCredentials(ctx context.Context, user store.User, guildID, channelID int64, role string, voiceMuted bool) (JoinCredentials, error) {
 	now := s.now()
-	roomName := RoomName(channelID)
-	if guildID > 0 {
-		roomName = GuildRoomName(guildID, channelID)
-	}
+	roomName := GuildRoomName(guildID, channelID)
 	s.mu.Lock()
 	previous := s.targets[user.ID]
 	generation := s.nextGenerationLocked(now)
@@ -515,7 +495,10 @@ func (s *Service) currentTarget(userID int64) voiceTarget {
 	}
 	for channelID, participants := range s.rooms {
 		if _, ok := participants[userID]; ok {
-			return voiceTarget{ChannelID: channelID, RoomName: RoomName(channelID)}
+			guildID := s.guildForChannelLocked(channelID)
+			if guildID > 0 {
+				return voiceTarget{ChannelID: channelID, GuildID: guildID, RoomName: GuildRoomName(guildID, channelID)}
+			}
 		}
 	}
 	return voiceTarget{}
@@ -620,7 +603,7 @@ func (target voiceTarget) roomName() string {
 	if target.GuildID > 0 {
 		return GuildRoomName(target.GuildID, target.ChannelID)
 	}
-	return RoomName(target.ChannelID)
+	return ""
 }
 
 func (target voiceTarget) accepts(roomName string, channelID int64, generation uint64) bool {

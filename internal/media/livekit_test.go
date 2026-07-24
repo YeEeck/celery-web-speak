@@ -13,14 +13,13 @@ import (
 	"github.com/yeck/celery-web-speak/internal/store"
 )
 
-func TestRoomNameRoundTrip(t *testing.T) {
-	name := RoomName(42)
-	channelID, ok := ParseRoomName(name)
-	if name != "channel-42" || !ok || channelID != 42 {
-		t.Fatalf("room name round trip = %q, %d, %t", name, channelID, ok)
+func TestLegacyRoomNameDetectionForCleanup(t *testing.T) {
+	channelID, ok := parseLegacyRoomName("channel-42")
+	if !ok || channelID != 42 {
+		t.Fatalf("legacy room parse = %d, %t", channelID, ok)
 	}
 	for _, invalid := range []string{"main", "channel-0", "channel-nope", "other-42"} {
-		if _, ok := ParseRoomName(invalid); ok {
+		if _, ok := parseLegacyRoomName(invalid); ok {
 			t.Fatalf("invalid room name %q was accepted", invalid)
 		}
 	}
@@ -34,9 +33,6 @@ func TestGuildRoomNameRoundTrip(t *testing.T) {
 	guildID, channelID, ok := ParseGuildRoomName(name)
 	if !ok || guildID != 12 || channelID != 45 {
 		t.Fatalf("parsed room = %d, %d, %t", guildID, channelID, ok)
-	}
-	if parsedChannel, ok := ParseRoomName(name); !ok || parsedChannel != 45 {
-		t.Fatalf("compat parse = %d, %t", parsedChannel, ok)
 	}
 }
 
@@ -222,7 +218,7 @@ func TestCurrentTargetPreservesServerAndRoomFromSnapshot(t *testing.T) {
 func TestLegacyRoomWebhookIsRejected(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
 	event := participantEvent(webhook.EventParticipantJoined, 7, 12, uint64(time.Now().UnixNano()))
-	event.Room.Name = RoomName(7)
+	event.Room.Name = "channel-7"
 
 	if service.ApplyWebhook(context.Background(), event) {
 		t.Fatal("legacy room participant changed snapshot")

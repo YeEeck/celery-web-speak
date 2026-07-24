@@ -26,7 +26,7 @@ import {
   type ApplicationAudioState,
   type DesktopApplicationAudioBridge,
 } from '../audio/applicationAudioBridge'
-import type { Channel, Role, User, VoiceCredentials } from '../types'
+import type { Channel, GuildRole, User, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
 import { useSoundStore } from './sounds'
 
@@ -56,7 +56,7 @@ export interface VoiceParticipant {
   backgroundAudioVolume: number
   microphoneMuted: boolean
   backgroundAudioMuted: boolean
-  role: Role
+  role: GuildRole
   joinedAt: number | null
 }
 
@@ -1154,19 +1154,20 @@ function compareParticipants(a: VoiceParticipant, b: VoiceParticipant, users: Us
   return a.userId - b.userId || a.identity.localeCompare(b.identity)
 }
 
-function currentRole(participant: VoiceParticipant, users: User[]): Role {
-  return users.find((user) => user.id === participant.userId)?.role ?? participant.role
+function currentRole(participant: VoiceParticipant, users: User[]): GuildRole {
+  const role = users.find((user) => user.id === participant.userId)?.role ?? participant.role
+  return role === 'owner' || role === 'admin' ? role : 'member'
 }
 
-function roleRank(role: Role) {
-  if (role === 'server_admin') return 2
-  if (role === 'channel_admin') return 1
+function roleRank(role: GuildRole) {
+  if (role === 'owner') return 2
+  if (role === 'admin') return 1
   return 0
 }
 
-function participantRole(participant: Participant): Role {
+function participantRole(participant: Participant): GuildRole {
   const role = participant.attributes.role
-  return role === 'server_admin' || role === 'channel_admin' ? role : 'member'
+  return role === 'owner' || role === 'admin' ? role : 'member'
 }
 
 function participantJoinedAt(participant: Participant): number | null {

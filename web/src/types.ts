@@ -1,4 +1,4 @@
-export type Role = 'member' | 'channel_admin' | 'server_admin' | 'platform_admin'
+export type PlatformRole = 'member' | 'platform_admin'
 export type ChannelType = 'text' | 'voice'
 export type GuildRole = 'owner' | 'admin' | 'member'
 
@@ -19,7 +19,7 @@ export interface User {
   id: number
   username: string
   displayName: string
-  role: Role
+  role: PlatformRole | GuildRole
   voiceMuted: boolean
   textMuted: boolean
   permanentlyBanned: boolean

@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Ban, Clipboard, Gauge, KeyRound, Plus, Save, ShieldCheck, Ticket, Trash2, UserCog, UserMinus, UserPlus, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
-import type { ChannelType, Invite, Role, User } from '../types'
+import type { ChannelType, GuildRole, Invite, PlatformRole, User } from '../types'
 import UserAvatar from './UserAvatar.vue'
 
 const props = defineProps<{ initialTab?: 'channel' | 'users' | 'invites'; platformMode?: boolean }>()
@@ -35,7 +35,7 @@ const inviteDays = ref(7)
 const newUsername = ref('')
 const newDisplayName = ref('')
 const newPassword = ref('')
-const newRole = ref<Role>('member')
+const newRole = ref<PlatformRole>('member')
 const memberUsername = ref('')
 const serverName = ref('')
 const message = ref('')
@@ -161,7 +161,7 @@ async function deleteChannel() {
 }
 
 function canModerate(user: User) {
-  if (user.role === 'server_admin') return false
+  if (user.role === 'owner') return false
   return app.isPlatformAdmin || serverContext.value?.role === 'owner' || user.role === 'member'
 }
 
@@ -182,7 +182,7 @@ async function setMute(kind: 'voice' | 'text', value: boolean) {
   }, value ? '禁言已生效' : '禁言已解除')
 }
 
-async function setRole(role: Role) {
+async function setRole(role: PlatformRole | GuildRole) {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
@@ -191,7 +191,7 @@ async function setRole(role: Role) {
       await loadPlatformUsers()
     } else {
       if (app.activeServerId === null) return
-      await request(`/api/servers/${app.activeServerId}/members/${target.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: role === 'channel_admin' || role === 'server_admin' ? 'admin' : 'member' }) })
+      await request(`/api/servers/${app.activeServerId}/members/${target.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: role === 'admin' ? 'admin' : 'member' }) })
       await app.bootstrap()
     }
     selectedUserId.value = target.id
@@ -372,7 +372,7 @@ function inviteStatusLabel(invite: Invite) {
 
 function roleLabel(user: User) {
   if (props.platformMode) return user.isPlatformAdmin ? '平台管理员' : '普通账号'
-  return user.role === 'server_admin' ? '服务器所有者' : user.role === 'channel_admin' ? '服务器管理员' : '普通成员'
+  return user.role === 'owner' ? '服务器所有者' : user.role === 'admin' ? '服务器管理员' : '普通成员'
 }
 
 function selectUser(userId: number) {
@@ -476,11 +476,11 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
             </template>
             <p v-else-if="serverContext" class="permission-note"><ShieldCheck :size="17" />服务器管理员不能管理其他管理员。</p>
 
-            <template v-if="serverContext && canManageRoles && selectedUser.role !== 'server_admin'">
-              <label><span>服务器角色</span><select :value="selectedUser.role" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通成员</option><option value="channel_admin">服务器管理员</option></select></label>
+            <template v-if="serverContext && canManageRoles && selectedUser.role !== 'owner'">
+              <label><span>服务器角色</span><select :value="selectedUser.role" @change="setRole(($event.target as HTMLSelectElement).value as GuildRole)"><option value="member">普通成员</option><option value="admin">服务器管理员</option></select></label>
             </template>
             <template v-if="!serverContext">
-              <label><span>平台角色</span><select :value="selectedUser.isPlatformAdmin ? 'platform_admin' : 'member'" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通账号</option><option value="platform_admin">平台管理员</option></select></label>
+              <label><span>平台角色</span><select :value="selectedUser.isPlatformAdmin ? 'platform_admin' : 'member'" @change="setRole(($event.target as HTMLSelectElement).value as PlatformRole)"><option value="member">普通账号</option><option value="platform_admin">平台管理员</option></select></label>
               <label><span>重置密码</span><span class="inline-actions"><input v-model="resetPassword" type="password" minlength="10" placeholder="至少 10 位" /><button class="secondary-button" :disabled="resetPassword.length < 10" @click="doResetPassword"><KeyRound :size="16" />重置</button></span></label>
               <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '恢复平台账号' : '停用平台账号' }}</button>
               <div class="account-danger-zone">

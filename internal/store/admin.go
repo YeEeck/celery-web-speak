@@ -210,7 +210,7 @@ WHERE is_platform_admin = 1 AND suspended_at IS NULL AND permanently_banned = 0
 		return err
 	}
 	if count == 0 {
-		return ErrLastServerAdmin
+		return ErrLastPlatformAdmin
 	}
 	return nil
 }

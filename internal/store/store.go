@@ -23,7 +23,7 @@ var (
 	ErrUsernameExists             = errors.New("username already exists")
 	ErrInvalidInvite              = errors.New("invite is invalid or expired")
 	ErrBanned                     = errors.New("account is banned")
-	ErrLastServerAdmin            = errors.New("at least one server admin is required")
+	ErrLastPlatformAdmin          = errors.New("at least one platform admin is required")
 	ErrSelfAction                 = errors.New("cannot perform this action on yourself")
 	ErrUsernameConfirm            = errors.New("username confirmation does not match")
 	ErrLastChannel                = errors.New("at least one channel of each type is required")

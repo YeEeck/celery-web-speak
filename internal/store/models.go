@@ -14,9 +14,6 @@ type Role string
 const (
 	RoleMember        Role = "member"
 	RolePlatformAdmin Role = "platform_admin"
-	// RoleServerAdmin remains a source-compatible name for internal callers.
-	// Its value is the platform role exposed by the current API.
-	RoleServerAdmin Role = RolePlatformAdmin
 )
 
 type GuildRole string

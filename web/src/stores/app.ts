@@ -80,7 +80,7 @@ export const useAppStore = defineStore('app', () => {
     if (version !== serverBootstrapVersion || activeServerId.value !== serverId) return
     activeTextChannelId.value = savedChannelID(serverId)
     localStorage.setItem('cws.activeServerId', String(serverId))
-    const members: User[] = data.members.map((member) => ({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role === 'owner' ? 'server_admin' : member.role === 'admin' ? 'channel_admin' : 'member', voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt }))
+    const members: User[] = data.members.map((member) => ({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role, voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt }))
     const currentUser = { ...user.value!, voiceMuted: data.membership.voiceMuted, textMuted: data.membership.textMuted }
     applyBootstrap({ user: currentUser, users: members, channels: data.channels, channelReadStates: data.channelReadStates, onlineIds: data.onlineIds, voiceRooms: data.voiceRooms })
   }
@@ -292,7 +292,7 @@ export const useAppStore = defineStore('app', () => {
         }
         if (activeServerId.value === null) { clearServerState(); synchronizingSocket = null; socketStatus.value = 'online'; return }
         const serverData = await request<ServerBootstrapData>(`/api/servers/${activeServerId.value}/bootstrap`)
-        const members: User[] = serverData.members.map((member) => ({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role === 'owner' ? 'server_admin' : member.role === 'admin' ? 'channel_admin' : 'member', voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt }))
+        const members: User[] = serverData.members.map((member) => ({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role, voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt }))
         const currentUser = { ...data.user, voiceMuted: serverData.membership.voiceMuted, textMuted: serverData.membership.textMuted }
         applyBootstrap({ user: currentUser, users: members, channels: serverData.channels, channelReadStates: serverData.channelReadStates, onlineIds: serverData.onlineIds, voiceRooms: serverData.voiceRooms }, true)
         const channelId = activeTextChannelId.value
@@ -381,7 +381,7 @@ export const useAppStore = defineStore('app', () => {
       if (index >= 0) servers.value[index] = { ...servers.value[index], ...server }
     } else if (type === 'member_added' || type === 'member_updated') {
       const member = data as { userId: number; username: string; displayName: string; role: string; voiceMuted: boolean; textMuted: boolean; permanentlyBanned: boolean; joinedAt: string }
-      upsertUser({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role === 'owner' ? 'server_admin' : member.role === 'admin' ? 'channel_admin' : 'member', voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt } as User)
+      upsertUser({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role === 'owner' || member.role === 'admin' ? member.role : 'member', voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt } as User)
     } else if (type === 'member_removed') {
       removeUser((data as { userId: number }).userId)
     } else if (type === 'presence') {

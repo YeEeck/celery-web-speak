@@ -302,7 +302,7 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .message-body header strong { color: var(--text); }.message-body time { color: var(--faint); font-size: 10px; }
 .message-body p { color: var(--text); line-height: 1.42; white-space: pre-wrap; overflow-wrap: anywhere; }
 .role-chip { padding: 1px 5px; border-radius: 3px; font-size: 9px; color: white; background: #3f844f; }
-.role-chip.server_admin { background: #a55f13; }.role-chip.channel_admin { background: #3f6fa8; }
+.role-chip.owner { background: #a55f13; }.role-chip.admin { background: #3f6fa8; }
 .message-action { visibility: hidden; width: 30px; height: 28px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--muted); cursor: pointer; }
 .message-row:hover .message-action { visibility: visible; }
 .message-action:hover { color: var(--danger-fg); }
