@@ -225,23 +225,15 @@ func TestTransferGuildOwnershipRequiresActiveAccount(t *testing.T) {
 	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, active.Username); err != nil {
 		t.Fatal(err)
 	}
-	guild, err := db.TransferGuildOwnership(ctx, guildID, admin.ID, active.ID)
+	transfer, err := db.TransferGuildOwnership(ctx, guildID, admin.ID, active.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if guild.OwnerUserID != active.ID {
-		t.Fatalf("owner user ID = %d, want %d", guild.OwnerUserID, active.ID)
+	if transfer.Guild.OwnerUserID != active.ID {
+		t.Fatalf("owner user ID = %d, want %d", transfer.Guild.OwnerUserID, active.ID)
 	}
-	oldOwner, err := db.GuildMembership(ctx, guildID, admin.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	newOwner, err := db.GuildMembership(ctx, guildID, active.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if oldOwner.Role != GuildRoleAdmin || newOwner.Role != GuildRoleOwner {
-		t.Fatalf("roles after transfer = %q/%q, want admin/owner", oldOwner.Role, newOwner.Role)
+	if transfer.PreviousOwner.Role != GuildRoleAdmin || transfer.NewOwner.Role != GuildRoleOwner {
+		t.Fatalf("roles after transfer = %q/%q, want admin/owner", transfer.PreviousOwner.Role, transfer.NewOwner.Role)
 	}
 }
 

@@ -43,6 +43,12 @@ type GuildSummary struct {
 	UnreadCount int       `json:"unreadCount,omitempty"`
 }
 
+type GuildOwnershipTransfer struct {
+	Guild         Guild
+	PreviousOwner GuildMember
+	NewOwner      GuildMember
+}
+
 type GuildMember struct {
 	GuildID           int64      `json:"guildId"`
 	UserID            int64      `json:"userId"`

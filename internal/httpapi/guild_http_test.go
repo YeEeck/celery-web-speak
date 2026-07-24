@@ -326,6 +326,85 @@ func TestTemporarilyBannedPlatformAdminCannotRestoreGuildSubscription(t *testing
 	}
 }
 
+func TestServerLifecycleEventsSynchronizeConnectedMembers(t *testing.T) {
+	db, platformAdmin, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	previousOwner, err := db.CreateUser(ctx, "lifecycle_previous_owner", "原所有者", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newOwner, err := db.CreateUser(ctx, "lifecycle_new_owner", "新所有者", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer, err := db.CreateUser(ctx, "lifecycle_observer", "旁观成员", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	platformToken, _, err := db.CreateSession(ctx, platformAdmin.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousConnection := newClient(previousOwner)
+	server.hub.register(previousConnection)
+	t.Cleanup(func() { server.hub.unregister(previousConnection, true) })
+
+	createBody := `{"name":"生命周期服务器","ownerUsername":` + strconv.Quote(previousOwner.Username) + `}`
+	recorder := serveGuildHTTPRequest(server, platformToken, http.MethodPost, "/api/platform/servers", createBody)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("create server = %d %s", recorder.Code, recorder.Body.String())
+	}
+	var created struct {
+		Server store.Guild `json:"server"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+	added := readClientEvents(t, previousConnection, 1)[0]
+	if added.Type != "server_added" || added.ServerID != created.Server.ID {
+		t.Fatalf("create event = %+v, want server_added for %d", added, created.Server.ID)
+	}
+	for _, member := range []store.User{newOwner, observer} {
+		if _, err := db.AddGuildMember(ctx, created.Server.ID, previousOwner.ID, member.Username); err != nil {
+			t.Fatal(err)
+		}
+	}
+	newConnection := newClient(newOwner)
+	newConnection.guilds[created.Server.ID] = struct{}{}
+	server.hub.register(newConnection)
+	t.Cleanup(func() { server.hub.unregister(newConnection, true) })
+	observerConnection := newClient(observer)
+	observerConnection.guilds[created.Server.ID] = struct{}{}
+	server.hub.register(observerConnection)
+	t.Cleanup(func() { server.hub.unregister(observerConnection, true) })
+
+	transferBody := `{"userId":` + formatID(newOwner.ID) + `}`
+	recorder = serveGuildHTTPRequest(server, platformToken, http.MethodPatch, "/api/platform/servers/"+formatID(created.Server.ID)+"/owner", transferBody)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("transfer owner = %d %s", recorder.Code, recorder.Body.String())
+	}
+	for _, connection := range []*client{previousConnection, newConnection, observerConnection} {
+		events := readClientEvents(t, connection, 3)
+		if events[0].Type != "server_updated" || events[1].Type != "member_updated" || events[2].Type != "member_updated" {
+			t.Fatalf("transfer event types = %q/%q/%q", events[0].Type, events[1].Type, events[2].Type)
+		}
+		var updatedGuild store.Guild
+		decodeEventData(t, events[0], &updatedGuild)
+		if updatedGuild.OwnerUserID != newOwner.ID {
+			t.Fatalf("updated owner ID = %d, want %d", updatedGuild.OwnerUserID, newOwner.ID)
+		}
+		var previousMember, newMember store.GuildMember
+		decodeEventData(t, events[1], &previousMember)
+		decodeEventData(t, events[2], &newMember)
+		if previousMember.UserID != previousOwner.ID || previousMember.Role != store.GuildRoleAdmin {
+			t.Fatalf("previous owner event = %+v", previousMember)
+		}
+		if newMember.UserID != newOwner.ID || newMember.Role != store.GuildRoleOwner {
+			t.Fatalf("new owner event = %+v", newMember)
+		}
+	}
+}
+
 func TestServerMemberLeaveAndRemoval(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()
@@ -500,4 +579,33 @@ func serveGuildHTTPRequest(server *Server, token, method, path, body string) *ht
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, request)
 	return recorder
+}
+
+func readClientEvents(t *testing.T, connection *client, count int) []event {
+	t.Helper()
+	events := make([]event, 0, count)
+	for len(events) < count {
+		select {
+		case payload := <-connection.send:
+			var item event
+			if err := json.Unmarshal(payload, &item); err != nil {
+				t.Fatalf("decode client event: %v", err)
+			}
+			events = append(events, item)
+		case <-time.After(time.Second):
+			t.Fatalf("received %d client events, want %d", len(events), count)
+		}
+	}
+	return events
+}
+
+func decodeEventData(t *testing.T, item event, target any) {
+	t.Helper()
+	payload, err := json.Marshal(item.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(payload, target); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -382,6 +382,10 @@ export const useAppStore = defineStore('app', () => {
     } else if (type === 'member_added' || type === 'member_updated') {
       const member = data as { userId: number; username: string; displayName: string; role: string; voiceMuted: boolean; textMuted: boolean; permanentlyBanned: boolean; joinedAt: string }
       upsertUser({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role === 'owner' || member.role === 'admin' ? member.role : 'member', voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt } as User)
+      if (member.userId === user.value?.id && serverId) {
+        const serverIndex = servers.value.findIndex((server) => server.id === serverId)
+        if (serverIndex >= 0) servers.value[serverIndex] = { ...servers.value[serverIndex], role: member.role === 'owner' || member.role === 'admin' ? member.role : 'member' }
+      }
     } else if (type === 'member_removed') {
       removeUser((data as { userId: number }).userId)
     } else if (type === 'presence') {

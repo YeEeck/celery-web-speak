@@ -96,6 +96,7 @@ func (s *Server) handlePlatformCreateServer(w http.ResponseWriter, r *http.Reque
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.AddUserGuild(guild.OwnerUserID, guild.ID)
 	writeJSON(w, http.StatusCreated, map[string]any{"server": guild})
 }
 
@@ -138,12 +139,17 @@ func (s *Server) handlePlatformServerOwner(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	guild, err := s.store.TransferGuildOwnership(r.Context(), guildID, currentUser(r).ID, input.UserID)
+	transfer, err := s.store.TransferGuildOwnership(r.Context(), guildID, currentUser(r).ID, input.UserID)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"server": guild})
+	s.hub.BroadcastGuild(guildID, "server_updated", transfer.Guild)
+	s.hub.BroadcastGuild(guildID, "member_updated", transfer.PreviousOwner)
+	if transfer.NewOwner.UserID != transfer.PreviousOwner.UserID {
+		s.hub.BroadcastGuild(guildID, "member_updated", transfer.NewOwner)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"server": transfer.Guild})
 }
 
 func (s *Server) handlePlatformDeleteServer(w http.ResponseWriter, r *http.Request) {

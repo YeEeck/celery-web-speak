@@ -120,7 +120,15 @@ func (s *Store) GuildIDsForUser(ctx context.Context, userID int64) ([]int64, err
 }
 
 func (s *Store) GuildMembership(ctx context.Context, guildID, userID int64) (GuildMember, error) {
-	return scanGuildMember(s.db.QueryRowContext(ctx, `
+	return guildMembership(ctx, s.db, guildID, userID)
+}
+
+type guildQueryRower interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func guildMembership(ctx context.Context, queryer guildQueryRower, guildID, userID int64) (GuildMember, error) {
+	return scanGuildMember(queryer.QueryRowContext(ctx, `
 SELECT gm.guild_id, gm.user_id, u.username, u.display_name,
        CASE WHEN g.owner_user_id = gm.user_id THEN 'owner' ELSE gm.role END,
        gm.voice_muted, gm.text_muted, gm.permanently_banned, gm.temporary_ban_until, gm.joined_at
@@ -424,17 +432,17 @@ func (s *Store) ClearGuildMemberTemporaryBan(ctx context.Context, guildID, actor
 	return s.GuildMembership(ctx, guildID, userID)
 }
 
-func (s *Store) TransferGuildOwnership(ctx context.Context, guildID, actorID, newOwnerID int64) (Guild, error) {
+func (s *Store) TransferGuildOwnership(ctx context.Context, guildID, actorID, newOwnerID int64) (GuildOwnershipTransfer, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Guild{}, err
+		return GuildOwnershipTransfer{}, err
 	}
 	defer tx.Rollback()
 	var oldOwnerID int64
 	if err := tx.QueryRowContext(ctx, "SELECT owner_user_id FROM guilds WHERE id = ?", guildID).Scan(&oldOwnerID); errors.Is(err, sql.ErrNoRows) {
-		return Guild{}, ErrNotFound
+		return GuildOwnershipTransfer{}, ErrNotFound
 	} else if err != nil {
-		return Guild{}, err
+		return GuildOwnershipTransfer{}, err
 	}
 	var active int
 	if err := tx.QueryRowContext(ctx, `
@@ -445,26 +453,38 @@ WHERE gm.guild_id = ? AND gm.user_id = ?
   AND gm.permanently_banned = 0
   AND (gm.temporary_ban_until IS NULL OR gm.temporary_ban_until <= ?)
   AND u.deleted_at IS NULL
-  AND u.suspended_at IS NULL
-  AND u.permanently_banned = 0`, guildID, newOwnerID, formatTime(s.now())).Scan(&active); err != nil {
-		return Guild{}, err
+	  AND u.suspended_at IS NULL
+	  AND u.permanently_banned = 0`, guildID, newOwnerID, formatTime(s.now())).Scan(&active); err != nil {
+		return GuildOwnershipTransfer{}, err
 	}
 	if active == 0 {
-		return Guild{}, ErrNotFound
+		return GuildOwnershipTransfer{}, ErrNotFound
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE guild_members SET role = 'admin', updated_at = ? WHERE guild_id = ? AND user_id IN (?, ?)", formatTime(s.now()), guildID, oldOwnerID, newOwnerID); err != nil {
-		return Guild{}, err
+		return GuildOwnershipTransfer{}, err
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE guilds SET owner_user_id = ?, updated_at = ? WHERE id = ?", newOwnerID, formatTime(s.now()), guildID); err != nil {
-		return Guild{}, err
+		return GuildOwnershipTransfer{}, err
 	}
 	if err := insertGuildAudit(ctx, tx, guildID, actorID, &newOwnerID, "transfer_guild_ownership", fmt.Sprintf("old_owner_id=%d", oldOwnerID)); err != nil {
-		return Guild{}, err
+		return GuildOwnershipTransfer{}, err
+	}
+	guild, err := scanGuild(tx.QueryRowContext(ctx, `SELECT id, name, owner_user_id, created_by, created_at, updated_at FROM guilds WHERE id = ?`, guildID))
+	if err != nil {
+		return GuildOwnershipTransfer{}, err
+	}
+	previousOwner, err := guildMembership(ctx, tx, guildID, oldOwnerID)
+	if err != nil {
+		return GuildOwnershipTransfer{}, err
+	}
+	newOwner, err := guildMembership(ctx, tx, guildID, newOwnerID)
+	if err != nil {
+		return GuildOwnershipTransfer{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return Guild{}, err
+		return GuildOwnershipTransfer{}, err
 	}
-	return s.GuildByID(ctx, guildID)
+	return GuildOwnershipTransfer{Guild: guild, PreviousOwner: previousOwner, NewOwner: newOwner}, nil
 }
 
 func (s *Store) DeleteGuild(ctx context.Context, guildID, actorID int64) error {
