@@ -1,11 +1,11 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, request } from '../api'
-import type { BootstrapData, Channel, ChannelReadState, Message, User, VoiceRoom } from '../types'
+import type { BootstrapData, Channel, ChannelReadState, Message, ServerBootstrapData, ServerSummary, User, VoiceRoom } from '../types'
 import { useSoundStore } from './sounds'
 
 type AuthPayload = { user: User }
-type SocketEvent = { type: string; data: unknown }
+type SocketEvent = { type: string; serverId?: number; data: unknown }
 
 interface MessageState {
   messages: Message[]
@@ -21,6 +21,8 @@ export const useAppStore = defineStore('app', () => {
   const ready = ref(false)
   const user = ref<User | null>(null)
   const users = ref<User[]>([])
+  const servers = ref<ServerSummary[]>([])
+  const activeServerId = ref<number | null>(savedServerID())
   const channels = ref<Channel[]>([])
   const channelReadStates = ref<Record<number, ChannelReadState>>({})
   const messageStates = ref<Record<number, MessageState>>({})
@@ -36,8 +38,10 @@ export const useAppStore = defineStore('app', () => {
   let voiceRoomsRefreshTimer: number | undefined
   const messageLoadVersions = new Map<number, number>()
 
-  const isAdmin = computed(() => user.value?.role === 'channel_admin' || user.value?.role === 'server_admin')
-  const isServerAdmin = computed(() => user.value?.role === 'server_admin')
+  const isAdmin = computed(() => activeServer.value?.role === 'owner' || activeServer.value?.role === 'admin')
+  const isServerAdmin = computed(() => activeServer.value?.role === 'owner' || activeServer.value?.role === 'admin')
+  const isPlatformAdmin = computed(() => user.value?.isPlatformAdmin === true || user.value?.role === 'server_admin')
+  const activeServer = computed(() => servers.value.find((server) => server.id === activeServerId.value && server.joined) ?? null)
   const textChannels = computed(() => channels.value.filter((channel) => channel.type === 'text'))
   const voiceChannels = computed(() => channels.value.filter((channel) => channel.type === 'voice'))
   const activeTextChannel = computed(() => textChannels.value.find((channel) => channel.id === activeTextChannelId.value) ?? null)
@@ -60,14 +64,34 @@ export const useAppStore = defineStore('app', () => {
 
   async function bootstrap() {
     const data = await request<BootstrapData>('/api/bootstrap')
-    applyBootstrap(data)
+    user.value = data.user
+    servers.value = data.servers ?? []
+    const joined = servers.value.filter((server) => server.joined)
+    if (!activeServerId.value || !joined.some((server) => server.id === activeServerId.value)) activeServerId.value = joined[0]?.id ?? null
+    if (activeServerId.value !== null) await loadServerBootstrap(activeServerId.value)
+    else clearServerState()
     if (!socket) connectSocket()
+  }
+
+  async function loadServerBootstrap(serverId: number) {
+    const data = await request<ServerBootstrapData>(`/api/servers/${serverId}/bootstrap`)
+    activeServerId.value = serverId
+    localStorage.setItem('cws.activeServerId', String(serverId))
+    const members: User[] = data.members.map((member) => ({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role === 'owner' ? 'server_admin' : member.role === 'admin' ? 'channel_admin' : 'member', voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt }))
+    applyBootstrap({ user: user.value!, users: members, channels: data.channels, channelReadStates: data.channelReadStates, onlineIds: data.onlineIds, voiceRooms: data.voiceRooms })
+  }
+
+  async function selectServer(serverId: number) {
+    if (!servers.value.some((server) => server.id === serverId && server.joined)) return
+    if (serverId === activeServerId.value) return
+    clearServerState()
+    await loadServerBootstrap(serverId)
   }
 
   function applyBootstrap(data: BootstrapData, invalidateMessages = false) {
     const previousChannelIDs = new Set(channels.value.map((channel) => channel.id))
     user.value = data.user
-    users.value = data.users
+    users.value = data.users ?? []
     channels.value = Array.isArray(data.channels) ? data.channels : []
     voiceRooms.value = Array.isArray(data.voiceRooms) ? data.voiceRooms : []
     channelReadStates.value = Object.fromEntries((data.channelReadStates ?? []).map((state) => [state.channelId, state]))
@@ -107,6 +131,8 @@ export const useAppStore = defineStore('app', () => {
       stopSocket()
       user.value = null
       users.value = []
+      servers.value = []
+      activeServerId.value = null
       channels.value = []
       channelReadStates.value = {}
       messageStates.value = {}
@@ -129,7 +155,8 @@ export const useAppStore = defineStore('app', () => {
     messageLoadVersions.set(channelId, loadVersion)
     state.loading = true
     try {
-      const payload = await request<{ messages: Message[]; hasMore: boolean }>(`/api/channels/${channelId}/messages?limit=50`)
+      if (activeServerId.value === null) return
+      const payload = await request<{ messages: Message[]; hasMore: boolean }>(`/api/servers/${activeServerId.value}/channels/${channelId}/messages?limit=50`)
       if (messageLoadVersions.get(channelId) !== loadVersion) return
       state.messages = payload.messages
       state.hasEarlier = payload.hasMore
@@ -142,7 +169,8 @@ export const useAppStore = defineStore('app', () => {
 
   async function sendMessage(content: string) {
     if (activeTextChannelId.value === null) return
-    await request<{ message: Message }>(`/api/channels/${activeTextChannelId.value}/messages`, {
+    if (activeServerId.value === null) return
+    await request<{ message: Message }>(`/api/servers/${activeServerId.value}/channels/${activeTextChannelId.value}/messages`, {
       method: 'POST', body: JSON.stringify({ content }),
     })
   }
@@ -155,7 +183,8 @@ export const useAppStore = defineStore('app', () => {
     state.loading = true
     const before = state.messages[0].id
     try {
-      const payload = await request<{ messages: Message[]; hasMore: boolean }>(`/api/channels/${channelId}/messages?before=${before}&limit=50`)
+      if (activeServerId.value === null) return 0
+      const payload = await request<{ messages: Message[]; hasMore: boolean }>(`/api/servers/${activeServerId.value}/channels/${channelId}/messages?before=${before}&limit=50`)
       if (activeTextChannelId.value !== channelId) return 0
       const known = new Set(state.messages.map((message) => message.id))
       const additions = payload.messages.filter((message) => !known.has(message.id))
@@ -171,7 +200,8 @@ export const useAppStore = defineStore('app', () => {
   async function markActiveChannelRead() {
     const channelId = activeTextChannelId.value
     if (channelId === null) return
-    const result = await request<{ readState: ChannelReadState }>(`/api/channels/${channelId}/read`, { method: 'POST' })
+    if (activeServerId.value === null) return
+    const result = await request<{ readState: ChannelReadState }>(`/api/servers/${activeServerId.value}/channels/${channelId}/read`, { method: 'POST' })
     if (activeTextChannelId.value === channelId) applyReadState(result.readState)
   }
 
@@ -189,25 +219,26 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function getChannelDraft(channelId: number) {
-    return localStorage.getItem(`cws.channelDraft.${channelId}`) ?? ''
+    return localStorage.getItem(`cws.server.${activeServerId.value ?? 0}.channelDraft.${channelId}`) ?? ''
   }
 
   function setChannelDraft(channelId: number, value: string) {
-    if (value) localStorage.setItem(`cws.channelDraft.${channelId}`, value)
-    else localStorage.removeItem(`cws.channelDraft.${channelId}`)
+    const key = `cws.server.${activeServerId.value ?? 0}.channelDraft.${channelId}`
+    if (value) localStorage.setItem(key, value)
+    else localStorage.removeItem(key)
   }
 
   function getChannelScroll(channelId: number) {
-    const saved = localStorage.getItem(`cws.channelScroll.${channelId}`)
+    const saved = localStorage.getItem(`cws.server.${activeServerId.value ?? 0}.channelScroll.${channelId}`)
     if (saved === null) return null
     const value = Number(saved)
     if (!Number.isFinite(value) || value < 0) return null
-    return { top: value, atBottom: localStorage.getItem(`cws.channelAtBottom.${channelId}`) === 'true' }
+    return { top: value, atBottom: localStorage.getItem(`cws.server.${activeServerId.value ?? 0}.channelAtBottom.${channelId}`) === 'true' }
   }
 
   function setChannelScroll(channelId: number, value: number, atBottom: boolean) {
-    localStorage.setItem(`cws.channelScroll.${channelId}`, String(Math.max(0, value)))
-    localStorage.setItem(`cws.channelAtBottom.${channelId}`, String(atBottom))
+    localStorage.setItem(`cws.server.${activeServerId.value ?? 0}.channelScroll.${channelId}`, String(Math.max(0, value)))
+    localStorage.setItem(`cws.server.${activeServerId.value ?? 0}.channelAtBottom.${channelId}`, String(atBottom))
   }
 
   function connectSocket() {
@@ -228,7 +259,7 @@ export const useAppStore = defineStore('app', () => {
         socketActivityVersion += 1
         return
       }
-      handleEvent(event.type, event.data)
+      handleEvent(event.type, event.data, event.serverId)
     }
     connection.onclose = (event) => {
       if (socket !== connection) return
@@ -250,7 +281,15 @@ export const useAppStore = defineStore('app', () => {
         const data = await request<BootstrapData>('/api/bootstrap')
         if (socket !== connection) return
         if (socketActivityVersion !== activityVersion) continue
-        applyBootstrap(data, true)
+        user.value = data.user
+        servers.value = data.servers ?? servers.value
+        if (activeServerId.value === null || !servers.value.some((server) => server.id === activeServerId.value && server.joined)) {
+          activeServerId.value = servers.value.find((server) => server.joined)?.id ?? null
+        }
+        if (activeServerId.value === null) { clearServerState(); synchronizingSocket = null; socketStatus.value = 'online'; return }
+        const serverData = await request<ServerBootstrapData>(`/api/servers/${activeServerId.value}/bootstrap`)
+        const members: User[] = serverData.members.map((member) => ({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role === 'owner' ? 'server_admin' : member.role === 'admin' ? 'channel_admin' : 'member', voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt }))
+        applyBootstrap({ user: data.user, users: members, channels: serverData.channels, channelReadStates: serverData.channelReadStates, onlineIds: serverData.onlineIds, voiceRooms: serverData.voiceRooms }, true)
         const channelId = activeTextChannelId.value
         if (channelId !== null) await loadChannelMessages(channelId, true)
         if (socket !== connection) return
@@ -323,9 +362,17 @@ export const useAppStore = defineStore('app', () => {
     }, VOICE_ROOMS_REFRESH_DELAY_MS)
   }
 
-  function handleEvent(type: string, data: unknown) {
-    if (type === 'presence') {
-      onlineIds.value = data as number[]
+  function handleEvent(type: string, data: unknown, serverId?: number) {
+    if (serverId && type !== 'server_added' && type !== 'server_removed' && serverId !== activeServerId.value) return
+    if (type === 'server_added') {
+      void bootstrap()
+    } else if (type === 'server_removed') {
+      const removedServerId = serverId ?? (data as { serverId?: number }).serverId
+      servers.value = servers.value.filter((server) => server.id !== removedServerId)
+      if (removedServerId === activeServerId.value) { activeServerId.value = null; void bootstrap() }
+    } else if (type === 'presence') {
+      const memberIDs = new Set(users.value.map((item) => item.id))
+      onlineIds.value = (data as number[]).filter((id) => memberIDs.has(id))
     } else if (type === 'message_created') {
       const message = data as Message
       const state = ensureMessageState(message.channelId)
@@ -370,6 +417,16 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  function clearServerState() {
+    users.value = []
+    channels.value = []
+    channelReadStates.value = {}
+    messageStates.value = {}
+    voiceRooms.value = []
+    onlineIds.value = []
+    activeTextChannelId.value = null
+  }
+
   function upsertChannel(channel: Channel) {
     const index = channels.value.findIndex((item) => item.id === channel.id)
     if (index >= 0) channels.value[index] = channel
@@ -395,9 +452,9 @@ export const useAppStore = defineStore('app', () => {
     delete channelReadStates.value[channelId]
     messageLoadVersions.delete(channelId)
     voiceRooms.value = voiceRooms.value.filter((room) => room.channelId !== channelId)
-    localStorage.removeItem(`cws.channelDraft.${channelId}`)
-    localStorage.removeItem(`cws.channelScroll.${channelId}`)
-    localStorage.removeItem(`cws.channelAtBottom.${channelId}`)
+    localStorage.removeItem(`cws.server.${activeServerId.value ?? 0}.channelDraft.${channelId}`)
+    localStorage.removeItem(`cws.server.${activeServerId.value ?? 0}.channelScroll.${channelId}`)
+    localStorage.removeItem(`cws.server.${activeServerId.value ?? 0}.channelAtBottom.${channelId}`)
   }
 
   function normalizeChannelState() {
@@ -455,10 +512,10 @@ export const useAppStore = defineStore('app', () => {
   }
 
   return {
-    ready, user, users, channels, textChannels, voiceChannels, activeTextChannelId, activeTextChannel,
+    ready, user, users, servers, activeServerId, activeServer, channels, textChannels, voiceChannels, activeTextChannelId, activeTextChannel,
     voiceRooms, messages, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
-    channelReadStates, onlineIds, socketStatus, isAdmin, isServerAdmin,
-    initialize, bootstrap, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh,
+    channelReadStates, onlineIds, socketStatus, isAdmin, isServerAdmin, isPlatformAdmin,
+    initialize, bootstrap, loadServerBootstrap, selectServer, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh,
     sendMessage, loadEarlier, markActiveChannelRead, updateProfile, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,
   }
@@ -470,6 +527,11 @@ function emptyMessageState(): MessageState {
 
 function savedChannelID() {
   const value = Number(localStorage.getItem(ACTIVE_TEXT_CHANNEL_KEY))
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+
+function savedServerID() {
+  const value = Number(localStorage.getItem('cws.activeServerId'))
   return Number.isFinite(value) && value > 0 ? value : null
 }
 

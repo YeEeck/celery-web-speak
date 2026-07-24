@@ -83,7 +83,7 @@ async function saveSettings() {
   const channel = selectedChannel.value
   if (!channel) return
   await run(async () => {
-    await request(`/api/channels/${channel.id}`, {
+    await request(`/api/servers/${app.activeServerId}/channels/${channel.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
         name: channelName.value,
@@ -101,7 +101,7 @@ async function saveSettings() {
 async function createChannel() {
   if (!newChannelName.value.trim()) return
   await run(async () => {
-    const payload = await request<{ channel: { id: number } }>('/api/channels', {
+    const payload = await request<{ channel: { id: number } }>(`/api/servers/${app.activeServerId}/channels`, {
       method: 'POST',
       body: JSON.stringify({ type: newChannelType.value, name: newChannelName.value }),
     })
@@ -115,7 +115,7 @@ async function deleteChannel() {
   const channel = selectedChannel.value
   if (!channel || !window.confirm(`永久删除${channel.type === 'text' ? '文字' : '语音'}频道“${channel.name}”？此操作无法恢复。`)) return
   await run(async () => {
-    await request(`/api/channels/${channel.id}`, { method: 'DELETE' })
+    await request(`/api/servers/${app.activeServerId}/channels/${channel.id}`, { method: 'DELETE' })
     await app.bootstrap()
     selectedChannelId.value = app.channels[0]?.id ?? null
   }, '频道已永久删除')
@@ -129,7 +129,8 @@ async function setMute(kind: 'voice' | 'text', value: boolean) {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
-    const result = await request<{ user: User }>(`/api/admin/users/${target.id}/mute`, {
+    if (app.activeServerId === null) return
+    await request<{ member: unknown }>(`/api/servers/${app.activeServerId}/members/${target.id}/mute`, {
       method: 'PATCH',
       body: JSON.stringify({
         voiceMuted: kind === 'voice' ? value : target.voiceMuted,
@@ -137,7 +138,7 @@ async function setMute(kind: 'voice' | 'text', value: boolean) {
       }),
     })
     await app.bootstrap()
-    selectedUserId.value = result.user.id
+    selectedUserId.value = target.id
   }, value ? '禁言已生效' : '禁言已解除')
 }
 
@@ -145,7 +146,8 @@ async function setRole(role: Role) {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
-    await request(`/api/admin/users/${target.id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
+    if (app.activeServerId === null) return
+    await request(`/api/servers/${app.activeServerId}/members/${target.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: role === 'channel_admin' || role === 'server_admin' ? 'admin' : 'member' }) })
     await app.bootstrap()
   }, '管理员级别已更新')
 }
@@ -155,10 +157,8 @@ async function kick() {
   if (!target) return
   const until = new Date(Date.now() + kickMinutes.value * 60_000).toISOString()
   await run(async () => {
-    await request(`/api/admin/users/${target.id}/kick`, {
-      method: 'POST',
-      body: JSON.stringify({ until, reason: '由管理员移出频道' }),
-    })
+    if (app.activeServerId === null) return
+    await request(`/api/servers/${app.activeServerId}/members/${target.id}/ban`, { method: 'PATCH', body: JSON.stringify({ banned: false, temporaryBanUntil: until }) })
     await app.bootstrap()
   }, `已将 ${target.displayName} 移出频道`)
 }
@@ -167,7 +167,8 @@ async function clearTemporaryBan() {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
-    await request(`/api/admin/users/${target.id}/temporary-ban`, { method: 'DELETE' })
+    if (app.activeServerId === null) return
+    await request(`/api/servers/${app.activeServerId}/members/${target.id}/temporary-ban`, { method: 'DELETE' })
     await app.bootstrap()
   }, '临时封禁已解除')
 }
@@ -176,7 +177,8 @@ async function permanentBan(banned: boolean) {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
-    await request(`/api/admin/users/${target.id}/ban`, { method: 'PATCH', body: JSON.stringify({ banned }) })
+    if (app.activeServerId === null) return
+    await request(`/api/servers/${app.activeServerId}/members/${target.id}/ban`, { method: 'PATCH', body: JSON.stringify({ banned }) })
     await app.bootstrap()
   }, banned ? '账号已永久封禁' : '永久封禁已解除')
 }

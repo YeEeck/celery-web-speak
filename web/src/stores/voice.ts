@@ -63,6 +63,9 @@ export interface VoiceParticipant {
 export const useVoiceStore = defineStore('voice', () => {
   const status = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'>('idle')
   const connectedChannelId = ref<number | null>(null)
+  const connectedServerId = ref<number | null>(null)
+  const connectedServerName = ref('')
+  const connectedChannelName = ref('')
   const errorMessage = ref('')
   const muted = ref(false)
   const deafened = ref(false)
@@ -142,7 +145,8 @@ export const useVoiceStore = defineStore('voice', () => {
     try {
       const channel = app.voiceChannels.find((item) => item.id === channelId)
       if (!channel) throw new Error('语音频道不存在')
-      const credentials = await request<VoiceCredentials>(`/api/channels/${channelId}/voice/token`, { method: 'POST' })
+      if (app.activeServerId === null) throw new Error('未选择服务器')
+      const credentials = await request<VoiceCredentials>(`/api/servers/${app.activeServerId}/channels/${channelId}/voice/token`, { method: 'POST' })
       const nextRoom = markRaw(new Room({
         adaptiveStream: true,
         dynacast: true,
@@ -162,6 +166,9 @@ export const useVoiceStore = defineStore('voice', () => {
       }))
       room = nextRoom
       connectedChannelId.value = channelId
+      connectedServerId.value = app.activeServerId
+      connectedServerName.value = app.activeServer?.name ?? ''
+      connectedChannelName.value = channel.name
       bindRoom(nextRoom)
       await nextRoom.connect(credentials.url, credentials.token, { autoSubscribe: true, maxRetries: 5 })
       await nextRoom.startAudio()
@@ -181,6 +188,9 @@ export const useVoiceStore = defineStore('voice', () => {
       room?.disconnect()
       room = null
       connectedChannelId.value = null
+      connectedServerId.value = null
+      connectedServerName.value = ''
+      connectedChannelName.value = ''
       status.value = 'error'
       errorMessage.value = error instanceof Error ? error.message : '无法连接语音频道'
       throw error
@@ -198,6 +208,9 @@ export const useVoiceStore = defineStore('voice', () => {
       room = null
     }
     connectedChannelId.value = null
+    connectedServerId.value = null
+    connectedServerName.value = ''
+    connectedChannelName.value = ''
     document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove())
     participantStates.value = []
     status.value = 'idle'
@@ -584,6 +597,7 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   async function flushDeafenedSync() {
+	const app = useAppStore()
     const session = voiceSession
     if (deafenedSyncSession === session) return
     deafenedSyncSession = session
@@ -593,7 +607,8 @@ export const useVoiceStore = defineStore('voice', () => {
         pendingDeafenedSync = null
         try {
           if (connectedChannelId.value === null) break
-          await request<void>(`/api/channels/${connectedChannelId.value}/voice/state`, {
+		  if (connectedServerId.value === null) return
+		  await request<void>(`/api/servers/${connectedServerId.value}/channels/${connectedChannelId.value}/voice/state`, {
             method: 'PATCH',
             body: JSON.stringify({ deafened: value }),
           })
@@ -969,6 +984,9 @@ export const useVoiceStore = defineStore('voice', () => {
   return {
     status,
     connectedChannelId,
+    connectedServerId,
+    connectedServerName,
+    connectedChannelName,
     errorMessage,
     deafenedSyncError,
     muted,

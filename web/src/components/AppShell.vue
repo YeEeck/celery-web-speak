@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Hash, Radio, ServerCog, X } from '@lucide/vue'
+import { Hash, Plus, Radio, ServerCog, X } from '@lucide/vue'
 import AdminPanel from './AdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
 import ChatPane from './ChatPane.vue'
@@ -45,8 +45,8 @@ watch(() => {
     void voice.applyPublishSettingsChange(microphoneChanged, backgroundAudioChanged)
   }
 })
-watch(() => app.voiceChannels.some((channel) => channel.id === voice.connectedChannelId), (exists) => {
-  if (!exists && voice.joined) void voice.leave()
+watch(() => app.activeServerId === voice.connectedServerId && app.voiceChannels.some((channel) => channel.id === voice.connectedChannelId), (exists) => {
+  if (!exists && voice.joined && app.activeServerId === voice.connectedServerId) void voice.leave()
 })
 watch(() => app.user?.voiceMuted, (value) => {
   if (value) void voice.syncServerMute(true)
@@ -90,6 +90,20 @@ function selectTextChannel(channelId: number) {
   channelsOpen.value = false
 }
 
+function selectMobileServer(event: Event) {
+  const serverId = Number((event.target as HTMLSelectElement).value)
+  if (serverId > 0) void app.selectServer(serverId)
+}
+
+async function createServer() {
+  const name = window.prompt('服务器名称')?.trim()
+  if (!name) return
+  const ownerUsername = window.prompt('所有者完整登录名')?.trim()
+  if (!ownerUsername) return
+  await request('/api/platform/servers', { method: 'POST', body: JSON.stringify({ name, ownerUsername }) })
+  await app.bootstrap()
+}
+
 async function checkVersionAndShowChangelog() {
   try {
     const data = await request<VersionResponse>('/api/version')
@@ -114,22 +128,35 @@ function closeChangelog() {
 <template>
   <main :class="['app-shell', { 'members-collapsed': wideMemberLayout && !desktopMembersVisible }]">
     <nav class="server-rail" aria-label="服务器">
-      <button class="server-button active" type="button" title="Celery Web Speak">
-        <img class="server-icon" src="/favicon.svg" alt="" />
+      <button
+        v-for="server in app.servers"
+        :key="server.id"
+        :class="['server-button', { active: server.id === app.activeServerId, 'metadata-only': !server.joined }]"
+        type="button"
+        :title="server.joined ? server.name : `${server.name}（仅管理信息）`"
+        @click="server.joined && app.selectServer(server.id)"
+      >
+        <span class="server-initial">{{ server.name.trim().slice(0, 1).toUpperCase() }}</span>
+        <span v-if="server.unreadCount" class="server-unread" />
       </button>
       <span class="rail-divider" />
+      <button v-if="app.isPlatformAdmin" class="server-button add-server" type="button" title="创建服务器" @click="createServer"><Plus :size="22" /></button>
       <span class="rail-status" :class="app.socketStatus" title="业务连接状态"><Radio :size="18" /></span>
     </nav>
 
     <aside :class="['channel-sidebar', { 'mobile-drawer-open': channelsOpen }]">
       <header class="server-title">
-        <span><strong>Celery Web Speak</strong><small>公开频道服务器</small></span>
+        <span><strong>{{ app.activeServer?.name ?? '尚未加入服务器' }}</strong><small>{{ app.activeServer ? '服务器频道' : '请联系服务器管理员' }}</small></span>
+        <select class="mobile-server-select mobile-only" :value="app.activeServerId ?? ''" aria-label="切换服务器" @change="selectMobileServer">
+          <option v-for="server in app.servers.filter((item) => item.joined)" :key="server.id" :value="server.id">{{ server.name }}</option>
+        </select>
         <button class="icon-button mobile-only" title="关闭" @click="channelsOpen = false"><X :size="19" /></button>
       </header>
       <div class="channel-scroll">
-        <div class="category-heading"><span>语音频道</span></div>
+        <p v-if="!app.activeServer" class="server-empty">尚未加入任何服务器，请联系服务器管理员将你加入服务器。</p>
+        <div v-if="app.activeServer" class="category-heading"><span>语音频道</span></div>
         <VoiceChannel v-for="channel in app.voiceChannels" :key="channel.id" :channel="channel" />
-        <div class="category-heading"><span>文字频道</span></div>
+        <div v-if="app.activeServer" class="category-heading"><span>文字频道</span></div>
         <button
           v-for="channel in app.textChannels"
           :key="channel.id"
@@ -145,7 +172,7 @@ function closeChangelog() {
         </div>
       </div>
       <div v-if="voice.joined" class="voice-connection-panel">
-        <span class="connection-indicator" /><span><strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong><small>{{ app.voiceChannels.find((channel) => channel.id === voice.connectedChannelId)?.name }} / {{ app.voiceChannels.find((channel) => channel.id === voice.connectedChannelId)?.audioBitrateKbps }} kbps</small></span>
+        <span class="connection-indicator" /><span><strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong><small>{{ voice.connectedServerName }} / {{ voice.connectedChannelName }}</small></span>
         <button class="icon-button" title="断开语音" @click="voice.leave()"><X :size="17" /></button>
       </div>
       <UserControls @settings="profileOpen = true" />

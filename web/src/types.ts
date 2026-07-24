@@ -1,5 +1,19 @@
 export type Role = 'member' | 'channel_admin' | 'server_admin'
 export type ChannelType = 'text' | 'voice'
+export type GuildRole = 'owner' | 'admin' | 'member'
+
+export interface ServerSummary {
+  id: number
+  name: string
+  ownerUserId: number
+  createdBy: number
+  createdAt: string
+  updatedAt: string
+  joined: boolean
+  role?: GuildRole
+  memberCount?: number
+  unreadCount?: number
+}
 
 export interface User {
   id: number
@@ -11,6 +25,7 @@ export interface User {
   permanentlyBanned: boolean
   temporaryBanUntil?: string
   createdAt: string
+  isPlatformAdmin?: boolean
 }
 
 export interface Message {
@@ -26,6 +41,7 @@ export interface Message {
 
 export interface Channel {
 	id: number
+	serverId?: number
 	type: ChannelType
 	name: string
 	audioBitrateKbps?: number
@@ -69,13 +85,24 @@ export interface Invite {
 
 export interface BootstrapData {
   user: User
-  users: User[]
-  messages: Message[]
-  messagesHasMore: boolean
+	servers?: ServerSummary[]
+	users?: User[]
+	messages?: Message[]
+	messagesHasMore?: boolean
 	onlineIds: number[]
-	channels: Channel[]
-	channelReadStates: ChannelReadState[]
-	voiceRooms: VoiceRoom[]
+	channels?: Channel[]
+	channelReadStates?: ChannelReadState[]
+	voiceRooms?: VoiceRoom[]
+}
+
+export interface ServerBootstrapData {
+  server: ServerSummary
+  membership: { guildId: number; userId: number; username: string; displayName: string; role: GuildRole; voiceMuted: boolean; textMuted: boolean }
+  members: Array<{ guildId: number; userId: number; username: string; displayName: string; role: GuildRole; voiceMuted: boolean; textMuted: boolean; permanentlyBanned: boolean; joinedAt: string }>
+  channels: Channel[]
+  channelReadStates: ChannelReadState[]
+  onlineIds: number[]
+  voiceRooms: VoiceRoom[]
 }
 
 export interface VoiceCredentials {
