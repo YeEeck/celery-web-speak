@@ -241,8 +241,7 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .voice-connection-panel strong { color: var(--success-fg); font-size: 12px; }
 .voice-connection-panel small { color: var(--muted); font-size: 10px; }
 .user-controls { position: relative; min-height: 54px; padding: 7px 8px; display: flex; align-items: center; background: var(--surface); }
-.current-user { min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px; border-radius: 4px; transition: var(--t-colors); }
-.current-user:hover { background: var(--hover); }
+.current-user { min-width: 0; flex: 1; display: flex; align-items: center; gap: 8px; }
 .current-user > span { display: grid; min-width: 0; }
 .current-user strong, .current-user small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .current-user strong { font-size: 12px; }.current-user small { color: var(--faint); font-size: 10px; }
