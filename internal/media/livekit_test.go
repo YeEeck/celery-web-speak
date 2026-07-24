@@ -26,6 +26,20 @@ func TestRoomNameRoundTrip(t *testing.T) {
 	}
 }
 
+func TestGuildRoomNameRoundTrip(t *testing.T) {
+	name := GuildRoomName(12, 45)
+	if name != "guild-12-channel-45" {
+		t.Fatalf("room name = %q", name)
+	}
+	guildID, channelID, ok := ParseGuildRoomName(name)
+	if !ok || guildID != 12 || channelID != 45 {
+		t.Fatalf("parsed room = %d, %d, %t", guildID, channelID, ok)
+	}
+	if parsedChannel, ok := ParseRoomName(name); !ok || parsedChannel != 45 {
+		t.Fatalf("compat parse = %d, %t", parsedChannel, ok)
+	}
+}
+
 func TestVoiceTokenAllowsMicrophoneAndBackgroundAudio(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
 	credentials, err := service.JoinCredentials(context.Background(), store.User{

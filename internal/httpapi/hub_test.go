@@ -104,6 +104,48 @@ func TestHubOrdinaryQueueOverflowStopsClient(t *testing.T) {
 	}
 }
 
+func TestHubGuildBroadcastIsIsolated(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	first := newClient(store.User{ID: 1})
+	first.guilds[10] = struct{}{}
+	second := newClient(store.User{ID: 2})
+	second.guilds[20] = struct{}{}
+	hub.register(first)
+	hub.register(second)
+
+	hub.BroadcastGuild(10, "message_created", map[string]int64{"id": 1})
+	select {
+	case <-first.send:
+	case <-time.After(time.Second):
+		t.Fatal("guild member did not receive event")
+	}
+	select {
+	case <-second.send:
+		t.Fatal("other guild received event")
+	default:
+	}
+}
+
+func TestHubGuildPresenceIsIsolated(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	first := newClient(store.User{ID: 1})
+	first.guilds[10] = struct{}{}
+	shared := newClient(store.User{ID: 2})
+	shared.guilds[10] = struct{}{}
+	shared.guilds[20] = struct{}{}
+	other := newClient(store.User{ID: 3})
+	other.guilds[20] = struct{}{}
+	hub.register(first)
+	hub.register(shared)
+	hub.register(other)
+	if got := hub.OnlineGuildUserIDs(10); !slices.Equal(got, []int64{1, 2}) {
+		t.Fatalf("guild 10 online IDs = %v", got)
+	}
+	if got := hub.OnlineGuildUserIDs(20); !slices.Equal(got, []int64{2, 3}) {
+		t.Fatalf("guild 20 online IDs = %v", got)
+	}
+}
+
 func TestHubPeriodicallyRebroadcastsPresence(t *testing.T) {
 	hub := newHub(15 * time.Second)
 	client := newClient(store.User{ID: 4})

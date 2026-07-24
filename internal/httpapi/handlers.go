@@ -14,6 +14,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
+	servers, err := s.store.ListGuildsForUser(r.Context(), currentUser(r).ID, currentUser(r).IsPlatformAdmin)
+	if err != nil {
+		s.internalError(w, "list servers", err)
+		return
+	}
 	users, err := s.store.ListUsers(r.Context())
 	if err != nil {
 		s.internalError(w, "list users", err)
@@ -36,6 +41,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user":              currentUser(r),
+		"servers":           servers,
 		"users":             users,
 		"messages":          messages,
 		"messagesHasMore":   messagesHasMore,

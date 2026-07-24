@@ -31,6 +31,19 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := newClient(currentUser(r))
+	servers, err := s.store.ListGuildsForUser(r.Context(), c.user.ID, false)
+	if err == nil {
+		ids := make([]int64, 0, len(servers))
+		for _, server := range servers {
+			if server.Joined {
+				ids = append(ids, server.ID)
+			}
+		}
+		c.guilds = make(map[int64]struct{}, len(ids))
+		for _, id := range ids {
+			c.guilds[id] = struct{}{}
+		}
+	}
 	s.hub.register(c)
 	go s.reconcileVoiceRooms(context.Background(), "websocket_connect")
 
