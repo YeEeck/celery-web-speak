@@ -722,6 +722,16 @@ func TestDeleteUserAnonymizesAccountAndPreservesHistory(t *testing.T) {
 	if err := db.DeleteUser(ctx, admin.ID, target.ID, target.Username); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.GuildMembership(ctx, defaultGuildID, target.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("guild membership after delete error = %v, want ErrNotFound", err)
+	}
+	guilds, err := db.ListGuildsForUser(ctx, admin.ID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(guilds) != 1 || guilds[0].MemberCount != 1 {
+		t.Fatalf("guild member count after delete = %+v, want 1", guilds)
+	}
 
 	if _, err := db.UserByID(ctx, target.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("UserByID after delete error = %v, want ErrNotFound", err)

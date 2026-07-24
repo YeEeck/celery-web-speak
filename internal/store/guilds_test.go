@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -163,5 +164,83 @@ func TestGuildMessagesUseEffectiveServerRoles(t *testing.T) {
 	}
 	if len(messages) != 2 || messages[0].Role != GuildRoleOwner || messages[1].Role != GuildRoleAdmin {
 		t.Fatalf("listed message roles = %+v", messages)
+	}
+}
+
+func TestTransferGuildOwnershipRequiresActiveAccount(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deleted, err := db.CreateUser(ctx, "deleted_owner_candidate", "已删除候选", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, deleted.Username); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.DeleteUser(ctx, admin.ID, deleted.ID, deleted.Username); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.TransferGuildOwnership(ctx, guildID, admin.ID, deleted.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("transfer to deleted account error = %v, want ErrNotFound", err)
+	}
+
+	suspended, err := db.CreateUser(ctx, "suspended_owner_candidate", "已停用候选", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, suspended.Username); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetPermanentBan(ctx, admin.ID, suspended.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.TransferGuildOwnership(ctx, guildID, admin.ID, suspended.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("transfer to suspended account error = %v, want ErrNotFound", err)
+	}
+
+	banned, err := db.CreateUser(ctx, "banned_owner_candidate", "服务器封禁候选", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, banned.Username); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SetGuildMemberBan(ctx, guildID, admin.ID, banned.ID, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.TransferGuildOwnership(ctx, guildID, admin.ID, banned.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("transfer to server-banned account error = %v, want ErrNotFound", err)
+	}
+
+	active, err := db.CreateUser(ctx, "active_owner_candidate", "有效候选", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, active.Username); err != nil {
+		t.Fatal(err)
+	}
+	guild, err := db.TransferGuildOwnership(ctx, guildID, admin.ID, active.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if guild.OwnerUserID != active.ID {
+		t.Fatalf("owner user ID = %d, want %d", guild.OwnerUserID, active.ID)
+	}
+	oldOwner, err := db.GuildMembership(ctx, guildID, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newOwner, err := db.GuildMembership(ctx, guildID, active.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldOwner.Role != GuildRoleAdmin || newOwner.Role != GuildRoleOwner {
+		t.Fatalf("roles after transfer = %q/%q, want admin/owner", oldOwner.Role, newOwner.Role)
 	}
 }

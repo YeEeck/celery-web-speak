@@ -188,6 +188,9 @@ WHERE id = ? AND deleted_at IS NULL`, deletedUsername, formatTime(now), formatTi
 	if count, _ := result.RowsAffected(); count == 0 {
 		return ErrNotFound
 	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM guild_members WHERE user_id = ?", userID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM sessions WHERE user_id = ?", userID); err != nil {
 		return err
 	}

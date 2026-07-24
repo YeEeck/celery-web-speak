@@ -431,7 +431,16 @@ func (s *Store) TransferGuildOwnership(ctx context.Context, guildID, actorID, ne
 		return Guild{}, err
 	}
 	var active int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM guild_members WHERE guild_id = ? AND user_id = ? AND permanently_banned = 0 AND (temporary_ban_until IS NULL OR temporary_ban_until <= ?)`, guildID, newOwnerID, formatTime(s.now())).Scan(&active); err != nil {
+	if err := tx.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM guild_members gm
+JOIN users u ON u.id = gm.user_id
+WHERE gm.guild_id = ? AND gm.user_id = ?
+  AND gm.permanently_banned = 0
+  AND (gm.temporary_ban_until IS NULL OR gm.temporary_ban_until <= ?)
+  AND u.deleted_at IS NULL
+  AND u.suspended_at IS NULL
+  AND u.permanently_banned = 0`, guildID, newOwnerID, formatTime(s.now())).Scan(&active); err != nil {
 		return Guild{}, err
 	}
 	if active == 0 {
