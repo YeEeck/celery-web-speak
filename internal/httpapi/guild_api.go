@@ -214,7 +214,7 @@ func (s *Server) handleServerBootstrap(w http.ResponseWriter, r *http.Request) {
 			filteredVoice = append(filteredVoice, room)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"server": s.mustGuild(r, guildID), "membership": guildMembership(r), "members": members, "channels": channels, "channelReadStates": filteredRead, "onlineIds": s.hub.OnlineGuildUserIDs(guildID), "voiceRooms": filteredVoice})
+	writeJSON(w, http.StatusOK, map[string]any{"server": s.mustGuild(r, guildID), "membership": guildMembership(r), "members": members, "channels": channels, "channelReadStates": filteredRead, "online": s.hub.OnlineGuildClients(guildID), "voiceRooms": filteredVoice})
 }
 
 func (s *Server) mustGuild(r *http.Request, id int64) store.Guild {
