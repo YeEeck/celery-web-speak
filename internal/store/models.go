@@ -12,14 +12,12 @@ const (
 type Role string
 
 const (
-	RoleMember       Role = "member"
-	RoleChannelAdmin Role = "channel_admin"
-	RoleServerAdmin  Role = "server_admin"
+	RoleMember        Role = "member"
+	RolePlatformAdmin Role = "platform_admin"
+	// RoleServerAdmin remains a source-compatible name for internal callers.
+	// Its value is the platform role exposed by the current API.
+	RoleServerAdmin Role = RolePlatformAdmin
 )
-
-func (r Role) IsAdmin() bool {
-	return r == RoleChannelAdmin || r == RoleServerAdmin
-}
 
 type GuildRole string
 
@@ -30,16 +28,6 @@ const (
 )
 
 func (r GuildRole) IsAdmin() bool { return r == GuildRoleOwner || r == GuildRoleAdmin }
-
-func legacyRoleForGuildRole(role GuildRole) Role {
-	if role == GuildRoleOwner {
-		return RoleServerAdmin
-	}
-	if role == GuildRoleAdmin {
-		return RoleChannelAdmin
-	}
-	return RoleMember
-}
 
 type Guild struct {
 	ID          int64     `json:"id"`
@@ -76,8 +64,8 @@ type User struct {
 	Username          string     `json:"username"`
 	DisplayName       string     `json:"displayName"`
 	Role              Role       `json:"role"`
-	VoiceMuted        bool       `json:"voiceMuted"`
-	TextMuted         bool       `json:"textMuted"`
+	VoiceMuted        bool       `json:"voiceMuted,omitempty"`
+	TextMuted         bool       `json:"textMuted,omitempty"`
 	PermanentlyBanned bool       `json:"permanentlyBanned"`
 	TemporaryBanUntil *time.Time `json:"temporaryBanUntil,omitempty"`
 	IsPlatformAdmin   bool       `json:"isPlatformAdmin"`
@@ -112,7 +100,7 @@ type Message struct {
 	UserID      int64     `json:"userId"`
 	Username    string    `json:"username"`
 	DisplayName string    `json:"displayName"`
-	Role        Role      `json:"role"`
+	Role        GuildRole `json:"role"`
 	Content     string    `json:"content"`
 	CreatedAt   time.Time `json:"createdAt"`
 }

@@ -245,7 +245,7 @@ func inviteIDs(invites []Invite) []int64 {
 	return ids
 }
 
-func TestSessionRejectedAfterTemporaryBan(t *testing.T) {
+func TestServerTemporaryBanDoesNotInvalidatePlatformSession(t *testing.T) {
 	db := newTestStore(t)
 	admin := bootstrapAdmin(t, db)
 	ctx := context.Background()
@@ -260,14 +260,22 @@ func TestSessionRejectedAfterTemporaryBan(t *testing.T) {
 	if _, err := db.UserBySession(ctx, token); err != nil {
 		t.Fatalf("session before ban: %v", err)
 	}
-	if err := db.SetTemporaryBan(ctx, admin.ID, member.ID, time.Now().Add(30*time.Minute), "test"); err != nil {
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.UserBySession(ctx, token); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("session after ban error = %v, want ErrNotFound", err)
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, member.Username); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := db.Authenticate(ctx, member.Username, "another-secure-password"); !errors.Is(err, ErrBanned) {
-		t.Fatalf("login during ban error = %v, want ErrBanned", err)
+	until := time.Now().Add(30 * time.Minute)
+	if _, err := db.SetGuildMemberBan(ctx, guildID, admin.ID, member.ID, false, &until); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.UserBySession(ctx, token); err != nil {
+		t.Fatalf("platform session after server ban: %v", err)
+	}
+	if _, err := db.Authenticate(ctx, member.Username, "another-secure-password"); err != nil {
+		t.Fatalf("platform login during server ban: %v", err)
 	}
 }
 
@@ -469,10 +477,18 @@ func TestClearTemporaryBanPreservesChannelReadState(t *testing.T) {
 	if _, err := db.MarkChannelRead(ctx, member.ID, channel.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetTemporaryBan(ctx, admin.ID, member.ID, time.Now().Add(time.Hour), "test"); err != nil {
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.ClearTemporaryBan(ctx, admin.ID, member.ID); err != nil {
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, member.Username); err != nil {
+		t.Fatal(err)
+	}
+	until := time.Now().Add(time.Hour)
+	if _, err := db.SetGuildMemberBan(ctx, guildID, admin.ID, member.ID, false, &until); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ClearGuildMemberTemporaryBan(ctx, guildID, admin.ID, member.ID); err != nil {
 		t.Fatal(err)
 	}
 	states, err := db.ListChannelReadStates(ctx, member.ID)
@@ -545,8 +561,76 @@ INSERT INTO settings VALUES (1, 64, 500, ?);`, admin.ID, formatTime(time.Now()),
 	if err := migrated.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if len(channels) != 2 || messageCount != 0 || settingsTables != 0 || version != 2 {
+	if len(channels) != 2 || messageCount != 0 || settingsTables != 0 || version != 3 {
 		t.Fatalf("migration result channels/messages/settings/version = %d/%d/%d/%d", len(channels), messageCount, settingsTables, version)
+	}
+}
+
+func TestPermissionScopeMigrationConvergesAlreadyMigratedDatabase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "permission-scope.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.EnsureBootstrapAdmin(context.Background(), "scope_admin", "very-secure-password"); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := db.Authenticate(context.Background(), "scope_admin", "very-secure-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := db.CreateUser(context.Background(), "legacy_channel_admin", "旧频道管理员", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guildID, err := db.DefaultGuildID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(context.Background(), guildID, admin.ID, member.Username); err != nil {
+		t.Fatal(err)
+	}
+	legacyUntil := time.Now().Add(2 * time.Hour).UTC()
+	if _, err := db.db.Exec("UPDATE users SET role = 'channel_admin', voice_muted = 1, text_muted = 1 WHERE id = ?", member.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.db.Exec(`CREATE TABLE temporary_bans (
+  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  expires_at TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+  created_by INTEGER NOT NULL REFERENCES users(id), created_at TEXT NOT NULL
+);`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.db.Exec(`INSERT INTO temporary_bans (user_id, expires_at, reason, created_by, created_at)
+VALUES (?, ?, 'legacy', ?, ?)`, member.ID, formatTime(legacyUntil), admin.ID, formatTime(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer migrated.Close()
+	var role string
+	var voiceMuted, textMuted, platformAdmin int
+	if err := migrated.db.QueryRow("SELECT role, voice_muted, text_muted, is_platform_admin FROM users WHERE id = ?", member.ID).Scan(&role, &voiceMuted, &textMuted, &platformAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if role != "member" || voiceMuted != 0 || textMuted != 0 || platformAdmin != 0 {
+		t.Fatalf("normalized user = role %q voice %d text %d platform %d", role, voiceMuted, textMuted, platformAdmin)
+	}
+	membership, err := migrated.GuildMembership(context.Background(), guildID, member.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if membership.Role != GuildRoleAdmin || !membership.VoiceMuted || !membership.TextMuted || membership.TemporaryBanUntil == nil || !membership.TemporaryBanUntil.Equal(legacyUntil) {
+		t.Fatalf("migrated membership = %+v", membership)
+	}
+	if exists, err := migrated.tableExists(context.Background(), "temporary_bans"); err != nil || exists {
+		t.Fatalf("temporary_bans exists = %t, error = %v", exists, err)
 	}
 }
 
@@ -620,7 +704,8 @@ func TestDeleteUserAnonymizesAccountAndPreservesHistory(t *testing.T) {
 	if _, err := db.MarkChannelRead(ctx, target.ID, channel.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetTemporaryBan(ctx, admin.ID, target.ID, time.Now().Add(30*time.Minute), "delete test"); err != nil {
+	until := time.Now().Add(30 * time.Minute)
+	if _, err := db.SetGuildMemberBan(ctx, defaultGuildID, admin.ID, target.ID, false, &until); err != nil {
 		t.Fatal(err)
 	}
 	token, _, err := db.CreateSession(ctx, target.ID, time.Hour)
@@ -682,12 +767,12 @@ func TestDeleteUserAnonymizesAccountAndPreservesHistory(t *testing.T) {
 	if storedUsername == target.Username || displayName != "已删除用户" || passwordHash != "" || !deletedAt.Valid {
 		t.Fatalf("deleted row = username %q, display %q, password %q, deleted_at %q", storedUsername, displayName, passwordHash, deletedAt.String)
 	}
-	var temporaryBanCount int
-	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM temporary_bans WHERE user_id = ?", target.ID).Scan(&temporaryBanCount); err != nil {
+	var temporaryBanTables int
+	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'temporary_bans'").Scan(&temporaryBanTables); err != nil {
 		t.Fatal(err)
 	}
-	if temporaryBanCount != 0 {
-		t.Fatalf("temporary ban count = %d, want 0", temporaryBanCount)
+	if temporaryBanTables != 0 {
+		t.Fatalf("temporary ban table count = %d, want 0", temporaryBanTables)
 	}
 	var inviteCount, auditCount int
 	if err := db.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM invites WHERE id = ? AND created_by = ?", invite.ID, target.ID).Scan(&inviteCount); err != nil {
@@ -703,7 +788,7 @@ func TestDeleteUserAnonymizesAccountAndPreservesHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 1 || messages[0].ID != message.ID || messages[0].Username != "" || messages[0].DisplayName != "已删除用户" || messages[0].Role != RoleMember {
+	if len(messages) != 1 || messages[0].ID != message.ID || messages[0].Username != "" || messages[0].DisplayName != "已删除用户" || messages[0].Role != GuildRoleMember {
 		t.Fatalf("message after delete = %+v", messages)
 	}
 

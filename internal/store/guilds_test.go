@@ -154,14 +154,14 @@ func TestGuildMessagesUseEffectiveServerRoles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ownerMessage.Role != RoleServerAdmin || adminMessage.Role != RoleChannelAdmin {
+	if ownerMessage.Role != GuildRoleOwner || adminMessage.Role != GuildRoleAdmin {
 		t.Fatalf("created message roles = %q/%q", ownerMessage.Role, adminMessage.Role)
 	}
 	messages, _, err := db.ListGuildChannelMessages(ctx, guild.ID, textChannel.ID, 0, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 2 || messages[0].Role != RoleServerAdmin || messages[1].Role != RoleChannelAdmin {
+	if len(messages) != 2 || messages[0].Role != GuildRoleOwner || messages[1].Role != GuildRoleAdmin {
 		t.Fatalf("listed message roles = %+v", messages)
 	}
 }

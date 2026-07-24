@@ -8,25 +8,6 @@ import (
 	"strings"
 )
 
-func (s *Store) ListMessages(ctx context.Context, beforeID int64, limit int) ([]Message, bool, error) {
-	channel, err := s.FirstChannel(ctx, ChannelTypeText)
-	if err != nil {
-		return nil, false, err
-	}
-	return s.ListChannelMessages(ctx, channel.ID, beforeID, limit)
-}
-
-func (s *Store) ListChannelMessages(ctx context.Context, channelID, beforeID int64, limit int) ([]Message, bool, error) {
-	channel, err := s.ChannelByID(ctx, channelID)
-	if err != nil {
-		return nil, false, err
-	}
-	if channel.Type != ChannelTypeText {
-		return nil, false, errors.New("messages require a text channel")
-	}
-	return s.listChannelMessages(ctx, channelID, beforeID, limit)
-}
-
 func (s *Store) ListGuildChannelMessages(ctx context.Context, guildID, channelID, beforeID int64, limit int) ([]Message, bool, error) {
 	channel, err := s.GuildChannelByID(ctx, guildID, channelID)
 	if err != nil {
@@ -46,8 +27,8 @@ func (s *Store) listChannelMessages(ctx context.Context, channelID, beforeID int
 CASE WHEN u.deleted_at IS NULL THEN u.username ELSE '' END,
 CASE WHEN u.deleted_at IS NULL THEN u.display_name ELSE '已删除用户' END,
 CASE WHEN u.deleted_at IS NOT NULL THEN 'member'
-     WHEN g.owner_user_id = u.id THEN 'server_admin'
-     WHEN gm.role = 'admin' THEN 'channel_admin'
+     WHEN g.owner_user_id = u.id THEN 'owner'
+     WHEN gm.role = 'admin' THEN 'admin'
      ELSE 'member' END,
 m.content, m.created_at
 FROM messages m
@@ -92,22 +73,6 @@ WHERE m.channel_id = ?`
 	return messages, hasMore, nil
 }
 
-func (s *Store) CreateMessage(ctx context.Context, user User, content string) (Message, error) {
-	channel, err := s.FirstChannel(ctx, ChannelTypeText)
-	if err != nil {
-		return Message{}, err
-	}
-	return s.CreateChannelMessage(ctx, channel.ID, user, content)
-}
-
-func (s *Store) CreateChannelMessage(ctx context.Context, channelID int64, user User, content string) (Message, error) {
-	channel, err := s.ChannelByID(ctx, channelID)
-	if err != nil {
-		return Message{}, err
-	}
-	return s.CreateGuildChannelMessage(ctx, channel.GuildID, channelID, user, content)
-}
-
 func (s *Store) CreateGuildChannelMessage(ctx context.Context, guildID, channelID int64, user User, content string) (Message, error) {
 	channel, err := s.GuildChannelByID(ctx, guildID, channelID)
 	if err != nil {
@@ -121,7 +86,7 @@ func (s *Store) CreateGuildChannelMessage(ctx context.Context, guildID, channelI
 		return Message{}, errors.New("text muted")
 	}
 	message, err := s.createChannelMessage(ctx, channel, user, content)
-	message.Role = legacyRoleForGuildRole(member.Role)
+	message.Role = member.Role
 	return message, err
 }
 
@@ -153,25 +118,17 @@ func (s *Store) createChannelMessage(ctx context.Context, channel Channel, user 
 		return Message{}, err
 	}
 	id, _ := result.LastInsertId()
-	return Message{ID: id, ChannelID: channel.ID, UserID: user.ID, Username: user.Username, DisplayName: user.DisplayName, Role: user.Role, Content: content, CreatedAt: now}, nil
+	return Message{ID: id, ChannelID: channel.ID, UserID: user.ID, Username: user.Username, DisplayName: user.DisplayName, Role: GuildRoleMember, Content: content, CreatedAt: now}, nil
 }
 
-func (s *Store) DeleteMessage(ctx context.Context, actorID, messageID int64) error {
-	channel, err := s.FirstChannel(ctx, ChannelTypeText)
-	if err != nil {
-		return err
-	}
-	return s.DeleteChannelMessage(ctx, actorID, channel.ID, messageID)
-}
-
-func (s *Store) DeleteChannelMessage(ctx context.Context, actorID, channelID, messageID int64) error {
+func (s *Store) DeleteGuildChannelMessage(ctx context.Context, guildID, actorID, channelID, messageID int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	var guildID int64
-	if err := tx.QueryRowContext(ctx, "SELECT guild_id FROM channels WHERE id = ?", channelID).Scan(&guildID); errors.Is(err, sql.ErrNoRows) {
+	var exists int
+	if err := tx.QueryRowContext(ctx, "SELECT 1 FROM channels WHERE guild_id = ? AND id = ?", guildID, channelID).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err

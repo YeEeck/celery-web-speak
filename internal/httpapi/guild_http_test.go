@@ -37,6 +37,27 @@ func TestPlatformUsersRequirePlatformAdmin(t *testing.T) {
 	}
 }
 
+func TestLegacyAPIRoutesAreNotFound(t *testing.T) {
+	_, _, server := newGuildHTTPTestServer(t)
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/api/messages"},
+		{http.MethodPost, "/api/channels"},
+		{http.MethodGet, "/api/channels/1/messages"},
+		{http.MethodPost, "/api/voice/leave"},
+		{http.MethodGet, "/api/admin/invites"},
+		{http.MethodPost, "/api/admin/users/1/kick"},
+	}
+	for _, testCase := range cases {
+		recorder := serveGuildHTTPRequest(server, "", testCase.method, testCase.path, "")
+		if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), `"error":"not_found"`) {
+			t.Fatalf("%s %s = %d %s", testCase.method, testCase.path, recorder.Code, recorder.Body.String())
+		}
+	}
+}
+
 func TestPlatformUserRoleManagement(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()
@@ -54,7 +75,7 @@ func TestPlatformUserRoleManagement(t *testing.T) {
 		t.Fatalf("last platform admin demotion = %d %s", recorder.Code, recorder.Body.String())
 	}
 
-	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPatch, "/api/platform/users/"+formatID(target.ID)+"/role", `{"role":"server_admin"}`)
+	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPatch, "/api/platform/users/"+formatID(target.ID)+"/role", `{"role":"platform_admin"}`)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("promote platform admin = %d %s", recorder.Code, recorder.Body.String())
 	}

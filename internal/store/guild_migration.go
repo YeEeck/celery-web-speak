@@ -105,16 +105,25 @@ VALUES (?, ?, ?, ?, ?)`, defaultGuildName, ownerID, ownerID, now, now)
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `
+		temporaryBanSelect := "NULL"
+		temporaryBanJoin := ""
+		if exists, tableErr := tableExistsTx(ctx, tx, "temporary_bans"); tableErr != nil {
+			return tableErr
+		} else if exists {
+			temporaryBanSelect = "b.expires_at"
+			temporaryBanJoin = " LEFT JOIN temporary_bans b ON b.user_id = u.id"
+		}
+		memberMigration := fmt.Sprintf(`
 INSERT INTO guild_members (
   guild_id, user_id, role, voice_muted, text_muted, permanently_banned,
   temporary_ban_until, joined_at, updated_at
 )
 SELECT ?, u.id,
        CASE WHEN u.role IN ('server_admin', 'channel_admin') THEN 'admin' ELSE 'member' END,
-       u.voice_muted, u.text_muted, 0, b.expires_at, u.created_at, ?
-FROM users u LEFT JOIN temporary_bans b ON b.user_id = u.id
-WHERE u.deleted_at IS NULL`, guildID, now); err != nil {
+	   u.voice_muted, u.text_muted, 0, %s, u.created_at, ?
+FROM users u%s
+WHERE u.deleted_at IS NULL`, temporaryBanSelect, temporaryBanJoin)
+		if _, err := tx.ExecContext(ctx, memberMigration, guildID, now); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `

@@ -64,32 +64,6 @@ func (s *Server) requireGuildAdmin(next http.Handler) http.Handler {
 	}))
 }
 
-func (s *Server) requireDefaultGuildMember(next http.Handler) http.Handler {
-	return s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		guildID, err := s.store.DefaultGuildID(r.Context())
-		if err != nil {
-			writeError(w, http.StatusNotFound, "not_found", "资源不存在")
-			return
-		}
-		member, err := s.store.GuildMembership(r.Context(), guildID, currentUser(r).ID)
-		if err != nil {
-			writeError(w, http.StatusNotFound, "not_found", "资源不存在")
-			return
-		}
-		next.ServeHTTP(w, r.WithContext(withGuildMembership(r.Context(), member)))
-	}))
-}
-
-func (s *Server) requireDefaultGuildAdmin(next http.Handler) http.Handler {
-	return s.requireDefaultGuildMember(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !guildMembership(r).Role.IsAdmin() {
-			writeError(w, http.StatusForbidden, "forbidden", "需要服务器管理员权限")
-			return
-		}
-		next.ServeHTTP(w, r)
-	}))
-}
-
 func (s *Server) requirePlatformAdmin(next http.Handler) http.Handler {
 	return s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !currentUser(r).IsPlatformAdmin {
@@ -484,7 +458,7 @@ func (s *Server) handleServerUpdateChannel(w http.ResponseWriter, r *http.Reques
 	if input.BackgroundAudioRedEnabled != nil {
 		backgroundRed = *input.BackgroundAudioRedEnabled
 	}
-	channel, err := s.store.UpdateChannel(r.Context(), currentUser(r).ID, channelID, input.Name, input.AudioBitrateKbps, input.BackgroundAudioBitrateKbps, audioRed, backgroundRed, input.MessageRetention)
+	channel, err := s.store.UpdateGuildChannel(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, channelID, input.Name, input.AudioBitrateKbps, input.BackgroundAudioBitrateKbps, audioRed, backgroundRed, input.MessageRetention)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -502,7 +476,7 @@ func (s *Server) handleServerDeleteChannel(w http.ResponseWriter, r *http.Reques
 		s.writeStoreError(w, err)
 		return
 	}
-	channel, err := s.store.DeleteChannel(r.Context(), currentUser(r).ID, channelID)
+	channel, err := s.store.DeleteGuildChannel(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, channelID)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
@@ -574,7 +548,7 @@ func (s *Server) handleServerDeleteMessage(w http.ResponseWriter, r *http.Reques
 		s.writeStoreError(w, err)
 		return
 	}
-	if err := s.store.DeleteChannelMessage(r.Context(), currentUser(r).ID, channelID, messageID); err != nil {
+	if err := s.store.DeleteGuildChannelMessage(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, channelID, messageID); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}

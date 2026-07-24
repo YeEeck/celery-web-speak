@@ -109,13 +109,6 @@ CREATE TABLE IF NOT EXISTS invites (
 );
 CREATE INDEX IF NOT EXISTS invites_active_order ON invites(revoked_at, expires_at, id);
 CREATE INDEX IF NOT EXISTS invites_created_order ON invites(created_at DESC, id DESC);
-CREATE TABLE IF NOT EXISTS temporary_bans (
-  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  expires_at TEXT NOT NULL,
-  reason TEXT NOT NULL DEFAULT '',
-  created_by INTEGER NOT NULL REFERENCES users(id),
-  created_at TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS audit_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   actor_id INTEGER NOT NULL REFERENCES users(id),
@@ -145,6 +138,9 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	}
 	if err := s.migrateGuilds(ctx); err != nil {
 		return fmt.Errorf("migrate managed multi-server: %w", err)
+	}
+	if err := s.migratePermissionScope(ctx); err != nil {
+		return fmt.Errorf("migrate scoped permissions: %w", err)
 	}
 	return nil
 }
@@ -369,7 +365,7 @@ func (s *Store) EnsureBootstrapAdmin(ctx context.Context, username, password str
 	if err := validateUsername(username); err != nil || len(password) < 10 {
 		return errors.New("empty database requires a valid BOOTSTRAP_ADMIN_USERNAME and a password of at least 10 characters")
 	}
-	admin, err := s.createUser(ctx, username, username, password, RoleServerAdmin)
+	admin, err := s.createUser(ctx, username, username, password, RolePlatformAdmin)
 	if err != nil {
 		return err
 	}
@@ -399,7 +395,7 @@ func (s *Store) createUser(ctx context.Context, username, displayName, password 
 	now := formatTime(s.now())
 	result, err := s.db.ExecContext(ctx, `
 INSERT INTO users (username, display_name, password_hash, role, is_platform_admin, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)`, username, displayName, string(hash), role, role == RoleServerAdmin, now, now)
+VALUES (?, ?, ?, 'member', ?, ?, ?)`, username, displayName, string(hash), role == RolePlatformAdmin, now, now)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return User{}, ErrUsernameExists
@@ -421,13 +417,12 @@ func (s *Store) Authenticate(ctx context.Context, username, password string) (Us
 	var user User
 	var passwordHash, createdAt string
 	var platformAdmin int
-	var voiceMuted, textMuted, permanentlyBanned int
+	var permanentlyBanned int
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, password_hash, role, voice_muted, text_muted,
-       permanently_banned, created_at, is_platform_admin
+SELECT id, username, display_name, password_hash, permanently_banned, created_at, is_platform_admin
 FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(username)).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &passwordHash, &user.Role,
-		&voiceMuted, &textMuted, &permanentlyBanned, &createdAt, &platformAdmin,
+		&user.ID, &user.Username, &user.DisplayName, &passwordHash,
+		&permanentlyBanned, &createdAt, &platformAdmin,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrInvalidLogin
@@ -438,15 +433,11 @@ FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(usernam
 	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) != nil {
 		return User{}, ErrInvalidLogin
 	}
-	user.VoiceMuted = voiceMuted != 0
-	user.TextMuted = textMuted != 0
 	user.PermanentlyBanned = permanentlyBanned != 0
-	user.IsPlatformAdmin = platformAdmin != 0 || user.Role == RoleServerAdmin
+	user.IsPlatformAdmin = platformAdmin != 0
+	user.Role = platformRole(user.IsPlatformAdmin)
 	user.CreatedAt, _ = parseTime(createdAt)
-	if err := s.attachBan(ctx, &user); err != nil {
-		return User{}, err
-	}
-	if user.PermanentlyBanned || (user.TemporaryBanUntil != nil && user.TemporaryBanUntil.After(s.now())) {
+	if user.PermanentlyBanned {
 		return User{}, ErrBanned
 	}
 	return user, nil
@@ -456,12 +447,12 @@ func (s *Store) UserByID(ctx context.Context, id int64) (User, error) {
 	var user User
 	var createdAt string
 	var platformAdmin int
-	var voiceMuted, textMuted, permanentlyBanned int
+	var permanentlyBanned int
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, role, voice_muted, text_muted, permanently_banned, created_at, is_platform_admin
+SELECT id, username, display_name, permanently_banned, created_at, is_platform_admin
 FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.Role, &voiceMuted,
-		&textMuted, &permanentlyBanned, &createdAt, &platformAdmin,
+		&user.ID, &user.Username, &user.DisplayName,
+		&permanentlyBanned, &createdAt, &platformAdmin,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
@@ -469,34 +460,11 @@ FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 	if err != nil {
 		return User{}, fmt.Errorf("get user: %w", err)
 	}
-	user.VoiceMuted = voiceMuted != 0
-	user.TextMuted = textMuted != 0
 	user.PermanentlyBanned = permanentlyBanned != 0
-	user.IsPlatformAdmin = platformAdmin != 0 || user.Role == RoleServerAdmin
+	user.IsPlatformAdmin = platformAdmin != 0
+	user.Role = platformRole(user.IsPlatformAdmin)
 	user.CreatedAt, _ = parseTime(createdAt)
-	if err := s.attachBan(ctx, &user); err != nil {
-		return User{}, err
-	}
 	return user, nil
-}
-
-func (s *Store) attachBan(ctx context.Context, user *User) error {
-	var expires string
-	err := s.db.QueryRowContext(ctx, "SELECT expires_at FROM temporary_bans WHERE user_id = ?", user.ID).Scan(&expires)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("get temporary ban: %w", err)
-	}
-	until, err := parseTime(expires)
-	if err != nil {
-		return err
-	}
-	if until.After(s.now()) {
-		user.TemporaryBanUntil = &until
-	}
-	return nil
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID int64, ttl time.Duration) (string, time.Time, error) {
@@ -530,7 +498,7 @@ SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?`, hash[:], 
 	if err != nil {
 		return User{}, err
 	}
-	if user.PermanentlyBanned || user.TemporaryBanUntil != nil {
+	if user.PermanentlyBanned {
 		return User{}, ErrBanned
 	}
 	return user, nil
@@ -594,5 +562,12 @@ func validatePassword(value string) error {
 }
 
 func validRole(role Role) bool {
-	return role == RoleMember || role == RoleChannelAdmin || role == RoleServerAdmin
+	return role == RoleMember || role == RolePlatformAdmin
+}
+
+func platformRole(admin bool) Role {
+	if admin {
+		return RolePlatformAdmin
+	}
+	return RoleMember
 }

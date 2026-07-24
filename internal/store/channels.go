@@ -64,24 +64,6 @@ FROM channels WHERE guild_id = ? AND id = ?`, guildID, id))
 	return channel, err
 }
 
-func (s *Store) FirstChannel(ctx context.Context, channelType ChannelType) (Channel, error) {
-	channel, err := scanChannel(s.db.QueryRowContext(ctx, `
-SELECT id, guild_id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
-FROM channels WHERE type = ? ORDER BY id LIMIT 1`, channelType))
-	if errors.Is(err, sql.ErrNoRows) {
-		return Channel{}, ErrNotFound
-	}
-	return channel, err
-}
-
-func (s *Store) CreateChannel(ctx context.Context, actorID int64, channelType ChannelType, name string) (Channel, error) {
-	guildID, err := s.defaultGuildID(ctx)
-	if err != nil {
-		return Channel{}, err
-	}
-	return s.CreateGuildChannel(ctx, guildID, actorID, channelType, name)
-}
-
 func (s *Store) CreateGuildChannel(ctx context.Context, guildID, actorID int64, channelType ChannelType, name string) (Channel, error) {
 	name = strings.TrimSpace(name)
 	if !validChannelType(channelType) {
@@ -132,12 +114,12 @@ INSERT INTO channels (guild_id, type, name, audio_bitrate_kbps, background_audio
 	return s.GuildChannelByID(ctx, guildID, id)
 }
 
-func (s *Store) UpdateChannel(ctx context.Context, actorID, channelID int64, name string, audioBitrateKbps, backgroundAudioBitrateKbps int, audioRedEnabled, backgroundAudioRedEnabled bool, messageRetention int) (Channel, error) {
+func (s *Store) UpdateGuildChannel(ctx context.Context, guildID, actorID, channelID int64, name string, audioBitrateKbps, backgroundAudioBitrateKbps int, audioRedEnabled, backgroundAudioRedEnabled bool, messageRetention int) (Channel, error) {
 	name = strings.TrimSpace(name)
 	if err := validateChannelName(name); err != nil {
 		return Channel{}, err
 	}
-	channel, err := s.ChannelByID(ctx, channelID)
+	channel, err := s.GuildChannelByID(ctx, guildID, channelID)
 	if err != nil {
 		return Channel{}, err
 	}
@@ -181,10 +163,10 @@ func (s *Store) UpdateChannel(ctx context.Context, actorID, channelID int64, nam
 	if err := tx.Commit(); err != nil {
 		return Channel{}, err
 	}
-	return s.ChannelByID(ctx, channelID)
+	return s.GuildChannelByID(ctx, guildID, channelID)
 }
 
-func (s *Store) DeleteChannel(ctx context.Context, actorID, channelID int64) (Channel, error) {
+func (s *Store) DeleteGuildChannel(ctx context.Context, guildID, actorID, channelID int64) (Channel, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Channel{}, err
@@ -192,7 +174,7 @@ func (s *Store) DeleteChannel(ctx context.Context, actorID, channelID int64) (Ch
 	defer tx.Rollback()
 	channel, err := scanChannel(tx.QueryRowContext(ctx, `
 SELECT id, guild_id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
-FROM channels WHERE id = ?`, channelID))
+FROM channels WHERE guild_id = ? AND id = ?`, guildID, channelID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Channel{}, ErrNotFound
 	}

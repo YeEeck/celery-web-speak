@@ -118,10 +118,6 @@ func ParseGuildRoomName(name string) (int64, int64, bool) {
 	return guildID, channelID, guildErr == nil && channelErr == nil && guildID > 0 && channelID > 0
 }
 
-func (s *Service) JoinCredentials(ctx context.Context, user store.User, channelID int64) (JoinCredentials, error) {
-	return s.joinCredentials(ctx, user, 0, channelID, string(user.Role), user.VoiceMuted)
-}
-
 func (s *Service) JoinGuildCredentials(ctx context.Context, user store.User, member store.GuildMember, channelID int64) (JoinCredentials, error) {
 	return s.joinCredentials(ctx, user, member.GuildID, channelID, string(member.Role), member.VoiceMuted)
 }
@@ -187,19 +183,6 @@ func (s *Service) joinCredentials(ctx context.Context, user store.User, guildID,
 	return JoinCredentials{URL: s.publicURL, Token: token, RoomName: roomName, ChannelID: channelID}, nil
 }
 
-func (s *Service) SetCanPublish(ctx context.Context, userID int64, canPublish bool) error {
-	target := s.currentTarget(userID)
-	if target.ChannelID == 0 {
-		return nil
-	}
-	_, err := s.room.UpdateParticipant(ctx, &livekit.UpdateParticipantRequest{
-		Room:       target.roomName(),
-		Identity:   Identity(userID),
-		Permission: voiceParticipantPermission(canPublish),
-	})
-	return err
-}
-
 func (s *Service) SetGuildCanPublish(ctx context.Context, userID, guildID int64, canPublish bool) error {
 	target := s.currentTarget(userID)
 	if target.ChannelID == 0 || target.GuildID != guildID {
@@ -243,14 +226,6 @@ func (s *Service) UpdateName(ctx context.Context, userID int64, displayName stri
 		Room: target.roomName(), Identity: Identity(userID), Name: displayName,
 	})
 	return err
-}
-
-func (s *Service) SetDeafened(ctx context.Context, userID int64, deafened bool) error {
-	channelID := s.currentChannel(userID)
-	if channelID == 0 {
-		return nil
-	}
-	return s.SetChannelDeafened(ctx, userID, channelID, deafened)
 }
 
 func (s *Service) SetChannelDeafened(ctx context.Context, userID, channelID int64, deafened bool) error {
@@ -327,21 +302,6 @@ func (s *Service) RemoveGuildParticipants(ctx context.Context, guildID int64) er
 		result = errors.Join(result, s.RemoveParticipantFromGuild(ctx, userID, guildID))
 	}
 	return result
-}
-
-func (s *Service) DeleteRoom(ctx context.Context, channelID int64) error {
-	s.mu.Lock()
-	delete(s.rooms, channelID)
-	for userID, target := range s.targets {
-		if target.ChannelID == channelID {
-			target.ChannelID = 0
-			s.targets[userID] = target
-		}
-	}
-	s.revision++
-	s.mu.Unlock()
-	_, err := s.room.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: RoomName(channelID)})
-	return err
 }
 
 func (s *Service) DeleteGuildRoom(ctx context.Context, guildID, channelID int64) error {
@@ -547,10 +507,6 @@ func (s *Service) guildForChannelLocked(channelID int64) int64 {
 	return 0
 }
 
-func (s *Service) currentChannel(userID int64) int64 {
-	return s.currentTarget(userID).ChannelID
-}
-
 func (s *Service) currentTarget(userID int64) voiceTarget {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -698,16 +654,21 @@ func newerParticipant(candidate, current VoiceParticipant) bool {
 
 func (s *Service) DeleteRoomsExcept(ctx context.Context, valid map[int64]struct{}) (bool, error) {
 	s.mu.RLock()
-	invalid := make([]int64, 0)
+	invalid := make([]voiceTarget, 0)
 	for channelID := range s.rooms {
 		if _, exists := valid[channelID]; !exists {
-			invalid = append(invalid, channelID)
+			for _, target := range s.targets {
+				if target.ChannelID == channelID {
+					invalid = append(invalid, target)
+					break
+				}
+			}
 		}
 	}
 	s.mu.RUnlock()
 	var result error
-	for _, channelID := range invalid {
-		result = errors.Join(result, s.DeleteRoom(ctx, channelID))
+	for _, target := range invalid {
+		result = errors.Join(result, s.DeleteGuildRoom(ctx, target.GuildID, target.ChannelID))
 	}
 	return len(invalid) > 0, result
 }
