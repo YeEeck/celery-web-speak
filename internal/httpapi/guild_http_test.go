@@ -117,6 +117,47 @@ func TestPlatformAdminCannotSuspendSelf(t *testing.T) {
 	}
 }
 
+func TestServerVoiceLeaveRequiresMembership(t *testing.T) {
+	db, admin, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	serverID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := db.CreateUser(ctx, "voice_leave_member", "离开语音成员", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, serverID, admin.ID, member.Username); err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := db.CreateSession(ctx, member.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := serveGuildHTTPRequest(server, token, http.MethodPost, "/api/servers/"+formatID(serverID)+"/voice/leave", "")
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("server voice leave = %d %s", recorder.Code, recorder.Body.String())
+	}
+	owner, err := db.CreateUser(ctx, "voice_leave_owner", "其他服务器所有者", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := db.CreateGuild(ctx, admin.ID, "其他服务器", owner.Username)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminToken, _, err := db.CreateSession(ctx, admin.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPost, "/api/servers/"+formatID(other.ID)+"/voice/leave", "")
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "server_membership_required") {
+		t.Fatalf("unjoined server voice leave = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestPlatformResetPasswordRevokesSessions(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()

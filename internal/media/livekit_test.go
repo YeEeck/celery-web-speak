@@ -231,3 +231,19 @@ func TestLegacyRoomWebhookIsRejected(t *testing.T) {
 		t.Fatalf("legacy room remained in snapshot: %+v", rooms)
 	}
 }
+
+func TestRemoveParticipantFromGuildLeavesConnectionInAnotherServer(t *testing.T) {
+	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	service.targets[12] = voiceTarget{
+		GuildID: 3, ChannelID: 7, RoomName: GuildRoomName(3, 7),
+		Generation: uint64(time.Now().UnixNano()), ExpiresAt: time.Now().Add(time.Minute),
+	}
+
+	if err := service.RemoveParticipantFromGuild(context.Background(), 12, 4); err != nil {
+		t.Fatalf("leave another server: %v", err)
+	}
+	target := service.currentTarget(12)
+	if target.GuildID != 3 || target.ChannelID != 7 {
+		t.Fatalf("connection in another server was removed: %+v", target)
+	}
+}

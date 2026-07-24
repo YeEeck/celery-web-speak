@@ -644,6 +644,19 @@ func (s *Server) handleServerVoiceState(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleServerVoiceLeave(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	guildID := guildMembership(r).GuildID
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	err := s.media.RemoveParticipantFromGuild(ctx, user.ID, guildID)
+	cancel()
+	if err != nil {
+		s.logger.Warn("remove server voice participant on leave", "guild_id", guildID, "user_id", user.ID, "error", err)
+	}
+	s.broadcastVoiceRooms(r.Context())
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) removeFromGuildVoice(r *http.Request, guildID, userID int64) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()

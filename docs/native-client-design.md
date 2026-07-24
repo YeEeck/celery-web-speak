@@ -582,6 +582,7 @@ Electron 继续使用 Web LiveKit。HTTP 页面中的 Web 麦克风仍受 Chromi
 - 正在通话时，前台服务通知只表示通话状态，不显示文字消息。
 - WebView 仍存活时可能继续收到业务 WebSocket 消息，但这是尽力行为，不构成产品保证。
 - 应用回到前台后，通过现有业务 WebSocket 重连和 `GET /api/bootstrap` 恢复未读状态。
+- 主动离开语音时调用 `POST /api/servers/{serverID}/voice/leave`。`serverID` 必须取自当前语音连接建立时保存的服务器，而不是客户端此刻正在浏览的服务器。
 - 不为了消息通知让常驻服务在未通话时持续运行。
 
 ## 服务端影响

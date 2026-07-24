@@ -129,8 +129,9 @@ export const useVoiceStore = defineStore('voice', () => {
   // 页面关闭时主动通知后端离开语音频道，避免依赖 LiveKit 的断开检测延迟（关闭标签页/窗口时
   // LiveKit 可能需要数十秒才能通过心跳超时发现连接已断开，导致成员列表出现幽灵状态）。
   window.addEventListener('pagehide', () => {
-    if (!joined.value) return
-    navigator.sendBeacon('/api/voice/leave')
+    const serverId = connectedServerId.value
+    if (!joined.value || serverId === null) return
+    navigator.sendBeacon(`/api/servers/${serverId}/voice/leave`)
   })
 
   async function join(channelId: number) {
@@ -200,6 +201,7 @@ export const useVoiceStore = defineStore('voice', () => {
   async function leave() {
     const app = useAppStore()
     const wasJoined = room !== null
+    const serverId = connectedServerId.value
     await stopApplicationAudio()
     voiceSession += 1
     participantSoundsReady = false
@@ -218,7 +220,10 @@ export const useVoiceStore = defineStore('voice', () => {
     deafenedSyncError.value = ''
     microphoneActivity.destroy()
     useSoundStore().setSuppressed(false)
-    if (wasJoined) app.requestVoiceRoomsRefresh()
+    if (wasJoined && serverId !== null) {
+      await request(`/api/servers/${serverId}/voice/leave`, { method: 'POST' })
+      app.requestVoiceRoomsRefresh()
+    }
   }
 
   async function toggleMute() {
