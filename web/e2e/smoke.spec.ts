@@ -90,6 +90,7 @@ test('临时封禁状态在刷新后可见并可提前解除', async ({ page, re
     const adminButton = page.getByText('管理控制台', { exact: true })
     if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
     await adminButton.click()
+    await page.getByRole('button', { name: '成员', exact: true }).click()
     await page.locator('.admin-user-list button').filter({ hasText: account.displayName }).click()
     const clearButton = page.getByRole('button', { name: '解除临时封禁', exact: true })
     await expect(clearButton).toBeVisible()
@@ -97,6 +98,68 @@ test('临时封禁状态在刷新后可见并可提前解除', async ({ page, re
     await expect(clearButton).toHaveCount(0)
   } finally {
     const response = await deletePlatformUser(request, member.id, account.username)
+    expect(response.ok()).toBeTruthy()
+  }
+})
+
+test('WebSocket 重同步的旧服务器响应不会覆盖当前服务器', async ({ page, request, isMobile }) => {
+  test.skip(isMobile, '桌面项目覆盖服务器切换的可控乱序响应')
+  await request.post('/api/auth/login', { data: { username, password } })
+  const firstServerID = await firstJoinedServerID(request)
+  const secondServerName = `重同步服务器${Date.now().toString(36).slice(-5)}`
+  const createResponse = await request.post('/api/platform/servers', { data: { name: secondServerName, ownerUsername: username } })
+  expect(createResponse.ok()).toBeTruthy()
+  const secondServer = (await createResponse.json() as { server: { id: number } }).server
+  let releaseDelayedResponse = () => {}
+  try {
+    await expect(page.getByTitle(secondServerName)).toBeVisible()
+    await page.addInitScript(() => {
+      const NativeWebSocket = window.WebSocket
+      const sockets: WebSocket[] = []
+      class CapturedWebSocket extends NativeWebSocket {
+        constructor(url: string | URL, protocols?: string | string[]) {
+          super(url, protocols)
+          sockets.push(this)
+        }
+      }
+      Object.defineProperty(window, 'WebSocket', { configurable: true, value: CapturedWebSocket })
+      ;(window as typeof window & { __cwsSockets?: WebSocket[] }).__cwsSockets = sockets
+    })
+    await page.reload()
+    await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+
+    let markDelayedRequest = () => {}
+    const delayedRequest = new Promise<void>((resolve) => { markDelayedRequest = resolve })
+    const release = new Promise<void>((resolve) => { releaseDelayedResponse = resolve })
+    let markDelayedResponseComplete = () => {}
+    const delayedResponseComplete = new Promise<void>((resolve) => { markDelayedResponseComplete = resolve })
+    let delayNextBootstrap = true
+    await page.route(`**/api/servers/${firstServerID}/bootstrap`, async (route) => {
+      if (!delayNextBootstrap) {
+        await route.continue()
+        return
+      }
+      delayNextBootstrap = false
+      const response = await route.fetch()
+      markDelayedRequest()
+      await release
+      await route.fulfill({ response })
+      markDelayedResponseComplete()
+    })
+
+    await page.evaluate(() => {
+      const sockets = (window as typeof window & { __cwsSockets?: WebSocket[] }).__cwsSockets ?? []
+      sockets.at(-1)?.close(4000, 'test resynchronization')
+    })
+    await delayedRequest
+    await page.getByTitle(secondServerName).click()
+    await expect(page.locator('.server-title strong')).toHaveText(secondServerName)
+    releaseDelayedResponse()
+    await delayedResponseComplete
+    await expect(page.locator('.server-title strong')).toHaveText(secondServerName)
+  } finally {
+    releaseDelayedResponse()
+    const response = await request.delete(`/api/platform/servers/${secondServer.id}`)
     expect(response.ok()).toBeTruthy()
   }
 })

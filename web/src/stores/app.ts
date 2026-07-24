@@ -160,9 +160,10 @@ export const useAppStore = defineStore('app', () => {
     messageLoadVersions.set(channelId, loadVersion)
     state.loading = true
     try {
-      if (activeServerId.value === null) return
-      const payload = await request<{ messages: Message[]; hasMore: boolean }>(`/api/servers/${activeServerId.value}/channels/${channelId}/messages?limit=50`)
-      if (messageLoadVersions.get(channelId) !== loadVersion) return
+      const serverId = activeServerId.value
+      if (serverId === null) return
+      const payload = await request<{ messages: Message[]; hasMore: boolean }>(`/api/servers/${serverId}/channels/${channelId}/messages?limit=50`)
+      if (messageLoadVersions.get(channelId) !== loadVersion || activeServerId.value !== serverId || !channels.value.some((channel) => channel.id === channelId)) return
       state.messages = payload.messages
       state.hasEarlier = payload.hasMore
       state.loaded = true
@@ -182,15 +183,15 @@ export const useAppStore = defineStore('app', () => {
 
   async function loadEarlier() {
     const channelId = activeTextChannelId.value
-    if (channelId === null) return 0
+    const serverId = activeServerId.value
+    if (channelId === null || serverId === null) return 0
     const state = ensureMessageState(channelId)
     if (!state.messages.length || !state.hasEarlier || state.loading) return 0
     state.loading = true
     const before = state.messages[0].id
     try {
-      if (activeServerId.value === null) return 0
-      const payload = await request<{ messages: Message[]; hasMore: boolean }>(`/api/servers/${activeServerId.value}/channels/${channelId}/messages?before=${before}&limit=50`)
-      if (activeTextChannelId.value !== channelId) return 0
+      const payload = await request<{ messages: Message[]; hasMore: boolean }>(`/api/servers/${serverId}/channels/${channelId}/messages?before=${before}&limit=50`)
+      if (activeServerId.value !== serverId || activeTextChannelId.value !== channelId) return 0
       const known = new Set(state.messages.map((message) => message.id))
       const additions = payload.messages.filter((message) => !known.has(message.id))
       state.messages = [...additions, ...state.messages]
@@ -204,10 +205,10 @@ export const useAppStore = defineStore('app', () => {
 
   async function markActiveChannelRead() {
     const channelId = activeTextChannelId.value
-    if (channelId === null) return
-    if (activeServerId.value === null) return
-    const result = await request<{ readState: ChannelReadState }>(`/api/servers/${activeServerId.value}/channels/${channelId}/read`, { method: 'POST' })
-    if (activeTextChannelId.value === channelId) applyReadState(result.readState)
+    const serverId = activeServerId.value
+    if (channelId === null || serverId === null) return
+    const result = await request<{ readState: ChannelReadState }>(`/api/servers/${serverId}/channels/${channelId}/read`, { method: 'POST' })
+    if (activeServerId.value === serverId && activeTextChannelId.value === channelId) applyReadState(result.readState)
   }
 
   async function updateProfile(payload: { displayName: string; currentPassword?: string; newPassword?: string }) {
@@ -291,14 +292,25 @@ export const useAppStore = defineStore('app', () => {
           activeServerId.value = servers.value.find((server) => server.joined)?.id ?? null
         }
         if (activeServerId.value === null) { clearServerState(); synchronizingSocket = null; socketStatus.value = 'online'; return }
-        const serverData = await request<ServerBootstrapData>(`/api/servers/${activeServerId.value}/bootstrap`)
+        const serverId = activeServerId.value
+        const bootstrapVersion = ++serverBootstrapVersion
+        let serverData: ServerBootstrapData
+        try {
+          serverData = await request<ServerBootstrapData>(`/api/servers/${serverId}/bootstrap`)
+        } catch (error) {
+          if (socket !== connection) return
+          if (socketActivityVersion !== activityVersion || serverBootstrapVersion !== bootstrapVersion || activeServerId.value !== serverId) continue
+          throw error
+        }
+        if (socket !== connection) return
+        if (socketActivityVersion !== activityVersion || serverBootstrapVersion !== bootstrapVersion || activeServerId.value !== serverId) continue
         const members = serverData.members.map(mapGuildMember)
         const currentUser = { ...data.user, voiceMuted: serverData.membership.voiceMuted, textMuted: serverData.membership.textMuted, permanentlyBanned: serverData.membership.permanentlyBanned, temporaryBanUntil: serverData.membership.temporaryBanUntil }
         applyBootstrap({ user: currentUser, users: members, channels: serverData.channels, channelReadStates: serverData.channelReadStates, onlineIds: serverData.onlineIds, voiceRooms: serverData.voiceRooms }, true)
         const channelId = activeTextChannelId.value
         if (channelId !== null) await loadChannelMessages(channelId, true)
         if (socket !== connection) return
-        if (socketActivityVersion !== activityVersion) continue
+        if (socketActivityVersion !== activityVersion || serverBootstrapVersion !== bootstrapVersion || activeServerId.value !== serverId) continue
         synchronizingSocket = null
         socketStatus.value = 'online'
         return

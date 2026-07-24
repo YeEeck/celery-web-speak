@@ -139,6 +139,7 @@ export const useVoiceStore = defineStore('voice', () => {
     if (status.value === 'connecting') return
     if (room) await leave()
     voiceSession += 1
+    const session = voiceSession
     const app = useAppStore()
     status.value = 'connecting'
     errorMessage.value = ''
@@ -148,8 +149,13 @@ export const useVoiceStore = defineStore('voice', () => {
     try {
       const channel = app.voiceChannels.find((item) => item.id === channelId)
       if (!channel) throw new Error('语音频道不存在')
-      if (app.activeServerId === null) throw new Error('未选择服务器')
-      const credentials = await request<VoiceCredentials>(`/api/servers/${app.activeServerId}/channels/${channelId}/voice/token`, { method: 'POST' })
+      const server = app.activeServer
+      if (!server || app.activeServerId !== server.id) throw new Error('未选择服务器')
+      const serverId = server.id
+      const serverName = server.name
+      const serverVoiceMuted = app.user?.voiceMuted ?? false
+      const credentials = await request<VoiceCredentials>(`/api/servers/${serverId}/channels/${channelId}/voice/token`, { method: 'POST' })
+      if (session !== voiceSession) return
       const nextRoom = markRaw(new Room({
         adaptiveStream: true,
         dynacast: true,
@@ -169,25 +175,31 @@ export const useVoiceStore = defineStore('voice', () => {
       }))
       room = nextRoom
       connectedChannelId.value = channelId
-      connectedServerId.value = app.activeServerId
-      connectedServerName.value = app.activeServer?.name ?? ''
+      connectedServerId.value = serverId
+      connectedServerName.value = serverName
       connectedChannelName.value = channel.name
       setConnectedChannelSettings(channel)
       bindRoom(nextRoom)
       await nextRoom.connect(credentials.url, credentials.token, { autoSubscribe: true, maxRetries: 5 })
+      if (session !== voiceSession || room !== nextRoom) return
       await nextRoom.startAudio()
-      if (!app.user?.voiceMuted) {
+      if (session !== voiceSession || room !== nextRoom) return
+      if (!serverVoiceMuted) {
         await nextRoom.localParticipant.setMicrophoneEnabled(true, undefined, publishOptions())
+        if (session !== voiceSession || room !== nextRoom) return
         await attachMicrophoneGain(nextRoom)
+        if (session !== voiceSession || room !== nextRoom) return
       }
-      muted.value = app.user?.voiceMuted ?? false
+      muted.value = serverVoiceMuted
       status.value = 'connected'
       await refreshDevices(true)
+      if (session !== voiceSession || room !== nextRoom) return
       syncParticipants()
       participantSoundsReady = true
       useSoundStore().play('join')
       app.requestVoiceRoomsRefresh()
     } catch (error) {
+      if (session !== voiceSession) return
       participantSoundsReady = false
       room?.disconnect()
       room = null
