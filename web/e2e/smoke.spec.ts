@@ -1,8 +1,17 @@
 import { expect, request as createRequestContext, test } from '@playwright/test'
+import { createServerMember, deletePlatformUser, firstJoinedServerID } from './api-helpers'
 
 const username = process.env.E2E_USERNAME ?? 'admin'
 const password = process.env.E2E_PASSWORD ?? 'admin-password-123'
 const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080'
+
+async function openPlatformAccounts(page: import('@playwright/test').Page) {
+  const platformButton = page.locator('button[title="平台服务器管理"]:visible')
+  if (!(await platformButton.isVisible())) await page.getByTitle('频道').click()
+  await platformButton.click()
+  await page.getByTitle('平台账号与邀请码').click()
+  await expect(page.getByRole('heading', { name: '平台管理' })).toBeVisible()
+}
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
@@ -42,7 +51,7 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
     await page.getByTitle('频道').click()
   }
   await adminButton.click()
-  await expect(page.getByRole('heading', { name: '管理控制台' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '服务器管理' })).toBeVisible()
   await page.getByLabel('选择频道').selectOption({ label: '语音 语音频道' })
   await expect(page.getByText('Opus 发送码率')).toBeVisible()
   await expect(page.getByLabel('语音 RED 丢包冗余')).toBeChecked()
@@ -240,11 +249,12 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
   await expect(page.locator('.rail-status.online')).toBeAttached()
 
   await request.post('/api/auth/login', { data: { username, password } })
-  const bootstrapResponse = await request.get('/api/bootstrap')
+  const serverID = await firstJoinedServerID(request)
+  const bootstrapResponse = await request.get(`/api/servers/${serverID}/bootstrap`)
   const bootstrap = await bootstrapResponse.json() as { channels: Array<{ id: number; type: string; name: string }> }
   const activeTextChannel = bootstrap.channels.find((channel) => channel.type === 'text')!
   const extraChannelName = `静默频道${Date.now().toString(36).slice(-5)}`
-  const channelResponse = await request.post('/api/channels', { data: { type: 'text', name: extraChannelName } })
+  const channelResponse = await request.post(`/api/servers/${serverID}/channels`, { data: { type: 'text', name: extraChannelName } })
   expect(channelResponse.ok()).toBeTruthy()
   const extraChannel = (await channelResponse.json() as { channel: { id: number } }).channel
   const suffix = `${Date.now().toString(36)}_${isMobile ? 'm' : 'd'}_${testInfo.workerIndex}`
@@ -254,8 +264,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
     password: 'sound-member-password',
     role: 'member',
   }
-  const createResponse = await request.post('/api/admin/users', { data: account })
-  expect(createResponse.ok()).toBeTruthy()
+  await createServerMember(request, serverID, account)
 
   const other = await createRequestContext.newContext({ baseURL })
   try {
@@ -266,7 +275,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
     await expect(page.getByRole('button', { name: new RegExp(extraChannelName) })).toBeAttached()
     const beforeInactiveMessage = await toneCount(page)
     const inactiveMessage = `非当前频道静默检查 ${Date.now()}`
-    const inactiveResponse = await other.post(`/api/channels/${extraChannel.id}/messages`, { data: { content: inactiveMessage } })
+    const inactiveResponse = await other.post(`/api/servers/${serverID}/channels/${extraChannel.id}/messages`, { data: { content: inactiveMessage } })
     expect(inactiveResponse.ok()).toBeTruthy()
     await expect(page.getByRole('button', { name: new RegExp(extraChannelName) }).locator('.channel-unread')).toHaveText('1')
     await page.waitForTimeout(150)
@@ -275,7 +284,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
 
     const beforeOtherMessage = await toneCount(page)
     const otherMessage = `他人提示音检查 ${Date.now()}`
-    const sendResponse = await other.post(`/api/channels/${activeTextChannel.id}/messages`, { data: { content: otherMessage } })
+    const sendResponse = await other.post(`/api/servers/${serverID}/channels/${activeTextChannel.id}/messages`, { data: { content: otherMessage } })
     expect(sendResponse.ok()).toBeTruthy()
     await expect(page.getByText(otherMessage, { exact: true })).toBeVisible()
     await expect.poll(() => toneCount(page)).toBe(beforeOtherMessage + 1)
@@ -290,7 +299,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
     expect(await toneCount(page)).toBe(beforeOwnMessage)
   } finally {
     await other.dispose()
-    await request.delete(`/api/channels/${extraChannel.id}`)
+    await request.delete(`/api/servers/${serverID}/channels/${extraChannel.id}`)
   }
 })
 
@@ -350,15 +359,20 @@ test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page 
     createdAt: new Date(Date.now() - (newestID - id) * 1000).toISOString(),
   })
 
-  await page.route('**/api/bootstrap', async (route) => {
+  await page.route('**/api/servers/*/bootstrap', async (route) => {
     const response = await route.fetch()
     const payload = await response.json()
-    currentUser = payload.user
+    currentUser = {
+      id: payload.membership.userId,
+      username: payload.membership.username,
+      displayName: payload.membership.displayName,
+      role: payload.membership.role,
+    }
     channelID = payload.channels.find((channel: { type: string }) => channel.type === 'text').id
-    newestID = payload.messages.at(-1)?.id ?? 0
+    newestID = 10_000
     await route.fulfill({ response, json: payload })
   })
-  await page.route('**/api/channels/*/messages?**', async (route) => {
+  await page.route('**/api/servers/*/channels/*/messages?**', async (route) => {
     const url = new URL(route.request().url())
     const hasBefore = url.searchParams.has('before')
     const before = Number(url.searchParams.get('before'))
@@ -454,8 +468,17 @@ test('管理控制台外框不随页签内容变化', async ({ page, isMobile })
 
   await page.getByRole('button', { name: '成员', exact: true }).click()
   expect(await panelSize()).toEqual(channelSize)
-  await page.getByRole('button', { name: '账号与邀请', exact: true }).click()
-  expect(await panelSize()).toEqual(channelSize)
+
+  await page.getByTitle('关闭').last().click()
+  await openPlatformAccounts(page)
+  const platformPanel = page.locator('.admin-panel')
+  const platformSize = () => platformPanel.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return { width: rect.width, height: rect.height }
+  })
+  const platformInitialSize = await platformSize()
+  await page.getByRole('button', { name: '创建与邀请', exact: true }).click()
+  expect(await platformSize()).toEqual(platformInitialSize)
 
   if (isMobile) {
     expect(channelSize).toEqual({ width: 412, height: 800 })
@@ -468,8 +491,9 @@ test('管理控制台外框不随页签内容变化', async ({ page, isMobile })
   }
 })
 
-test('服务器管理员可通过登录名确认删除账号', async ({ page, request, browser, isMobile }, testInfo) => {
+test('平台管理员可通过登录名确认删除账号', async ({ page, request, browser, isMobile }, testInfo) => {
   await request.post('/api/auth/login', { data: { username, password } })
+  const serverID = await firstJoinedServerID(request)
   const suffix = `${Date.now().toString(36)}_${isMobile ? 'm' : 'd'}_${testInfo.workerIndex}`
   const account = {
     username: `delete_${suffix}`,
@@ -477,9 +501,8 @@ test('服务器管理员可通过登录名确认删除账号', async ({ page, re
     password: 'delete-member-password',
     role: 'member',
   }
-  const createResponse = await request.post('/api/admin/users', { data: account })
-  expect(createResponse.ok()).toBeTruthy()
-  const created = await createResponse.json() as { user: { id: number } }
+  const created = { user: await createServerMember(request, serverID, account) }
+  let replacementID = 0
 
   const target = await browser.newContext({ baseURL })
   const targetPage = await target.newPage()
@@ -496,10 +519,8 @@ test('服务器管理员可通过登录名确认删除账号', async ({ page, re
     await targetPage.getByTitle('发送消息').click()
     await expect(page.getByText(historicalMessage, { exact: true })).toBeVisible()
 
-    const adminButton = page.getByText('管理控制台', { exact: true })
-    if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
-    await adminButton.click()
-    await page.getByRole('button', { name: '成员', exact: true }).click()
+    await openPlatformAccounts(page)
+    await page.getByRole('button', { name: '平台账号', exact: true }).click()
     await page.getByRole('button', { name: new RegExp(account.displayName) }).click()
     await page.getByRole('button', { name: '删除账号', exact: true }).click()
 
@@ -525,12 +546,15 @@ test('服务器管理员可通过登录名确认删除账号', async ({ page, re
     expect(revokedSession.status()).toBe(401)
     const deletedLogin = await target.request.post('/api/auth/login', { data: { username: account.username, password: account.password } })
     expect(deletedLogin.status()).toBe(401)
-    const replacementResponse = await request.post('/api/admin/users', { data: { ...account, displayName: '同名新账号' } })
+    const replacementResponse = await request.post('/api/platform/users', { data: { ...account, displayName: '同名新账号' } })
     expect(replacementResponse.ok()).toBeTruthy()
     const replacement = await replacementResponse.json() as { user: { id: number } }
     expect(replacement.user.id).not.toBe(created.user.id)
+    replacementID = replacement.user.id
   } finally {
     await target.close()
+    if (replacementID) await deletePlatformUser(request, replacementID, account.username)
+    else await deletePlatformUser(request, created.user.id, account.username)
   }
 })
 
@@ -552,26 +576,26 @@ async function toneCount(page: import('@playwright/test').Page) {
 }
 
 test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile }) => {
-  await page.route('**/api/bootstrap', async (route) => {
+  await page.route('**/api/servers/*/bootstrap', async (route) => {
     const response = await route.fetch()
     const payload = await response.json()
-    const users = [
-      payload.user,
+    const members = [
+      ...payload.members,
       ...Array.from({ length: 40 }, (_, index) => ({
-        id: 10_000 + index,
+        userId: 10_000 + index,
         username: `scroll-member-${index + 1}`,
         displayName: `滚动测试成员 ${String(index + 1).padStart(2, '0')}`,
         role: 'member',
         voiceMuted: false,
         textMuted: false,
         permanentlyBanned: false,
-        createdAt: new Date().toISOString(),
+        joinedAt: new Date().toISOString(),
       })),
     ]
-    await route.fulfill({ response, json: { ...payload, users } })
+    await route.fulfill({ response, json: { ...payload, members } })
   })
 
-  await page.setViewportSize({ width: isMobile ? 412 : 1200, height: 600 })
+  await page.setViewportSize({ width: isMobile ? 412 : 1200, height: 500 })
   await page.reload()
   await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
   const adminButton = page.getByText('管理控制台', { exact: true })
@@ -658,11 +682,11 @@ test('邀请码列表关联原码、分页并可永久删除', async ({ page }) 
   let listRequests = 0
   let deleted = false
 
-  await page.route('**/api/admin/invites**', async (route) => {
+  await page.route('**/api/platform/invites**', async (route) => {
     const request = route.request()
     const url = new URL(request.url())
     if (request.method() === 'DELETE') {
-      expect(url.pathname).toBe(`/api/admin/invites/${activeInvite.id}/permanent`)
+      expect(url.pathname).toBe(`/api/platform/invites/${activeInvite.id}/permanent`)
       deleted = true
       await route.fulfill({ status: 204 })
       return
@@ -681,10 +705,8 @@ test('邀请码列表关联原码、分页并可永久删除', async ({ page }) 
     }
   })
 
-  const adminButton = page.getByText('管理控制台', { exact: true })
-  if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
-  await adminButton.click()
-  await page.getByRole('button', { name: '账号与邀请', exact: true }).click()
+  await openPlatformAccounts(page)
+  await page.getByRole('button', { name: '创建与邀请', exact: true }).click()
 
   const rows = page.locator('.invite-row')
   await expect(rows).toHaveCount(2)
@@ -708,14 +730,12 @@ test('邀请码列表关联原码、分页并可永久删除', async ({ page }) 
 })
 
 test('空邀请码列表兼容 null 响应', async ({ page }) => {
-  await page.route('**/api/admin/invites**', (route) => route.fulfill({
+  await page.route('**/api/platform/invites**', (route) => route.fulfill({
     json: { invites: null, hasMore: false, nextCursor: '' },
   }))
 
-  const adminButton = page.getByText('管理控制台', { exact: true })
-  if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
-  await adminButton.click()
-  await page.getByRole('button', { name: '账号与邀请', exact: true }).click()
+  await openPlatformAccounts(page)
+  await page.getByRole('button', { name: '创建与邀请', exact: true }).click()
 
   await expect(page.getByText('暂无邀请码', { exact: true })).toBeVisible()
   await expect(page.locator('.invite-row')).toHaveCount(0)
@@ -724,7 +744,7 @@ test('空邀请码列表兼容 null 响应', async ({ page }) => {
 test('窄屏频道与成员抽屉不溢出', async ({ page, isMobile }) => {
   test.skip(!isMobile, '仅在移动端项目运行')
   await page.getByTitle('频道').click()
-  await expect(page.getByText('Celery Web Speak', { exact: true }).last()).toBeVisible()
+  await expect(page.locator('.server-title strong')).toHaveText('Celery Web Speak')
   await page.getByTitle('关闭').click()
   await page.getByRole('button', { name: /成员列表/ }).click()
   await expect(page.locator('.drawer-header strong')).toHaveText('成员')

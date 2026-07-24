@@ -111,8 +111,8 @@ Android 原生壳负责：
 
 原生语音不要求新建业务协议。首期继续使用：
 
-- `POST /api/channels/{id}/voice/token`
-- `PATCH /api/channels/{id}/voice/state`
+- `POST /api/servers/{serverID}/channels/{channelID}/voice/token`
+- `PATCH /api/servers/{serverID}/channels/{channelID}/voice/state`
 - LiveKit Webhook、房间校准和单账号单语音连接约束
 
 不增加设备 Token、推送任务或推送服务配置。
