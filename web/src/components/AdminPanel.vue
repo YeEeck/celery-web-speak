@@ -6,9 +6,12 @@ import { useAppStore } from '../stores/app'
 import type { ChannelType, Invite, Role, User } from '../types'
 import UserAvatar from './UserAvatar.vue'
 
+const props = defineProps<{ initialTab?: 'channel' | 'users' | 'invites'; platformMode?: boolean }>()
 defineEmits<{ close: [] }>()
 const app = useAppStore()
-const tab = ref<'channel' | 'users' | 'invites'>('channel')
+const tab = ref<'channel' | 'users' | 'invites'>(props.platformMode
+  ? (props.initialTab === 'invites' ? 'invites' : 'users')
+  : (props.initialTab === 'users' ? 'users' : 'channel'))
 const selectedChannelId = ref<number | null>(app.channels[0]?.id ?? null)
 const selectedChannel = computed(() => app.channels.find((channel) => channel.id === selectedChannelId.value) ?? null)
 const channelName = ref(selectedChannel.value?.name ?? '')
@@ -42,10 +45,13 @@ const userDetail = ref<HTMLElement | null>(null)
 const deleteTarget = ref<User | null>(null)
 const deleteConfirmation = ref('')
 const deleteConfirmationInput = ref<HTMLInputElement | null>(null)
+const platformUsers = ref<User[]>([])
 
-const selectedUser = computed(() => app.users.find((user) => user.id === selectedUserId.value) ?? null)
-const manageableUsers = computed(() => app.users.filter((user) => user.id !== app.user!.id))
-const canManageRoles = computed(() => app.isPlatformAdmin || app.activeServer?.role === 'owner')
+const serverContext = computed(() => props.platformMode ? null : app.activeServer)
+const userPool = computed(() => serverContext.value ? app.users : platformUsers.value)
+const selectedUser = computed(() => userPool.value.find((user) => user.id === selectedUserId.value) ?? null)
+const manageableUsers = computed(() => userPool.value.filter((user) => user.id !== app.user!.id))
+const canManageRoles = computed(() => app.isPlatformAdmin || serverContext.value?.role === 'owner')
 
 watch(selectedChannel, (channel) => {
   channelName.value = channel?.name ?? ''
@@ -57,15 +63,21 @@ watch(selectedChannel, (channel) => {
 })
 
 onMounted(async () => {
-  selectedUserId.value = manageableUsers.value[0]?.id ?? null
-  if (app.isPlatformAdmin) {
+  if (props.platformMode) {
     try {
+      await loadPlatformUsers()
       await loadInvites()
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : '邀请码加载失败'
     }
   }
+  selectedUserId.value = manageableUsers.value[0]?.id ?? null
 })
+
+async function loadPlatformUsers() {
+  const payload = await request<{ users: User[] }>('/api/platform/users')
+  platformUsers.value = payload.users ?? []
+}
 
 async function run(action: () => Promise<void>, success: string) {
   busy.value = true
@@ -134,7 +146,7 @@ async function deleteChannel() {
 }
 
 function canModerate(user: User) {
-  return app.user!.role === 'server_admin' || user.role === 'member'
+  return app.isPlatformAdmin || serverContext.value?.role === 'owner' || user.role === 'member'
 }
 
 async function setMute(kind: 'voice' | 'text', value: boolean) {
@@ -158,10 +170,16 @@ async function setRole(role: Role) {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
-    if (app.activeServerId === null) return
-    await request(`/api/servers/${app.activeServerId}/members/${target.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: role === 'channel_admin' || role === 'server_admin' ? 'admin' : 'member' }) })
-    await app.bootstrap()
-  }, '管理员级别已更新')
+    if (!serverContext.value) {
+      await request(`/api/platform/users/${target.id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
+      await loadPlatformUsers()
+    } else {
+      if (app.activeServerId === null) return
+      await request(`/api/servers/${app.activeServerId}/members/${target.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: role === 'channel_admin' || role === 'server_admin' ? 'admin' : 'member' }) })
+      await app.bootstrap()
+    }
+    selectedUserId.value = target.id
+  }, serverContext.value ? '服务器角色已更新' : '平台角色已更新')
 }
 
 async function kick() {
@@ -189,17 +207,21 @@ async function permanentBan(banned: boolean) {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
-    if (app.activeServerId === null) return
-    await request(`/api/servers/${app.activeServerId}/members/${target.id}/ban`, { method: 'PATCH', body: JSON.stringify({ banned }) })
-    await app.bootstrap()
-  }, banned ? '账号已永久封禁' : '永久封禁已解除')
+    if (!serverContext.value) {
+      await request(`/api/platform/users/${target.id}/suspend`, { method: 'PATCH', body: JSON.stringify({ suspended: banned }) })
+      await loadPlatformUsers()
+    } else {
+      await request(`/api/servers/${app.activeServerId}/members/${target.id}/ban`, { method: 'PATCH', body: JSON.stringify({ banned }) })
+      await app.bootstrap()
+    }
+  }, banned ? (serverContext.value ? '服务器永久封禁已生效' : '平台账号已停用') : (serverContext.value ? '服务器永久封禁已解除' : '平台账号已恢复'))
 }
 
 async function doResetPassword() {
   const target = selectedUser.value
   if (!target || resetPassword.value.length < 10) return
   await run(async () => {
-    await request(`/api/admin/users/${target.id}/reset-password`, {
+    await request(`/api/platform/users/${target.id}/reset-password`, {
       method: 'POST',
       body: JSON.stringify({ password: resetPassword.value }),
     })
@@ -224,11 +246,12 @@ async function deleteUser() {
   const target = deleteTarget.value
   if (!target || deleteConfirmation.value !== target.username) return
   await run(async () => {
-    await request(`/api/admin/users/${target.id}`, {
+    await request(`/api/platform/users/${target.id}`, {
       method: 'DELETE',
       body: JSON.stringify({ username: deleteConfirmation.value }),
     })
-    app.removeUser(target.id)
+    if (serverContext.value) app.removeUser(target.id)
+    else platformUsers.value = platformUsers.value.filter((user) => user.id !== target.id)
     deleteTarget.value = null
     deleteConfirmation.value = ''
     selectedUserId.value = manageableUsers.value[0]?.id ?? null
@@ -237,14 +260,16 @@ async function deleteUser() {
 
 async function createUser() {
   await run(async () => {
-    await request('/api/admin/users', {
+    await request('/api/platform/users', {
       method: 'POST',
       body: JSON.stringify({ username: newUsername.value, displayName: newDisplayName.value, password: newPassword.value, role: newRole.value }),
     })
     newUsername.value = ''
     newDisplayName.value = ''
     newPassword.value = ''
+    newRole.value = 'member'
     await app.bootstrap()
+    await loadPlatformUsers()
   }, '账号已创建')
 }
 
@@ -319,8 +344,9 @@ function inviteStatusLabel(invite: Invite) {
   return labels[inviteStatus(invite)]
 }
 
-function roleLabel(role: Role) {
-  return role === 'server_admin' ? '服务器管理员' : role === 'channel_admin' ? '频道管理员' : '普通成员'
+function roleLabel(user: User) {
+  if (props.platformMode) return user.isPlatformAdmin ? '平台管理员' : '普通账号'
+  return user.role === 'server_admin' ? '服务器所有者' : user.role === 'channel_admin' ? '服务器管理员' : '普通成员'
 }
 
 function selectUser(userId: number) {
@@ -340,13 +366,13 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
   <div class="modal-backdrop admin-backdrop" @mousedown.self="$emit('close')">
     <section class="admin-panel" role="dialog" aria-modal="true" aria-labelledby="admin-title">
       <header class="panel-header">
-        <div><h2 id="admin-title">管理控制台</h2><p>{{ app.activeServer?.role === 'owner' ? '服务器所有者' : '服务器管理员' }}</p></div>
+        <div><h2 id="admin-title">{{ serverContext ? '服务器管理' : '平台管理' }}</h2><p>{{ serverContext?.role === 'owner' ? '服务器所有者' : serverContext ? '服务器管理员' : '平台管理员' }}</p></div>
         <button class="icon-button" title="关闭" @click="$emit('close')"><X :size="21" /></button>
       </header>
       <nav class="admin-tabs">
-        <button :class="{ active: tab === 'channel' }" @click="selectTab('channel')"><Gauge :size="17" />频道</button>
-        <button :class="{ active: tab === 'users' }" @click="selectTab('users')"><UserCog :size="17" />成员</button>
-        <button v-if="app.isPlatformAdmin" :class="{ active: tab === 'invites' }" @click="selectTab('invites')"><Ticket :size="17" />平台账号与邀请</button>
+        <button v-if="serverContext" :class="{ active: tab === 'channel' }" @click="selectTab('channel')"><Gauge :size="17" />频道</button>
+        <button :class="{ active: tab === 'users' }" @click="selectTab('users')"><UserCog :size="17" />{{ serverContext ? '成员' : '平台账号' }}</button>
+        <button v-if="platformMode" :class="{ active: tab === 'invites' }" @click="selectTab('invites')"><Ticket :size="17" />创建与邀请</button>
       </nav>
 
       <div ref="adminContent" :class="['admin-content', { 'users-content': tab === 'users' }]">
@@ -389,7 +415,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
 
         <section v-else-if="tab === 'users'" class="user-admin-layout">
           <aside class="admin-user-list">
-            <form class="member-add-form" @submit.prevent="addMember">
+            <form v-if="serverContext" class="member-add-form" @submit.prevent="addMember">
               <input v-model.trim="memberUsername" aria-label="成员完整登录名" placeholder="完整登录名" />
               <button class="icon-button" type="submit" title="添加成员" :disabled="busy || !memberUsername"><UserPlus :size="17" /></button>
             </form>
@@ -400,27 +426,29 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
               @click="selectUser(member.id)"
             >
               <UserAvatar :name="member.displayName" :size="32" />
-              <span><strong>{{ member.displayName }}</strong><small>{{ roleLabel(member.role) }}</small></span>
+              <span><strong>{{ member.displayName }}</strong><small>{{ roleLabel(member) }}</small></span>
             </button>
           </aside>
           <div v-if="selectedUser" ref="userDetail" class="user-admin-detail">
             <header><UserAvatar :name="selectedUser.displayName" :size="48" /><div><h3>{{ selectedUser.displayName }}</h3><p>@{{ selectedUser.username }}</p></div></header>
-            <template v-if="canModerate(selectedUser)">
+            <template v-if="serverContext && canModerate(selectedUser)">
               <div class="toggle-list">
                 <label><span>语音禁言</span><input type="checkbox" :checked="selectedUser.voiceMuted" @change="setMute('voice', ($event.target as HTMLInputElement).checked)" /></label>
                 <label><span>文字禁言</span><input type="checkbox" :checked="selectedUser.textMuted" @change="setMute('text', ($event.target as HTMLInputElement).checked)" /></label>
               </div>
               <label><span>临时封禁服务器访问</span><span class="inline-actions"><select v-model.number="kickMinutes"><option :value="5">5 分钟</option><option :value="30">30 分钟</option><option :value="60">1 小时</option><option :value="1440">24 小时</option></select><button class="secondary-button danger-text" @click="kick">封禁</button></span></label>
               <button v-if="selectedUser.temporaryBanUntil" class="secondary-button" @click="clearTemporaryBan">解除临时封禁</button>
+              <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '解除服务器永久封禁' : '服务器永久封禁' }}</button>
             </template>
-            <p v-else class="permission-note"><ShieldCheck :size="17" />频道管理员不能管理其他管理员。</p>
+            <p v-else-if="serverContext" class="permission-note"><ShieldCheck :size="17" />服务器管理员不能管理其他管理员。</p>
 
-            <template v-if="canManageRoles">
+            <template v-if="serverContext && canManageRoles">
               <label><span>服务器角色</span><select :value="selectedUser.role" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通成员</option><option value="channel_admin">服务器管理员</option></select></label>
             </template>
-            <template v-if="app.isPlatformAdmin">
+            <template v-if="!serverContext">
+              <label><span>平台角色</span><select :value="selectedUser.isPlatformAdmin ? 'server_admin' : 'member'" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通账号</option><option value="server_admin">平台管理员</option></select></label>
               <label><span>重置密码</span><span class="inline-actions"><input v-model="resetPassword" type="password" minlength="10" placeholder="至少 10 位" /><button class="secondary-button" :disabled="resetPassword.length < 10" @click="doResetPassword"><KeyRound :size="16" />重置</button></span></label>
-              <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '解除永久封禁' : '永久封禁账号' }}</button>
+              <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '恢复平台账号' : '停用平台账号' }}</button>
               <div class="account-danger-zone">
                 <div><strong>删除账号</strong><p>撤销登录并永久移除账号，历史消息将匿名保留。</p></div>
                 <button class="secondary-button danger-text" @click="openDeleteDialog(selectedUser)"><Trash2 :size="16" />删除账号</button>
@@ -435,7 +463,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
             <label><span>登录名</span><input v-model.trim="newUsername" required minlength="3" maxlength="32" /></label>
             <label><span>显示名称</span><input v-model.trim="newDisplayName" required maxlength="32" /></label>
             <label><span>初始密码</span><input v-model="newPassword" required type="password" minlength="10" /></label>
-            <label><span>角色</span><select v-model="newRole"><option value="member">普通成员</option><option value="channel_admin">频道管理员</option><option value="server_admin">服务器管理员</option></select></label>
+            <label><span>平台角色</span><select v-model="newRole"><option value="member">普通账号</option><option value="server_admin">平台管理员</option></select></label>
             <button class="primary-button" :disabled="busy"><UserPlus :size="17" />创建账号</button>
           </form>
 

@@ -5,13 +5,14 @@ import AdminPanel from './AdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
 import ChatPane from './ChatPane.vue'
 import MemberList from './MemberList.vue'
+import PlatformServersPanel from './PlatformServersPanel.vue'
 import ProfilePanel from './ProfilePanel.vue'
 import UserControls from './UserControls.vue'
 import VoiceChannel from './VoiceChannel.vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
-import type { VersionResponse } from '../types'
+import type { ServerSummary, VersionResponse } from '../types'
 
 const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
 
@@ -24,6 +25,11 @@ const wideMemberLayout = ref(window.matchMedia('(min-width: 1141px)').matches)
 const profileOpen = ref(false)
 const adminOpen = ref(false)
 const changelogOpen = ref(false)
+const platformOpen = ref(false)
+const platformInitialServerId = ref<number | null>(null)
+const platformCreateOnOpen = ref(false)
+const adminInitialTab = ref<'channel' | 'users' | 'invites'>('channel')
+const adminPlatformMode = ref(false)
 const currentVersion = ref('')
 let wideMemberQuery: MediaQueryList | null = null
 let mobileQuery: MediaQueryList | null = null
@@ -95,13 +101,22 @@ function selectMobileServer(event: Event) {
   if (serverId > 0) void app.selectServer(serverId)
 }
 
-async function createServer() {
-  const name = window.prompt('服务器名称')?.trim()
-  if (!name) return
-  const ownerUsername = window.prompt('所有者完整登录名')?.trim()
-  if (!ownerUsername) return
-  await request('/api/platform/servers', { method: 'POST', body: JSON.stringify({ name, ownerUsername }) })
-  await app.bootstrap()
+function openPlatformServers(serverId: number | null = null, create = false) {
+  platformInitialServerId.value = serverId
+  platformCreateOnOpen.value = create
+  platformOpen.value = true
+}
+
+function openServer(server: ServerSummary) {
+  if (server.joined) void app.selectServer(server.id)
+  else openPlatformServers(server.id)
+}
+
+function openPlatformAccounts() {
+  platformOpen.value = false
+  adminInitialTab.value = 'users'
+  adminPlatformMode.value = true
+  adminOpen.value = true
 }
 
 async function checkVersionAndShowChangelog() {
@@ -134,13 +149,14 @@ function closeChangelog() {
         :class="['server-button', { active: server.id === app.activeServerId, 'metadata-only': !server.joined }]"
         type="button"
         :title="server.joined ? server.name : `${server.name}（仅管理信息）`"
-        @click="server.joined && app.selectServer(server.id)"
+        @click="openServer(server)"
       >
         <span class="server-initial">{{ server.name.trim().slice(0, 1).toUpperCase() }}</span>
         <span v-if="server.unreadCount" class="server-unread" />
       </button>
       <span class="rail-divider" />
-      <button v-if="app.isPlatformAdmin" class="server-button add-server" type="button" title="创建服务器" @click="createServer"><Plus :size="22" /></button>
+      <button v-if="app.isPlatformAdmin" class="server-button add-server" type="button" title="创建服务器" @click="openPlatformServers(null, true)"><Plus :size="22" /></button>
+      <button v-if="app.isPlatformAdmin" class="server-button platform-manage" type="button" title="平台服务器管理" @click="openPlatformServers()"><ServerCog :size="20" /></button>
       <span class="rail-status" :class="app.socketStatus" title="业务连接状态"><Radio :size="18" /></span>
     </nav>
 
@@ -150,6 +166,7 @@ function closeChangelog() {
         <select class="mobile-server-select mobile-only" :value="app.activeServerId ?? ''" aria-label="切换服务器" @change="selectMobileServer">
           <option v-for="server in app.servers.filter((item) => item.joined)" :key="server.id" :value="server.id">{{ server.name }}</option>
         </select>
+        <button v-if="app.isPlatformAdmin" class="icon-button mobile-only" title="平台服务器管理" @click="openPlatformServers(); channelsOpen = false"><ServerCog :size="19" /></button>
         <button class="icon-button mobile-only" title="关闭" @click="channelsOpen = false"><X :size="19" /></button>
       </header>
       <div class="channel-scroll">
@@ -168,7 +185,7 @@ function closeChangelog() {
           <span v-if="app.channelReadStates[channel.id]?.unreadCount" class="channel-unread">{{ app.channelReadStates[channel.id].unreadCount }}</span>
         </button>
         <div v-if="app.isAdmin" class="admin-entry">
-          <button class="channel-row" @click="adminOpen = true; channelsOpen = false"><ServerCog :size="18" /><span class="channel-label"><strong>管理控制台</strong><small>{{ app.isServerAdmin ? '服务器与频道' : '频道管理' }}</small></span></button>
+          <button class="channel-row" @click="adminInitialTab = 'channel'; adminPlatformMode = false; adminOpen = true; channelsOpen = false"><ServerCog :size="18" /><span class="channel-label"><strong>管理控制台</strong><small>{{ app.isServerAdmin ? '服务器与频道' : '频道管理' }}</small></span></button>
         </div>
       </div>
       <div v-if="voice.joined" class="voice-connection-panel">
@@ -188,7 +205,8 @@ function closeChangelog() {
 
     <div id="voice-audio-root" aria-hidden="true" />
     <ProfilePanel v-if="profileOpen" @close="profileOpen = false" @changelog="changelogOpen = true" />
-    <AdminPanel v-if="adminOpen" @close="adminOpen = false" />
+    <AdminPanel v-if="adminOpen" :initial-tab="adminInitialTab" :platform-mode="adminPlatformMode" @close="adminOpen = false" />
+    <PlatformServersPanel v-if="platformOpen" :initial-server-id="platformInitialServerId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
     <ChangelogModal v-if="changelogOpen" @close="closeChangelog" />
   </main>
 </template>
