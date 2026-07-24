@@ -76,7 +76,7 @@ func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			s.logger.Warn("delete livekit room", "channel_id", channel.ID, "error", err)
 		}
-		s.hub.Broadcast("voice_rooms", s.media.VoiceRooms())
+		s.broadcastVoiceRooms(r.Context())
 	}
 	s.hub.Broadcast("channel_deleted", map[string]any{"id": channel.ID, "type": channel.Type})
 	w.WriteHeader(http.StatusNoContent)
@@ -208,7 +208,7 @@ func (s *Server) handleLiveKitWebhook(w http.ResponseWriter, r *http.Request) {
 	changed := s.media.ApplyWebhook(ctx, event)
 	cancel()
 	if changed {
-		s.hub.Broadcast("voice_rooms", s.media.VoiceRooms())
+		s.broadcastVoiceRooms(r.Context())
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -19,36 +19,9 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "list servers", err)
 		return
 	}
-	users, err := s.store.ListUsers(r.Context())
-	if err != nil {
-		s.internalError(w, "list users", err)
-		return
-	}
-	messages, messagesHasMore, err := s.store.ListMessages(r.Context(), 0, 50)
-	if err != nil {
-		s.internalError(w, "list messages", err)
-		return
-	}
-	channels, err := s.store.ListChannels(r.Context())
-	if err != nil {
-		s.internalError(w, "list channels", err)
-		return
-	}
-	readStates, err := s.store.ListChannelReadStates(r.Context(), currentUser(r).ID)
-	if err != nil {
-		s.internalError(w, "list channel read states", err)
-		return
-	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":              currentUser(r),
-		"servers":           servers,
-		"users":             users,
-		"messages":          messages,
-		"messagesHasMore":   messagesHasMore,
-		"onlineIds":         s.hub.OnlineUserIDs(),
-		"channels":          channels,
-		"channelReadStates": readStates,
-		"voiceRooms":        s.media.VoiceRooms(),
+		"user":    currentUser(r),
+		"servers": servers,
 	})
 }
 
@@ -123,7 +96,7 @@ func (s *Server) handleVoiceLeave(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Warn("remove voice participant on leave", "user_id", user.ID, "error", err)
 	}
-	s.hub.Broadcast("voice_rooms", s.media.VoiceRooms())
+	s.broadcastVoiceRooms(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 

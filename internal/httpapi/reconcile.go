@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/yeck/celery-web-speak/internal/media"
 	"github.com/yeck/celery-web-speak/internal/store"
 )
 
@@ -65,8 +66,26 @@ func (s *Server) reconcileVoiceRooms(parent context.Context, source string) bool
 		participants += len(room.Participants)
 	}
 	s.logger.Info("reconciled livekit rooms", "source", source, "rooms", len(rooms), "participants", participants)
-	s.hub.Broadcast("voice_rooms", rooms)
+	s.broadcastVoiceRooms(ctx)
 	return true
+}
+
+func (s *Server) broadcastVoiceRooms(ctx context.Context) {
+	grouped := make(map[int64][]media.VoiceRoom)
+	for _, room := range s.media.VoiceRooms() {
+		guildID := room.GuildID
+		if guildID == 0 {
+			if channel, err := s.store.ChannelByID(ctx, room.ChannelID); err == nil {
+				guildID = channel.GuildID
+			}
+		}
+		if guildID > 0 {
+			grouped[guildID] = append(grouped[guildID], room)
+		}
+	}
+	for guildID, rooms := range grouped {
+		s.hub.BroadcastGuild(guildID, "voice_rooms", rooms)
+	}
 }
 
 func (s *Server) scheduleVoiceRoomRefresh(source string) {

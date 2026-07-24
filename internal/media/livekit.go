@@ -82,10 +82,18 @@ func New(url, publicURL, apiKey, apiSecret string) *Service {
 
 func Identity(userID int64) string { return "user-" + strconv.FormatInt(userID, 10) }
 
-func RoomName(channelID int64) string { return "channel-" + strconv.FormatInt(channelID, 10) }
+func RoomName(ids ...int64) string {
+	if len(ids) >= 2 {
+		return "guild-" + strconv.FormatInt(ids[0], 10) + "-channel-" + strconv.FormatInt(ids[1], 10)
+	}
+	if len(ids) == 1 {
+		return "channel-" + strconv.FormatInt(ids[0], 10)
+	}
+	return ""
+}
 
 func GuildRoomName(guildID, channelID int64) string {
-	return "guild-" + strconv.FormatInt(guildID, 10) + "-channel-" + strconv.FormatInt(channelID, 10)
+	return RoomName(guildID, channelID)
 }
 
 func ParseRoomName(name string) (int64, bool) {

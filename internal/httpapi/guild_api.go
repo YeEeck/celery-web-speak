@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/yeck/celery-web-speak/internal/store"
 )
@@ -41,6 +42,10 @@ func (s *Server) requireGuildMember(next http.Handler) http.Handler {
 			writeError(w, http.StatusNotFound, "not_found", "服务器不存在")
 			return
 		}
+		if member.PermanentlyBanned || (member.TemporaryBanUntil != nil && member.TemporaryBanUntil.After(time.Now())) {
+			writeError(w, http.StatusForbidden, "server_banned", "你当前无法访问该服务器")
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(withGuildMembership(r.Context(), member)))
 	}))
 }
@@ -51,6 +56,32 @@ func withGuildMembership(ctx context.Context, member store.GuildMember) context.
 
 func (s *Server) requireGuildAdmin(next http.Handler) http.Handler {
 	return s.requireGuildMember(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !guildMembership(r).Role.IsAdmin() {
+			writeError(w, http.StatusForbidden, "forbidden", "需要服务器管理员权限")
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+func (s *Server) requireDefaultGuildMember(next http.Handler) http.Handler {
+	return s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		guildID, err := s.store.DefaultGuildID(r.Context())
+		if err != nil {
+			writeError(w, http.StatusNotFound, "not_found", "资源不存在")
+			return
+		}
+		member, err := s.store.GuildMembership(r.Context(), guildID, currentUser(r).ID)
+		if err != nil {
+			writeError(w, http.StatusNotFound, "not_found", "资源不存在")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(withGuildMembership(r.Context(), member)))
+	}))
+}
+
+func (s *Server) requireDefaultGuildAdmin(next http.Handler) http.Handler {
+	return s.requireDefaultGuildMember(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !guildMembership(r).Role.IsAdmin() {
 			writeError(w, http.StatusForbidden, "forbidden", "需要服务器管理员权限")
 			return
@@ -255,6 +286,84 @@ func (s *Server) handleServerMemberRole(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	member, err := s.store.SetGuildMemberRole(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, userID, input.Role)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"member": member})
+}
+
+func (s *Server) guildCanManageTarget(w http.ResponseWriter, r *http.Request, targetID int64, manageAdmins bool) bool {
+	member, err := s.store.GuildMembership(r.Context(), guildMembership(r).GuildID, targetID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return false
+	}
+	if member.Role == store.GuildRoleOwner || (!manageAdmins && member.Role == store.GuildRoleAdmin) {
+		writeError(w, http.StatusForbidden, "forbidden", "无权管理该服务器成员")
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleServerMemberMute(w http.ResponseWriter, r *http.Request) {
+	targetID, ok := parsePathID(w, r, "userID")
+	if !ok {
+		return
+	}
+	if !s.guildCanManageTarget(w, r, targetID, currentUser(r).IsPlatformAdmin || guildMembership(r).Role == store.GuildRoleOwner) {
+		return
+	}
+	var input struct {
+		VoiceMuted bool `json:"voiceMuted"`
+		TextMuted  bool `json:"textMuted"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	member, err := s.store.SetGuildMemberMute(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, targetID, input.VoiceMuted, input.TextMuted)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"member": member})
+}
+
+func (s *Server) handleServerMemberBan(w http.ResponseWriter, r *http.Request) {
+	targetID, ok := parsePathID(w, r, "userID")
+	if !ok {
+		return
+	}
+	if !s.guildCanManageTarget(w, r, targetID, currentUser(r).IsPlatformAdmin || guildMembership(r).Role == store.GuildRoleOwner) {
+		return
+	}
+	var input struct {
+		Banned            bool       `json:"banned"`
+		TemporaryBanUntil *time.Time `json:"temporaryBanUntil"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	member, err := s.store.SetGuildMemberBan(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, targetID, input.Banned, input.TemporaryBanUntil)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	if input.Banned || input.TemporaryBanUntil != nil {
+		s.removeFromVoice(r, targetID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"member": member})
+}
+
+func (s *Server) handleServerClearTemporaryBan(w http.ResponseWriter, r *http.Request) {
+	targetID, ok := parsePathID(w, r, "userID")
+	if !ok {
+		return
+	}
+	if !s.guildCanManageTarget(w, r, targetID, currentUser(r).IsPlatformAdmin || guildMembership(r).Role == store.GuildRoleOwner) {
+		return
+	}
+	member, err := s.store.ClearGuildMemberTemporaryBan(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, targetID)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return

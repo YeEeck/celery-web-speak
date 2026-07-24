@@ -24,6 +24,8 @@ func (s *Store) defaultGuildID(ctx context.Context) (int64, error) {
 	return id, err
 }
 
+func (s *Store) DefaultGuildID(ctx context.Context) (int64, error) { return s.defaultGuildID(ctx) }
+
 func (s *Store) ensureDefaultGuild(ctx context.Context, ownerID int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -68,19 +70,20 @@ func (s *Store) GuildByID(ctx context.Context, guildID int64) (Guild, error) {
 }
 
 func (s *Store) ListGuildsForUser(ctx context.Context, userID int64, platformAdmin bool) ([]GuildSummary, error) {
+	now := formatTime(s.now())
 	rows, err := s.db.QueryContext(ctx, `
 SELECT g.id, g.name, g.owner_user_id, g.created_by, g.created_at, g.updated_at,
-       gm.user_id IS NOT NULL,
-       CASE WHEN g.owner_user_id = ? THEN 'owner' ELSE COALESCE(gm.role, '') END,
-       CASE WHEN gm.user_id IS NOT NULL THEN (
+       gm.user_id IS NOT NULL AND gm.permanently_banned = 0 AND (gm.temporary_ban_until IS NULL OR gm.temporary_ban_until <= ?),
+       CASE WHEN gm.user_id IS NOT NULL AND gm.permanently_banned = 0 AND (gm.temporary_ban_until IS NULL OR gm.temporary_ban_until <= ?) THEN CASE WHEN g.owner_user_id = ? THEN 'owner' ELSE gm.role END ELSE '' END,
+       CASE WHEN gm.user_id IS NOT NULL AND gm.permanently_banned = 0 AND (gm.temporary_ban_until IS NULL OR gm.temporary_ban_until <= ?) THEN (
          SELECT COUNT(*) FROM messages m JOIN channels c ON c.id = m.channel_id
          LEFT JOIN channel_read_states rs ON rs.channel_id = c.id AND rs.user_id = ?
          WHERE c.guild_id = g.id AND m.id > COALESCE(rs.last_read_message_id, 0)
        ) ELSE 0 END,
        CASE WHEN ? THEN (SELECT COUNT(*) FROM guild_members x WHERE x.guild_id = g.id) ELSE 0 END
 FROM guilds g LEFT JOIN guild_members gm ON gm.guild_id = g.id AND gm.user_id = ?
-WHERE (? OR gm.user_id IS NOT NULL)
-ORDER BY CASE WHEN gm.user_id IS NOT NULL THEN gm.joined_at ELSE g.created_at END, g.id`, userID, userID, platformAdmin, userID, platformAdmin)
+WHERE (? OR (gm.user_id IS NOT NULL AND gm.permanently_banned = 0 AND (gm.temporary_ban_until IS NULL OR gm.temporary_ban_until <= ?)))
+ORDER BY CASE WHEN gm.user_id IS NOT NULL THEN gm.joined_at ELSE g.created_at END, g.id`, now, now, userID, now, userID, platformAdmin, userID, platformAdmin, now)
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +309,79 @@ func (s *Store) RemoveGuildMember(ctx context.Context, guildID, actorID, userID 
 		return err
 	}
 	return tx.Commit()
+}
+
+func (s *Store) SetGuildMemberMute(ctx context.Context, guildID, actorID, userID int64, voiceMuted, textMuted bool) (GuildMember, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return GuildMember{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE guild_members SET voice_muted = ?, text_muted = ?, updated_at = ? WHERE guild_id = ? AND user_id = ?`, voiceMuted, textMuted, formatTime(s.now()), guildID, userID)
+	if err != nil {
+		return GuildMember{}, err
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return GuildMember{}, ErrNotFound
+	}
+	if err := insertGuildAudit(ctx, tx, guildID, actorID, &userID, "set_guild_member_mute", fmt.Sprintf("voice=%t text=%t", voiceMuted, textMuted)); err != nil {
+		return GuildMember{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return GuildMember{}, err
+	}
+	return s.GuildMembership(ctx, guildID, userID)
+}
+
+func (s *Store) SetGuildMemberBan(ctx context.Context, guildID, actorID, userID int64, permanentlyBanned bool, temporaryUntil *time.Time) (GuildMember, error) {
+	if temporaryUntil != nil && (!temporaryUntil.After(s.now()) || temporaryUntil.After(s.now().Add(365*24*time.Hour))) {
+		return GuildMember{}, errors.New("temporary ban must end within one year")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return GuildMember{}, err
+	}
+	defer tx.Rollback()
+	var until any
+	if temporaryUntil != nil {
+		until = formatTime(*temporaryUntil)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE guild_members SET permanently_banned = ?, temporary_ban_until = ?, updated_at = ? WHERE guild_id = ? AND user_id = ?`, permanentlyBanned, until, formatTime(s.now()), guildID, userID)
+	if err != nil {
+		return GuildMember{}, err
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return GuildMember{}, ErrNotFound
+	}
+	if err := insertGuildAudit(ctx, tx, guildID, actorID, &userID, "set_guild_member_ban", fmt.Sprintf("permanent=%t temporary_until=%v", permanentlyBanned, until)); err != nil {
+		return GuildMember{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return GuildMember{}, err
+	}
+	return s.GuildMembership(ctx, guildID, userID)
+}
+
+func (s *Store) ClearGuildMemberTemporaryBan(ctx context.Context, guildID, actorID, userID int64) (GuildMember, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return GuildMember{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE guild_members SET temporary_ban_until = NULL, updated_at = ? WHERE guild_id = ? AND user_id = ?`, formatTime(s.now()), guildID, userID)
+	if err != nil {
+		return GuildMember{}, err
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return GuildMember{}, ErrNotFound
+	}
+	if err := insertGuildAudit(ctx, tx, guildID, actorID, &userID, "clear_guild_member_temporary_ban", ""); err != nil {
+		return GuildMember{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return GuildMember{}, err
+	}
+	return s.GuildMembership(ctx, guildID, userID)
 }
 
 func (s *Store) TransferGuildOwnership(ctx context.Context, guildID, actorID, newOwnerID int64) (Guild, error) {
