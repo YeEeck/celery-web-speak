@@ -405,6 +405,83 @@ func TestServerLifecycleEventsSynchronizeConnectedMembers(t *testing.T) {
 	}
 }
 
+func TestGuildMembershipReconcilerRestoresPendingBanAfterRestart(t *testing.T) {
+	db, admin, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := db.CreateUser(ctx, "restart_restore_target", "重启恢复成员", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
+	until := time.Now().Add(100 * time.Millisecond)
+	if _, err := db.SetGuildMemberBan(ctx, guildID, admin.ID, target.ID, false, &until); err != nil {
+		t.Fatal(err)
+	}
+	connection := newClient(target)
+	server.hub.register(connection)
+	t.Cleanup(func() { server.hub.unregister(connection, true) })
+	reconcileContext, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go server.RunGuildMembershipReconciler(reconcileContext)
+
+	events := readClientEvents(t, connection, 2)
+	if events[0].Type != "server_added" || events[0].ServerID != guildID || events[1].Type != "member_updated" {
+		t.Fatalf("restore events = %+v", events)
+	}
+	member, err := db.GuildMembership(ctx, guildID, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member.TemporaryBanUntil != nil || !member.ActiveAt(time.Now()) {
+		t.Fatalf("membership after restart restore = %+v", member)
+	}
+}
+
+func TestStaleGuildMembershipRestoreTimerDoesNotOverrideExtendedBan(t *testing.T) {
+	db, admin, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := db.CreateUser(ctx, "extended_restore_target", "延期恢复成员", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
+	connection := newClient(target)
+	server.hub.register(connection)
+	t.Cleanup(func() { server.hub.unregister(connection, true) })
+	firstUntil := time.Now().Add(100 * time.Millisecond)
+	if _, err := db.SetGuildMemberBan(ctx, guildID, admin.ID, target.ID, false, &firstUntil); err != nil {
+		t.Fatal(err)
+	}
+	server.scheduleGuildMembershipRestore(&firstUntil)
+	extendedUntil := time.Now().Add(350 * time.Millisecond)
+	if _, err := db.SetGuildMemberBan(ctx, guildID, admin.ID, target.ID, false, &extendedUntil); err != nil {
+		t.Fatal(err)
+	}
+	server.scheduleGuildMembershipRestore(&extendedUntil)
+
+	select {
+	case payload := <-connection.send:
+		t.Fatalf("stale timer restored extended ban: %s", payload)
+	case <-time.After(200 * time.Millisecond):
+	}
+	events := readClientEvents(t, connection, 2)
+	if events[0].Type != "server_added" || events[1].Type != "member_updated" {
+		t.Fatalf("extended restore events = %+v", events)
+	}
+}
+
 func TestServerMemberLeaveAndRemoval(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()

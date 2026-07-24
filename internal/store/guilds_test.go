@@ -271,3 +271,64 @@ func TestJoinGuildAsAdminRejectsActiveTemporaryBan(t *testing.T) {
 		t.Fatalf("member after temporary ban expiry = %+v", member)
 	}
 }
+
+func TestRestoreExpiredGuildMembershipsClaimsOnlyActiveExpiredBans(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	base := time.Date(2026, time.July, 24, 9, 0, 0, 0, time.UTC)
+	db.now = func() time.Time { return base }
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createBannedMember := func(username string, permanentlyBanned bool, until time.Time) User {
+		t.Helper()
+		user, err := db.CreateUser(ctx, username, username, "another-secure-password", RoleMember)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.AddGuildMember(ctx, guildID, admin.ID, user.Username); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.SetGuildMemberBan(ctx, guildID, admin.ID, user.ID, permanentlyBanned, &until); err != nil {
+			t.Fatal(err)
+		}
+		return user
+	}
+	expiredUntil := base.Add(time.Hour)
+	futureUntil := base.Add(3 * time.Hour)
+	expired := createBannedMember("expired_restore", false, expiredUntil)
+	future := createBannedMember("future_restore", false, futureUntil)
+	permanent := createBannedMember("permanent_restore", true, expiredUntil)
+
+	now := base.Add(2 * time.Hour)
+	restored, err := db.RestoreExpiredGuildMemberships(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != 1 || restored[0].UserID != expired.ID || restored[0].TemporaryBanUntil != nil || !restored[0].ActiveAt(now) {
+		t.Fatalf("restored memberships = %+v", restored)
+	}
+	restored, err = db.RestoreExpiredGuildMemberships(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restored) != 0 {
+		t.Fatalf("repeated restore memberships = %+v, want none", restored)
+	}
+	pending, err := db.ListPendingGuildMembershipRestores(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 1 || pending[0].UserID != future.ID {
+		t.Fatalf("pending restores = %+v, want user %d", pending, future.ID)
+	}
+	permanentMember, err := db.GuildMembership(ctx, guildID, permanent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if permanentMember.TemporaryBanUntil == nil || !permanentMember.PermanentlyBanned {
+		t.Fatalf("permanent membership was restored = %+v", permanentMember)
+	}
+}

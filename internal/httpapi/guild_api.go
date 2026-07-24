@@ -385,7 +385,7 @@ func (s *Server) handleServerMemberBan(w http.ResponseWriter, r *http.Request) {
 	if input.Banned || input.TemporaryBanUntil != nil {
 		s.hub.RemoveUserGuild(targetID, guildID)
 		s.removeFromGuildVoice(r, guildID, targetID)
-		s.scheduleGuildMembershipRestore(guildID, targetID, input.TemporaryBanUntil)
+		s.scheduleGuildMembershipRestore(input.TemporaryBanUntil)
 	} else if member.ActiveAt(time.Now()) {
 		s.hub.AddUserGuild(targetID, guildID)
 	}
@@ -650,23 +650,4 @@ func (s *Server) removeFromGuildVoice(r *http.Request, guildID, userID int64) {
 		s.logger.Warn("remove server voice participant", "guild_id", guildID, "user_id", userID, "error", err)
 	}
 	s.broadcastVoiceRooms(ctx)
-}
-
-func (s *Server) scheduleGuildMembershipRestore(guildID, userID int64, until *time.Time) {
-	if until == nil {
-		return
-	}
-	delay := time.Until(*until)
-	if delay < 0 {
-		delay = 0
-	}
-	time.AfterFunc(delay, func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		member, err := s.store.GuildMembership(ctx, guildID, userID)
-		if err == nil && member.ActiveAt(time.Now()) {
-			s.hub.AddUserGuild(userID, guildID)
-			s.hub.BroadcastGuild(guildID, "member_updated", member)
-		}
-	})
 }

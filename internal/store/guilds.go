@@ -432,6 +432,100 @@ func (s *Store) ClearGuildMemberTemporaryBan(ctx context.Context, guildID, actor
 	return s.GuildMembership(ctx, guildID, userID)
 }
 
+func (s *Store) ListPendingGuildMembershipRestores(ctx context.Context, now time.Time) ([]GuildMember, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT gm.guild_id, gm.user_id, u.username, u.display_name,
+       CASE WHEN g.owner_user_id = gm.user_id THEN 'owner' ELSE gm.role END,
+       gm.voice_muted, gm.text_muted, gm.permanently_banned, gm.temporary_ban_until, gm.joined_at
+FROM guild_members gm
+JOIN guilds g ON g.id = gm.guild_id
+JOIN users u ON u.id = gm.user_id
+WHERE gm.permanently_banned = 0
+  AND gm.temporary_ban_until > ?
+  AND u.deleted_at IS NULL
+  AND u.suspended_at IS NULL
+  AND u.permanently_banned = 0
+ORDER BY gm.temporary_ban_until, gm.guild_id, gm.user_id`, formatTime(now))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	members := make([]GuildMember, 0)
+	for rows.Next() {
+		member, err := scanGuildMember(rows)
+		if err != nil {
+			return nil, err
+		}
+		members = append(members, member)
+	}
+	return members, rows.Err()
+}
+
+func (s *Store) RestoreExpiredGuildMemberships(ctx context.Context, now time.Time) ([]GuildMember, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	formattedNow := formatTime(now)
+	rows, err := tx.QueryContext(ctx, `
+SELECT gm.guild_id, gm.user_id
+FROM guild_members gm
+JOIN users u ON u.id = gm.user_id
+WHERE gm.permanently_banned = 0
+  AND gm.temporary_ban_until IS NOT NULL
+  AND gm.temporary_ban_until <= ?
+  AND u.deleted_at IS NULL
+  AND u.suspended_at IS NULL
+  AND u.permanently_banned = 0
+ORDER BY gm.guild_id, gm.user_id`, formattedNow)
+	if err != nil {
+		return nil, err
+	}
+	type membershipID struct{ guildID, userID int64 }
+	ids := make([]membershipID, 0)
+	for rows.Next() {
+		var id membershipID
+		if err := rows.Scan(&id.guildID, &id.userID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	restored := make([]GuildMember, 0, len(ids))
+	for _, id := range ids {
+		result, err := tx.ExecContext(ctx, `
+UPDATE guild_members
+SET temporary_ban_until = NULL, updated_at = ?
+WHERE guild_id = ? AND user_id = ?
+  AND permanently_banned = 0
+  AND temporary_ban_until IS NOT NULL
+  AND temporary_ban_until <= ?`, formattedNow, id.guildID, id.userID, formattedNow)
+		if err != nil {
+			return nil, err
+		}
+		if count, _ := result.RowsAffected(); count == 0 {
+			continue
+		}
+		member, err := guildMembership(ctx, tx, id.guildID, id.userID)
+		if err != nil {
+			return nil, err
+		}
+		restored = append(restored, member)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return restored, nil
+}
+
 func (s *Store) TransferGuildOwnership(ctx context.Context, guildID, actorID, newOwnerID int64) (GuildOwnershipTransfer, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
