@@ -254,6 +254,78 @@ func TestServerRenamePermissions(t *testing.T) {
 	}
 }
 
+func TestTemporarilyBannedPlatformAdminCannotRestoreGuildSubscription(t *testing.T) {
+	db, owner, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := db.CreateUser(ctx, "temporarily_banned_admin", "临时封禁管理员", "another-secure-password", store.RolePlatformAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.JoinGuildAsAdmin(ctx, guildID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	ownerToken, _, err := db.CreateSession(ctx, owner.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetToken, _, err := db.CreateSession(ctx, target.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection := newClient(target)
+	connection.guilds[guildID] = struct{}{}
+	server.hub.register(connection)
+	t.Cleanup(func() { server.hub.unregister(connection, true) })
+
+	until := time.Now().UTC().Add(time.Hour)
+	banBody := `{"banned":false,"temporaryBanUntil":` + strconv.Quote(until.Format(time.RFC3339)) + `}`
+	recorder := serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/servers/"+formatID(guildID)+"/members/"+formatID(target.ID)+"/ban", banBody)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("temporary ban = %d %s", recorder.Code, recorder.Body.String())
+	}
+	select {
+	case <-connection.send:
+	case <-time.After(time.Second):
+		t.Fatal("temporarily banned client did not receive server removal")
+	}
+
+	recorder = serveGuildHTTPRequest(server, targetToken, http.MethodPost, "/api/platform/servers/"+formatID(guildID)+"/join", "")
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "guild_member_banned") {
+		t.Fatalf("join during temporary ban = %d %s", recorder.Code, recorder.Body.String())
+	}
+	server.hub.BroadcastGuild(guildID, "message_created", map[string]int64{"id": 1})
+	select {
+	case payload := <-connection.send:
+		t.Fatalf("temporarily banned client received guild event: %s", payload)
+	default:
+	}
+
+	bothBansBody := `{"banned":true,"temporaryBanUntil":` + strconv.Quote(until.Format(time.RFC3339)) + `}`
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/servers/"+formatID(guildID)+"/members/"+formatID(target.ID)+"/ban", bothBansBody)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("combined ban = %d %s", recorder.Code, recorder.Body.String())
+	}
+	select {
+	case <-connection.send:
+	case <-time.After(time.Second):
+		t.Fatal("combined ban did not emit server removal")
+	}
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodDelete, "/api/servers/"+formatID(guildID)+"/members/"+formatID(target.ID)+"/temporary-ban", "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("clear temporary ban = %d %s", recorder.Code, recorder.Body.String())
+	}
+	server.hub.BroadcastGuild(guildID, "member_updated", map[string]int64{"userId": owner.ID})
+	select {
+	case payload := <-connection.send:
+		t.Fatalf("permanently banned client received guild event after temporary clear: %s", payload)
+	default:
+	}
+}
+
 func TestServerMemberLeaveAndRemoval(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()

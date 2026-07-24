@@ -264,7 +264,13 @@ func (s *Store) JoinGuildAsAdmin(ctx context.Context, guildID, userID int64) (Gu
 	}
 	defer tx.Rollback()
 	now := formatTime(s.now())
-	result, err := tx.ExecContext(ctx, `INSERT INTO guild_members (guild_id, user_id, role, joined_at, updated_at) VALUES (?, ?, 'admin', ?, ?) ON CONFLICT(guild_id, user_id) DO UPDATE SET role = 'admin', updated_at = excluded.updated_at WHERE guild_members.permanently_banned = 0`, guildID, userID, now, now)
+	result, err := tx.ExecContext(ctx, `
+INSERT INTO guild_members (guild_id, user_id, role, joined_at, updated_at)
+VALUES (?, ?, 'admin', ?, ?)
+ON CONFLICT(guild_id, user_id) DO UPDATE SET
+  role = 'admin', temporary_ban_until = NULL, updated_at = excluded.updated_at
+WHERE guild_members.permanently_banned = 0
+  AND (guild_members.temporary_ban_until IS NULL OR guild_members.temporary_ban_until <= excluded.updated_at)`, guildID, userID, now, now)
 	if err != nil {
 		return GuildMember{}, err
 	}

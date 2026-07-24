@@ -118,6 +118,10 @@ func (s *Server) handlePlatformJoinServer(w http.ResponseWriter, r *http.Request
 		s.writeStoreError(w, err)
 		return
 	}
+	if !member.ActiveAt(time.Now()) {
+		s.writeStoreError(w, store.ErrGuildMemberBanned)
+		return
+	}
 	s.hub.AddUserGuild(member.UserID, member.GuildID)
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
@@ -376,7 +380,7 @@ func (s *Server) handleServerMemberBan(w http.ResponseWriter, r *http.Request) {
 		s.hub.RemoveUserGuild(targetID, guildID)
 		s.removeFromGuildVoice(r, guildID, targetID)
 		s.scheduleGuildMembershipRestore(guildID, targetID, input.TemporaryBanUntil)
-	} else {
+	} else if member.ActiveAt(time.Now()) {
 		s.hub.AddUserGuild(targetID, guildID)
 	}
 	s.hub.BroadcastGuild(guildID, "member_updated", member)
@@ -397,7 +401,9 @@ func (s *Server) handleServerClearTemporaryBan(w http.ResponseWriter, r *http.Re
 		s.writeStoreError(w, err)
 		return
 	}
-	s.hub.AddUserGuild(targetID, guildID)
+	if member.ActiveAt(time.Now()) {
+		s.hub.AddUserGuild(targetID, guildID)
+	}
 	s.hub.BroadcastGuild(guildID, "member_updated", member)
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
@@ -652,7 +658,7 @@ func (s *Server) scheduleGuildMembershipRestore(guildID, userID int64, until *ti
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		member, err := s.store.GuildMembership(ctx, guildID, userID)
-		if err == nil && !member.PermanentlyBanned && (member.TemporaryBanUntil == nil || !member.TemporaryBanUntil.After(time.Now())) {
+		if err == nil && member.ActiveAt(time.Now()) {
 			s.hub.AddUserGuild(userID, guildID)
 			s.hub.BroadcastGuild(guildID, "member_updated", member)
 		}

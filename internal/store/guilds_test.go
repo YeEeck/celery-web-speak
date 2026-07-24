@@ -244,3 +244,38 @@ func TestTransferGuildOwnershipRequiresActiveAccount(t *testing.T) {
 		t.Fatalf("roles after transfer = %q/%q, want admin/owner", oldOwner.Role, newOwner.Role)
 	}
 }
+
+func TestJoinGuildAsAdminRejectsActiveTemporaryBan(t *testing.T) {
+	db := newTestStore(t)
+	platformAdmin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	base := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	db.now = func() time.Time { return base }
+	owner, err := db.CreateUser(ctx, "temporary_ban_owner", "临时封禁所有者", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guild, err := db.CreateGuild(ctx, platformAdmin.ID, "临时封禁服务器", owner.Username)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.JoinGuildAsAdmin(ctx, guild.ID, platformAdmin.ID); err != nil {
+		t.Fatal(err)
+	}
+	until := base.Add(time.Hour)
+	if _, err := db.SetGuildMemberBan(ctx, guild.ID, owner.ID, platformAdmin.ID, false, &until); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.JoinGuildAsAdmin(ctx, guild.ID, platformAdmin.ID); !errors.Is(err, ErrGuildMemberBanned) {
+		t.Fatalf("join during temporary ban error = %v, want ErrGuildMemberBanned", err)
+	}
+
+	db.now = func() time.Time { return until.Add(time.Second) }
+	member, err := db.JoinGuildAsAdmin(ctx, guild.ID, platformAdmin.ID)
+	if err != nil {
+		t.Fatalf("join after temporary ban: %v", err)
+	}
+	if member.Role != GuildRoleAdmin || member.TemporaryBanUntil != nil || !member.ActiveAt(db.now()) {
+		t.Fatalf("member after temporary ban expiry = %+v", member)
+	}
+}

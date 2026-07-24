@@ -56,6 +56,10 @@ type GuildMember struct {
 	JoinedAt          time.Time  `json:"joinedAt"`
 }
 
+func (m GuildMember) ActiveAt(now time.Time) bool {
+	return !m.PermanentlyBanned && (m.TemporaryBanUntil == nil || !m.TemporaryBanUntil.After(now))
+}
+
 type User struct {
 	ID                int64      `json:"id"`
 	Username          string     `json:"username"`
