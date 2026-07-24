@@ -160,21 +160,25 @@ function closeChangelog() {
 <template>
   <main :class="['app-shell', { 'members-collapsed': wideMemberLayout && !desktopMembersVisible }]">
     <nav class="server-rail" aria-label="服务器">
-      <button
-        v-for="server in app.servers"
-        :key="server.id"
-        :class="['server-button', { active: server.id === app.activeServerId, 'metadata-only': !server.joined }]"
-        type="button"
-        :title="server.joined ? server.name : `${server.name}（仅管理信息）`"
-        @click="openServer(server)"
-      >
-        <span class="server-initial">{{ server.name.trim().slice(0, 1).toUpperCase() }}</span>
-        <span v-if="server.unreadCount" class="server-unread" />
-      </button>
-      <span class="rail-divider" />
-      <button v-if="app.isPlatformAdmin" class="server-button add-server" type="button" title="创建服务器" @click="openPlatformServers(null, true)"><Plus :size="22" /></button>
-      <button v-if="app.isPlatformAdmin" class="server-button platform-manage" type="button" title="平台服务器管理" @click="openPlatformServers()"><ServerCog :size="20" /></button>
+      <span class="rail-logo" title="Celery Web Speak"><img class="server-icon" src="/favicon.svg" alt="" /></span>
       <span class="rail-status" :class="app.socketStatus" title="业务连接状态"><Radio :size="18" /></span>
+      <span class="rail-divider" />
+      <button v-if="app.isPlatformAdmin" class="server-button platform-manage" type="button" title="平台服务器管理" @click="openPlatformServers()"><ServerCog :size="20" /></button>
+      <span v-if="app.isPlatformAdmin" class="rail-divider" />
+      <div class="rail-scroll">
+        <button
+          v-for="server in app.servers"
+          :key="server.id"
+          :class="['server-button', { active: server.id === app.activeServerId, 'metadata-only': !server.joined }]"
+          type="button"
+          :title="server.joined ? server.name : `${server.name}（仅管理信息）`"
+          @click="openServer(server)"
+        >
+          <span class="server-initial">{{ server.name.trim().slice(0, 1).toUpperCase() }}</span>
+          <span v-if="server.unreadCount" class="server-unread" />
+        </button>
+        <button v-if="app.isPlatformAdmin" class="server-button add-server" type="button" title="创建服务器" @click="openPlatformServers(null, true)"><Plus :size="22" /></button>
+      </div>
     </nav>
 
     <aside :class="['channel-sidebar', { 'mobile-drawer-open': channelsOpen }]">
