@@ -104,6 +104,19 @@ func TestPlatformUserRoleManagement(t *testing.T) {
 	}
 }
 
+func TestPlatformAdminCannotSuspendSelf(t *testing.T) {
+	db, admin, server := newGuildHTTPTestServer(t)
+	token, _, err := db.CreateSession(context.Background(), admin.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := serveGuildHTTPRequest(server, token, http.MethodPatch, "/api/platform/users/"+formatID(admin.ID)+"/suspend", `{"suspended":true}`)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "self_action") {
+		t.Fatalf("self suspension = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestPlatformResetPasswordRevokesSessions(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()

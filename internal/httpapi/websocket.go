@@ -100,7 +100,13 @@ func (s *Server) writeWebSocket(conn *websocket.Conn, c *client) {
 	for {
 		select {
 		case <-c.done:
-			_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseTryAgainLater, "event queue overflow"))
+			code := websocket.CloseTryAgainLater
+			reason := "event queue overflow"
+			if c.revoked.Load() {
+				code = websocket.ClosePolicyViolation
+				reason = "session revoked"
+			}
+			_ = conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(code, reason))
 			return
 		case payload := <-c.presence:
 			if !writeWebSocketMessage(conn, payload) {

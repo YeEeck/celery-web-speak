@@ -24,6 +24,7 @@ type client struct {
 	presence   chan []byte
 	done       chan struct{}
 	doneOnce   sync.Once
+	revoked    atomic.Bool
 	lastActive atomic.Int64
 }
 
@@ -72,6 +73,11 @@ func (c *client) touch(now time.Time) {
 
 func (c *client) stop() {
 	c.doneOnce.Do(func() { close(c.done) })
+}
+
+func (c *client) revoke() {
+	c.revoked.Store(true)
+	c.stop()
 }
 
 func (h *Hub) register(c *client) {
@@ -364,15 +370,21 @@ func (h *Hub) onlineIDsLocked() []int64 {
 }
 
 func (h *Hub) DisconnectUser(userID int64) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	h.mu.Lock()
 	payload, _ := json.Marshal(event{Type: "session_revoked", Data: map[string]any{"userId": userID}})
 	for c := range h.clients {
-		if c.user.ID == userID {
-			select {
-			case c.send <- payload:
-			default:
-			}
+		if c.user.ID != userID {
+			continue
 		}
+		select {
+		case c.send <- payload:
+		default:
+		}
+		delete(h.clients, c)
+		c.revoke()
 	}
+	delete(h.counts, userID)
+	delete(h.memberships, userID)
+	h.mu.Unlock()
+	h.BroadcastPresence()
 }

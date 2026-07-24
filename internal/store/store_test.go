@@ -559,6 +559,37 @@ func TestCannotDemoteLastServerAdmin(t *testing.T) {
 	}
 }
 
+func TestSuspendedPlatformAdminDoesNotSatisfyLastAdminInvariant(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	second, err := db.CreateUser(ctx, "second_platform_admin", "第二管理员", "another-secure-password", RoleServerAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetPermanentBan(ctx, admin.ID, second.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetRole(ctx, admin.ID, admin.ID, RoleMember); !errors.Is(err, ErrLastServerAdmin) {
+		t.Fatalf("demote with only suspended replacement = %v, want ErrLastServerAdmin", err)
+	}
+	if err := db.SetPermanentBan(ctx, admin.ID, second.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetRole(ctx, admin.ID, admin.ID, RoleMember); err != nil {
+		t.Fatalf("demote with active replacement: %v", err)
+	}
+}
+
+func TestPlatformAdminCannotSuspendSelf(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	err := db.SetPermanentBan(context.Background(), admin.ID, admin.ID, true)
+	if !errors.Is(err, ErrSelfAction) {
+		t.Fatalf("self suspension error = %v, want ErrSelfAction", err)
+	}
+}
+
 func TestDeleteUserAnonymizesAccountAndPreservesHistory(t *testing.T) {
 	db := newTestStore(t)
 	admin := bootstrapAdmin(t, db)

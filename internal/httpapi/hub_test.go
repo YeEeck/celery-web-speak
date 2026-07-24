@@ -107,6 +107,42 @@ func TestHubOrdinaryQueueOverflowStopsClient(t *testing.T) {
 	}
 }
 
+func TestHubDisconnectUserStopsAndUnsubscribesEveryClient(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	first := newClient(store.User{ID: 5})
+	first.guilds[10] = struct{}{}
+	second := newClient(store.User{ID: 5})
+	second.guilds[20] = struct{}{}
+	other := newClient(store.User{ID: 6})
+	other.guilds[10] = struct{}{}
+	hub.register(first)
+	hub.register(second)
+	hub.register(other)
+
+	hub.DisconnectUser(5)
+
+	for _, client := range []*client{first, second} {
+		select {
+		case <-client.done:
+		case <-time.After(time.Second):
+			t.Fatal("revoked client was not stopped")
+		}
+		if !client.revoked.Load() {
+			t.Fatal("stopped client was not marked revoked")
+		}
+	}
+	assertOnlineUserIDs(t, hub, []int64{6})
+	if got := hub.OnlineGuildUserIDs(20); len(got) != 0 {
+		t.Fatalf("revoked server subscriptions = %v", got)
+	}
+
+	// The connection handlers may still race to unregister after the Hub has
+	// already removed them. This must not change another user's presence.
+	hub.unregister(first, true)
+	hub.unregister(second, true)
+	assertOnlineUserIDs(t, hub, []int64{6})
+}
+
 func TestHubGuildBroadcastIsIsolated(t *testing.T) {
 	hub := newHub(15 * time.Second)
 	first := newClient(store.User{ID: 1})

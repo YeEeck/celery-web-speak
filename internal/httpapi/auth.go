@@ -128,7 +128,7 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrLastServerAdmin):
 		writeError(w, http.StatusConflict, "last_server_admin", "必须保留至少一名平台管理员")
 	case errors.Is(err, store.ErrSelfAction):
-		writeError(w, http.StatusBadRequest, "self_action", "不能删除自己的账号")
+		writeError(w, http.StatusBadRequest, "self_action", "不能对自己的账号执行此操作")
 	case errors.Is(err, store.ErrUsernameConfirm):
 		writeError(w, http.StatusBadRequest, "confirmation_mismatch", "输入的登录名与目标账号不一致")
 	case errors.Is(err, store.ErrLastChannel):
