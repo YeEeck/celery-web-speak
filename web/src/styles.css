@@ -172,7 +172,7 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .form-error { color: var(--danger-fg); font-size: 13px; }
 .form-success { color: var(--success-fg); font-size: 13px; }
 
-.app-shell { height: 100%; display: grid; grid-template-columns: 72px 300px minmax(360px, 1fr) 240px; grid-template-rows: minmax(0, 1fr); background: var(--main); }
+.app-shell { height: 100%; display: grid; grid-template-columns: 72px 300px minmax(360px, 1fr) 264px; grid-template-rows: minmax(0, 1fr); background: var(--main); }
 #voice-audio-root { position: fixed; width: 0; height: 0; overflow: hidden; }
 .server-rail { background: var(--rail); padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .server-button { position: relative; width: 46px; height: 46px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: transparent; cursor: pointer; flex: 0 0 auto; }
