@@ -21,6 +21,20 @@ type webSocketControlMessage struct {
 	Type string `json:"type"`
 }
 
+// parseClientKind reads the self-reported client kind from the WebSocket
+// query string. The value is untrusted and only used for display; unknown or
+// missing values are normalized to web.
+func parseClientKind(r *http.Request) ClientKind {
+	switch r.URL.Query().Get("client") {
+	case string(ClientElectron):
+		return ClientElectron
+	case string(ClientAndroid):
+		return ClientAndroid
+	default:
+		return ClientWeb
+	}
+}
+
 func (s *Server) RunPresenceBroadcaster(ctx context.Context) {
 	s.hub.RunPresenceBroadcaster(ctx, presenceBroadcastInterval)
 }
@@ -31,6 +45,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := newClient(currentUser(r))
+	c.clientType = parseClientKind(r)
 	servers, err := s.store.ListGuildsForUser(r.Context(), c.user.ID, false)
 	if err == nil {
 		ids := make([]int64, 0, len(servers))

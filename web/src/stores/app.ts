@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, request } from '../api'
-import type { BootstrapData, Channel, ChannelReadState, GuildMemberPayload, Message, ServerBootstrapData, ServerSummary, User, VoiceRoom } from '../types'
+import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildMemberPayload, Message, OnlineClient, ServerBootstrapData, ServerSummary, User, VoiceRoom } from '../types'
 import { useSoundStore } from './sounds'
 
 type AuthPayload = { user: User }
@@ -28,6 +28,7 @@ export const useAppStore = defineStore('app', () => {
   const activeTextChannelId = ref<number | null>(savedChannelID(activeServerId.value))
   const voiceRooms = ref<VoiceRoom[]>([])
   const onlineIds = ref<number[]>([])
+  const onlineClients = ref<Record<number, ClientType>>({})
   const socketStatus = ref<'offline' | 'connecting' | 'online'>('offline')
   let socket: WebSocket | null = null
   let reconnectTimer: number | undefined
@@ -83,7 +84,7 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem('cws.activeServerId', String(serverId))
     const members = data.members.map(mapGuildMember)
     const currentUser = { ...user.value!, voiceMuted: data.membership.voiceMuted, textMuted: data.membership.textMuted, permanentlyBanned: data.membership.permanentlyBanned, temporaryBanUntil: data.membership.temporaryBanUntil }
-    applyBootstrap({ user: currentUser, users: members, channels: data.channels, channelReadStates: data.channelReadStates, onlineIds: data.onlineIds, voiceRooms: data.voiceRooms })
+    applyBootstrap({ user: currentUser, users: members, channels: data.channels, channelReadStates: data.channelReadStates, online: data.online, voiceRooms: data.voiceRooms })
   }
 
   async function selectServer(serverId: number) {
@@ -101,7 +102,9 @@ export const useAppStore = defineStore('app', () => {
     channels.value = Array.isArray(data.channels) ? data.channels : []
     voiceRooms.value = Array.isArray(data.voiceRooms) ? data.voiceRooms : []
     channelReadStates.value = Object.fromEntries((data.channelReadStates ?? []).map((state) => [state.channelId, state]))
-    onlineIds.value = data.onlineIds ?? []
+    const online = data.online ?? []
+    onlineIds.value = online.map((entry) => entry.userId)
+    onlineClients.value = Object.fromEntries(online.map((entry) => [entry.userId, entry.client] as const))
     const currentChannelIDs = new Set(channels.value.map((channel) => channel.id))
     previousChannelIDs.forEach((channelID) => {
       if (!currentChannelIDs.has(channelID)) clearChannelState(channelID)
@@ -144,6 +147,7 @@ export const useAppStore = defineStore('app', () => {
       messageStates.value = {}
       voiceRooms.value = []
       onlineIds.value = []
+      onlineClients.value = {}
       activeTextChannelId.value = null
     }
   }
@@ -247,12 +251,18 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem(`cws.server.${activeServerId.value ?? 0}.channelAtBottom.${channelId}`, String(atBottom))
   }
 
+  function detectClientType(): ClientType {
+    if (window.desktopApplicationAudio !== undefined) return 'electron'
+    if (window.celeryShell !== undefined) return 'android'
+    return 'web'
+  }
+
   function connectSocket() {
     stopSocket()
     if (!user.value) return
     socketStatus.value = 'connecting'
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const connection = new WebSocket(`${protocol}//${location.host}/api/ws`)
+    const connection = new WebSocket(`${protocol}//${location.host}/api/ws?client=${detectClientType()}`)
     socket = connection
     connection.onopen = () => {
       synchronizingSocket = connection
@@ -307,7 +317,7 @@ export const useAppStore = defineStore('app', () => {
         if (socketActivityVersion !== activityVersion || serverBootstrapVersion !== bootstrapVersion || activeServerId.value !== serverId) continue
         const members = serverData.members.map(mapGuildMember)
         const currentUser = { ...data.user, voiceMuted: serverData.membership.voiceMuted, textMuted: serverData.membership.textMuted, permanentlyBanned: serverData.membership.permanentlyBanned, temporaryBanUntil: serverData.membership.temporaryBanUntil }
-        applyBootstrap({ user: currentUser, users: members, channels: serverData.channels, channelReadStates: serverData.channelReadStates, onlineIds: serverData.onlineIds, voiceRooms: serverData.voiceRooms }, true)
+        applyBootstrap({ user: currentUser, users: members, channels: serverData.channels, channelReadStates: serverData.channelReadStates, online: serverData.online, voiceRooms: serverData.voiceRooms }, true)
         const channelId = activeTextChannelId.value
         if (channelId !== null) await loadChannelMessages(channelId, true)
         if (socket !== connection) return
@@ -404,7 +414,9 @@ export const useAppStore = defineStore('app', () => {
       removeUser((data as { userId: number }).userId)
     } else if (type === 'presence') {
       const memberIDs = new Set(users.value.map((item) => item.id))
-      onlineIds.value = (data as number[]).filter((id) => memberIDs.has(id))
+      const online = (data as OnlineClient[]).filter((entry) => memberIDs.has(entry.userId))
+      onlineIds.value = online.map((entry) => entry.userId)
+      onlineClients.value = Object.fromEntries(online.map((entry) => [entry.userId, entry.client] as const))
     } else if (type === 'message_created') {
       const message = data as Message
       const state = ensureMessageState(message.channelId)
@@ -456,6 +468,7 @@ export const useAppStore = defineStore('app', () => {
     messageStates.value = {}
     voiceRooms.value = []
     onlineIds.value = []
+    onlineClients.value = {}
     activeTextChannelId.value = null
   }
 
@@ -552,6 +565,7 @@ export const useAppStore = defineStore('app', () => {
   function removeUser(userId: number) {
     users.value = users.value.filter((item) => item.id !== userId)
     onlineIds.value = onlineIds.value.filter((id) => id !== userId)
+    delete onlineClients.value[userId]
     Object.values(messageStates.value).forEach((state) => {
       state.messages = state.messages.map((message) => message.userId === userId
         ? { ...message, username: '', displayName: '已删除用户', role: 'member' }
@@ -566,7 +580,7 @@ export const useAppStore = defineStore('app', () => {
   return {
     ready, user, users, servers, activeServerId, activeServer, channels, textChannels, voiceChannels, activeTextChannelId, activeTextChannel,
     voiceRooms, messages, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
-    channelReadStates, onlineIds, socketStatus, isAdmin, isServerAdmin, isPlatformAdmin,
+    channelReadStates, onlineIds, onlineClients, socketStatus, isAdmin, isServerAdmin, isPlatformAdmin,
     initialize, bootstrap, loadServerBootstrap, selectServer, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh,
     sendMessage, loadEarlier, markActiveChannelRead, updateProfile, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,

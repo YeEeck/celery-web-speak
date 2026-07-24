@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Crown, ShieldCheck, X } from '@lucide/vue'
+import { Crown, Globe, Monitor, ShieldCheck, Smartphone, X } from '@lucide/vue'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
+import type { ClientType } from '../types'
 
 defineProps<{ drawer?: boolean }>()
 defineEmits<{ close: [] }>()
@@ -11,6 +12,9 @@ const app = useAppStore()
 const online = computed(() => sortedUsers.value.filter((user) => app.onlineIds.includes(user.id)))
 const offline = computed(() => sortedUsers.value.filter((user) => !app.onlineIds.includes(user.id)))
 const sortedUsers = computed(() => [...app.users].sort((a, b) => roleRank(b.role) - roleRank(a.role) || a.displayName.localeCompare(b.displayName, 'zh-CN')))
+
+const clientIcons = { web: Globe, electron: Monitor, android: Smartphone }
+const clientLabels: Record<ClientType, string> = { web: '网页端', electron: '桌面端', android: '安卓端' }
 
 function roleRank(role: string) {
   if (role === 'owner') return 2
@@ -27,6 +31,7 @@ function roleRank(role: string) {
       <div v-for="member in online" :key="member.id" class="member-row">
         <UserAvatar :name="member.displayName" :size="34" :online="true" />
         <span><strong>{{ member.displayName }}</strong><small>@{{ member.username }}</small></span>
+        <component :is="clientIcons[app.onlineClients[member.id] ?? 'web']" :size="14" class="client-type" :aria-label="clientLabels[app.onlineClients[member.id] ?? 'web']" />
         <Crown v-if="member.role === 'owner'" :size="15" class="server-role" aria-label="服务器所有者" />
         <ShieldCheck v-else-if="member.role === 'admin'" :size="15" class="channel-role" aria-label="服务器管理员" />
       </div>

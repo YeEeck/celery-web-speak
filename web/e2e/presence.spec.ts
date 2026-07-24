@@ -73,8 +73,8 @@ test('业务连接恢复后同步断线期间的频道和消息', async ({ isMob
   try {
     await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
     await expect.poll(async () => {
-      const bootstrap = await (await request.get(`/api/servers/${serverID}/bootstrap`)).json() as { onlineIds: number[] }
-      return bootstrap.onlineIds.includes(accountID)
+      const bootstrap = await (await request.get(`/api/servers/${serverID}/bootstrap`)).json() as { online: { userId: number; client: string }[] }
+      return bootstrap.online.some((entry) => entry.userId === accountID)
     }).toBe(false)
     const channelResponse = await request.post(`/api/servers/${serverID}/channels`, { data: { type: 'text', name: channelName } })
     expect(channelResponse.ok()).toBeTruthy()

@@ -1,6 +1,12 @@
 export type PlatformRole = 'member' | 'platform_admin'
 export type ChannelType = 'text' | 'voice'
 export type GuildRole = 'owner' | 'admin' | 'member'
+export type ClientType = 'web' | 'electron' | 'android'
+
+export interface OnlineClient {
+  userId: number
+  client: ClientType
+}
 
 export interface ServerSummary {
   id: number
@@ -89,7 +95,7 @@ export interface BootstrapData {
 	users?: User[]
 	messages?: Message[]
 	messagesHasMore?: boolean
-	onlineIds: number[]
+	online?: OnlineClient[]
 	channels?: Channel[]
 	channelReadStates?: ChannelReadState[]
 	voiceRooms?: VoiceRoom[]
@@ -114,7 +120,7 @@ export interface ServerBootstrapData {
   members: GuildMemberPayload[]
   channels: Channel[]
   channelReadStates: ChannelReadState[]
-  onlineIds: number[]
+  online: OnlineClient[]
   voiceRooms: VoiceRoom[]
 }
 

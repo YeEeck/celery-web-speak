@@ -172,7 +172,7 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .form-error { color: var(--danger-fg); font-size: 13px; }
 .form-success { color: var(--success-fg); font-size: 13px; }
 
-.app-shell { height: 100%; display: grid; grid-template-columns: 72px 300px minmax(360px, 1fr) 240px; grid-template-rows: minmax(0, 1fr); background: var(--main); }
+.app-shell { height: 100%; display: grid; grid-template-columns: 72px 300px minmax(360px, 1fr) 264px; grid-template-rows: minmax(0, 1fr); background: var(--main); }
 #voice-audio-root { position: fixed; width: 0; height: 0; overflow: hidden; }
 .server-rail { background: var(--rail); padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .server-button { position: relative; width: 46px; height: 46px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: transparent; cursor: pointer; flex: 0 0 auto; }
@@ -324,7 +324,7 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .member-row > span:nth-child(2) { min-width: 0; flex: 1; display: grid; }
 .member-row strong, .member-row small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .member-row small { color: var(--faint); font-size: 10px; }
-.member-row.offline { opacity: .48; }.server-role { color: var(--yellow); }.channel-role { color: var(--role-blue); }
+.member-row.offline { opacity: .48; }.client-type { color: var(--faint); flex-shrink: 0; }.server-role { color: var(--yellow); }.channel-role { color: var(--role-blue); }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px; background: rgba(0,0,0,.68); }
 .settings-panel, .admin-panel { width: min(720px, 100%); max-height: min(820px, calc(100vh - 48px)); display: grid; grid-template-rows: auto auto minmax(0,1fr) auto; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); box-shadow: 0 18px 55px rgba(0,0,0,.38); }

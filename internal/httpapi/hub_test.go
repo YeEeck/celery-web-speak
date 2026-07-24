@@ -132,7 +132,7 @@ func TestHubDisconnectUserStopsAndUnsubscribesEveryClient(t *testing.T) {
 		}
 	}
 	assertOnlineUserIDs(t, hub, []int64{6})
-	if got := hub.OnlineGuildUserIDs(20); len(got) != 0 {
+	if got := hub.OnlineGuildClients(20); len(got) != 0 {
 		t.Fatalf("revoked server subscriptions = %v", got)
 	}
 
@@ -226,11 +226,11 @@ func TestHubGuildPresenceIsIsolated(t *testing.T) {
 	hub.register(first)
 	hub.register(shared)
 	hub.register(other)
-	if got := hub.OnlineGuildUserIDs(10); !slices.Equal(got, []int64{1, 2}) {
-		t.Fatalf("guild 10 online IDs = %v", got)
+	if got := hub.OnlineGuildClients(10); !slices.Equal(got, []OnlineClient{{UserID: 1, Client: ClientWeb}, {UserID: 2, Client: ClientWeb}}) {
+		t.Fatalf("guild 10 online clients = %v", got)
 	}
-	if got := hub.OnlineGuildUserIDs(20); !slices.Equal(got, []int64{2, 3}) {
-		t.Fatalf("guild 20 online IDs = %v", got)
+	if got := hub.OnlineGuildClients(20); !slices.Equal(got, []OnlineClient{{UserID: 2, Client: ClientWeb}, {UserID: 3, Client: ClientWeb}}) {
+		t.Fatalf("guild 20 online clients = %v", got)
 	}
 }
 
@@ -247,14 +247,89 @@ func TestHubPeriodicallyRebroadcastsPresence(t *testing.T) {
 	assertPresenceSnapshot(t, client, []int64{4})
 }
 
+func TestHubClientTypePriorityPicksHighestAndFallsBack(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	web := newClient(store.User{ID: 3})
+	web.guilds[10] = struct{}{}
+	android := newClient(store.User{ID: 3})
+	android.guilds[10] = struct{}{}
+	android.clientType = ClientAndroid
+	electron := newClient(store.User{ID: 3})
+	electron.guilds[10] = struct{}{}
+	electron.clientType = ClientElectron
+
+	hub.register(web)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientWeb}})
+	hub.register(android)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientAndroid}})
+	hub.register(electron)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientElectron}})
+
+	// Dropping a connection falls back to the next-highest surviving client.
+	hub.unregister(electron, true)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientAndroid}})
+	hub.unregister(android, true)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientWeb}})
+	hub.unregister(web, true)
+	assertOnlineClients(t, hub, nil)
+}
+
+func TestHubPresenceBroadcastCarriesClientKind(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	observer := newClient(store.User{ID: 1})
+	observer.guilds[10] = struct{}{}
+	hub.register(observer)
+
+	electron := newClient(store.User{ID: 2})
+	electron.guilds[10] = struct{}{}
+	electron.clientType = ClientElectron
+	hub.register(electron)
+
+	assertPresenceClients(t, observer, []OnlineClient{
+		{UserID: 1, Client: ClientWeb},
+		{UserID: 2, Client: ClientElectron},
+	})
+}
+
 func assertOnlineUserIDs(t *testing.T, hub *Hub, want []int64) {
 	t.Helper()
-	if got := hub.OnlineUserIDs(); !slices.Equal(got, want) {
-		t.Fatalf("online user IDs = %v, want %v", got, want)
+	clients := hub.OnlineClients()
+	ids := make([]int64, 0, len(clients))
+	for _, c := range clients {
+		ids = append(ids, c.UserID)
+	}
+	if !slices.Equal(ids, want) {
+		t.Fatalf("online user IDs = %v, want %v", ids, want)
+	}
+}
+
+func assertOnlineClients(t *testing.T, hub *Hub, want []OnlineClient) {
+	t.Helper()
+	if got := hub.OnlineClients(); !slices.Equal(got, want) {
+		t.Fatalf("online clients = %v, want %v", got, want)
+	}
+}
+
+func assertPresenceClients(t *testing.T, client *client, want []OnlineClient) {
+	t.Helper()
+	if clients := decodePresenceClients(t, client); !slices.Equal(clients, want) {
+		t.Fatalf("presence clients = %v, want %v", clients, want)
 	}
 }
 
 func assertPresenceSnapshot(t *testing.T, client *client, want []int64) {
+	t.Helper()
+	clients := decodePresenceClients(t, client)
+	ids := make([]int64, 0, len(clients))
+	for _, c := range clients {
+		ids = append(ids, c.UserID)
+	}
+	if !slices.Equal(ids, want) {
+		t.Fatalf("presence IDs = %v, want %v", ids, want)
+	}
+}
+
+func decodePresenceClients(t *testing.T, client *client) []OnlineClient {
 	t.Helper()
 	select {
 	case payload := <-client.presence:
@@ -269,14 +344,13 @@ func assertPresenceSnapshot(t *testing.T, client *client, want []int64) {
 		if err != nil {
 			t.Fatalf("encode presence data: %v", err)
 		}
-		var ids []int64
-		if err := json.Unmarshal(data, &ids); err != nil {
-			t.Fatalf("decode presence IDs: %v", err)
+		var clients []OnlineClient
+		if err := json.Unmarshal(data, &clients); err != nil {
+			t.Fatalf("decode presence clients: %v", err)
 		}
-		if !slices.Equal(ids, want) {
-			t.Fatalf("presence IDs = %v, want %v", ids, want)
-		}
+		return clients
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for presence snapshot")
+		return nil
 	}
 }
