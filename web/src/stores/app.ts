@@ -78,6 +78,7 @@ export const useAppStore = defineStore('app', () => {
     activeServerId.value = serverId
     const data = await request<ServerBootstrapData>(`/api/servers/${serverId}/bootstrap`)
     if (version !== serverBootstrapVersion || activeServerId.value !== serverId) return
+    updateServerMembershipRole(serverId, data.membership.role)
     activeTextChannelId.value = savedChannelID(serverId)
     localStorage.setItem('cws.activeServerId', String(serverId))
     const members = data.members.map(mapGuildMember)
@@ -380,7 +381,12 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function handleEvent(type: string, data: unknown, serverId?: number) {
-    if (serverId && type !== 'server_added' && type !== 'server_removed' && serverId !== activeServerId.value) return
+    if (serverId && (type === 'member_added' || type === 'member_updated')) {
+      const member = data as GuildMemberPayload
+      if (member.userId === user.value?.id) updateServerMembershipRole(serverId, member.role)
+      if (serverId !== activeServerId.value) return
+    }
+    if (serverId && type !== 'server_added' && type !== 'server_removed' && type !== 'server_updated' && serverId !== activeServerId.value) return
     if (type === 'server_added') {
       void bootstrap()
     } else if (type === 'server_removed') {
@@ -394,10 +400,6 @@ export const useAppStore = defineStore('app', () => {
     } else if (type === 'member_added' || type === 'member_updated') {
       const member = data as GuildMemberPayload
       upsertUser(mapGuildMember(member))
-      if (member.userId === user.value?.id && serverId) {
-        const serverIndex = servers.value.findIndex((server) => server.id === serverId)
-        if (serverIndex >= 0) servers.value[serverIndex] = { ...servers.value[serverIndex], role: member.role === 'owner' || member.role === 'admin' ? member.role : 'member' }
-      }
     } else if (type === 'member_removed') {
       removeUser((data as { userId: number }).userId)
     } else if (type === 'presence') {
@@ -540,6 +542,11 @@ export const useAppStore = defineStore('app', () => {
     if (index >= 0) users.value[index] = { ...users.value[index], ...update }
     else if (isCompleteUser(update)) users.value.push(update)
     if (user.value?.id === update.id) user.value = { ...user.value, ...update }
+  }
+
+  function updateServerMembershipRole(serverId: number, role: GuildMemberPayload['role']) {
+    const serverIndex = servers.value.findIndex((server) => server.id === serverId)
+    if (serverIndex >= 0) servers.value[serverIndex] = { ...servers.value[serverIndex], role }
   }
 
   function removeUser(userId: number) {
