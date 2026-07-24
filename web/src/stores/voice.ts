@@ -26,7 +26,7 @@ import {
   type ApplicationAudioState,
   type DesktopApplicationAudioBridge,
 } from '../audio/applicationAudioBridge'
-import type { Role, User, VoiceCredentials } from '../types'
+import type { Channel, Role, User, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
 import { useSoundStore } from './sounds'
 
@@ -66,6 +66,7 @@ export const useVoiceStore = defineStore('voice', () => {
   const connectedServerId = ref<number | null>(null)
   const connectedServerName = ref('')
   const connectedChannelName = ref('')
+  const connectedPublishSettings = ref(defaultConnectedPublishSettings())
   const errorMessage = ref('')
   const muted = ref(false)
   const deafened = ref(false)
@@ -121,7 +122,8 @@ export const useVoiceStore = defineStore('voice', () => {
   const applicationAudioChanging = computed(() => applicationAudioOperating.value || ['selecting', 'starting', 'stopping'].includes(applicationAudioState.value))
   const participants = computed(() => {
     const app = useAppStore()
-    return [...participantStates.value].sort((a, b) => compareParticipants(a, b, app.users))
+    const connectedUsers = app.activeServerId === connectedServerId.value ? app.users : []
+    return [...participantStates.value].sort((a, b) => compareParticipants(a, b, connectedUsers))
   })
 
   // 页面关闭时主动通知后端离开语音频道，避免依赖 LiveKit 的断开检测延迟（关闭标签页/窗口时
@@ -169,6 +171,7 @@ export const useVoiceStore = defineStore('voice', () => {
       connectedServerId.value = app.activeServerId
       connectedServerName.value = app.activeServer?.name ?? ''
       connectedChannelName.value = channel.name
+      setConnectedChannelSettings(channel)
       bindRoom(nextRoom)
       await nextRoom.connect(credentials.url, credentials.token, { autoSubscribe: true, maxRetries: 5 })
       await nextRoom.startAudio()
@@ -187,10 +190,7 @@ export const useVoiceStore = defineStore('voice', () => {
       participantSoundsReady = false
       room?.disconnect()
       room = null
-      connectedChannelId.value = null
-      connectedServerId.value = null
-      connectedServerName.value = ''
-      connectedChannelName.value = ''
+      clearConnectedChannelSummary()
       status.value = 'error'
       errorMessage.value = error instanceof Error ? error.message : '无法连接语音频道'
       throw error
@@ -207,10 +207,7 @@ export const useVoiceStore = defineStore('voice', () => {
       room.disconnect()
       room = null
     }
-    connectedChannelId.value = null
-    connectedServerId.value = null
-    connectedServerName.value = ''
-    connectedChannelName.value = ''
+    clearConnectedChannelSummary()
     document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove())
     participantStates.value = []
     status.value = 'idle'
@@ -447,6 +444,22 @@ export const useVoiceStore = defineStore('voice', () => {
     syncParticipants()
   }
 
+  function updateConnectedChannelSettings(channel: Channel) {
+    if (channel.id !== connectedChannelId.value) return { microphoneChanged: false, backgroundAudioChanged: false }
+    const previous = connectedPublishSettings.value
+    const next = {
+      audioBitrateKbps: channel.audioBitrateKbps ?? 64,
+      backgroundAudioBitrateKbps: channel.backgroundAudioBitrateKbps ?? 128,
+      audioRedEnabled: channel.audioRedEnabled ?? true,
+      backgroundAudioRedEnabled: channel.backgroundAudioRedEnabled ?? false,
+    }
+    setConnectedChannelSettings(channel)
+    return {
+      microphoneChanged: previous.audioBitrateKbps !== next.audioBitrateKbps || previous.audioRedEnabled !== next.audioRedEnabled,
+      backgroundAudioChanged: previous.backgroundAudioBitrateKbps !== next.backgroundAudioBitrateKbps || previous.backgroundAudioRedEnabled !== next.backgroundAudioRedEnabled,
+    }
+  }
+
   async function syncServerMute(serverMuted: boolean) {
     if (!room || !serverMuted) return
     const target = room
@@ -504,7 +517,7 @@ export const useVoiceStore = defineStore('voice', () => {
           voiceSession += 1
           participantSoundsReady = false
           room = null
-          connectedChannelId.value = null
+          clearConnectedChannelSummary()
           status.value = 'idle'
           participantStates.value = []
           muted.value = false
@@ -916,23 +929,40 @@ export const useVoiceStore = defineStore('voice', () => {
     return match ? Number(match[1]) : 0
   }
 
+  function setConnectedChannelSettings(channel: Channel) {
+    connectedPublishSettings.value = {
+      audioBitrateKbps: channel.audioBitrateKbps ?? 64,
+      backgroundAudioBitrateKbps: channel.backgroundAudioBitrateKbps ?? 128,
+      audioRedEnabled: channel.audioRedEnabled ?? true,
+      backgroundAudioRedEnabled: channel.backgroundAudioRedEnabled ?? false,
+    }
+  }
+
+  function clearConnectedChannelSummary() {
+    connectedChannelId.value = null
+    connectedServerId.value = null
+    connectedServerName.value = ''
+    connectedChannelName.value = ''
+    connectedPublishSettings.value = defaultConnectedPublishSettings()
+  }
+
   function publishOptions() {
-    const channel = useAppStore().voiceChannels.find((item) => item.id === connectedChannelId.value)
+    const settings = connectedPublishSettings.value
     return {
-      audioPreset: { maxBitrate: (channel?.audioBitrateKbps ?? 64) * 1000 },
+      audioPreset: { maxBitrate: settings.audioBitrateKbps * 1000 },
       dtx: true,
-      red: channel?.audioRedEnabled ?? true,
+      red: settings.audioRedEnabled,
       forceStereo: false,
     }
   }
 
   function applicationAudioPublishOptions() {
-    const channel = useAppStore().voiceChannels.find((item) => item.id === connectedChannelId.value)
+    const settings = connectedPublishSettings.value
     return {
       source: Track.Source.ScreenShareAudio,
-      audioPreset: { maxBitrate: (channel?.backgroundAudioBitrateKbps ?? 128) * 1000 },
+      audioPreset: { maxBitrate: settings.backgroundAudioBitrateKbps * 1000 },
       dtx: false,
-      red: channel?.backgroundAudioRedEnabled ?? false,
+      red: settings.backgroundAudioRedEnabled,
       forceStereo: true,
     }
   }
@@ -1032,11 +1062,21 @@ export const useVoiceStore = defineStore('voice', () => {
     stopApplicationAudio,
     setApplicationAudioVolume,
     applyPublishSettingsChange,
+    updateConnectedChannelSettings,
     syncServerMute,
     retryDeafenedSync,
     refreshDevices,
   }
 })
+
+function defaultConnectedPublishSettings() {
+  return {
+    audioBitrateKbps: 64,
+    backgroundAudioBitrateKbps: 128,
+    audioRedEnabled: true,
+    backgroundAudioRedEnabled: false,
+  }
+}
 
 function clampVolume(value: number) {
   return Number.isFinite(value) ? Math.max(0, Math.min(MAX_VOLUME, value)) : DEFAULT_VOLUME
