@@ -145,7 +145,7 @@ func (s *Store) CreateGuild(ctx context.Context, actorID int64, name, ownerUsern
 	}
 	defer tx.Rollback()
 	var ownerID int64
-	err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE username = ? AND deleted_at IS NULL AND suspended_at IS NULL`, strings.TrimSpace(ownerUsername)).Scan(&ownerID)
+	err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE username = ? AND deleted_at IS NULL AND suspended_at IS NULL AND permanently_banned = 0`, strings.TrimSpace(ownerUsername)).Scan(&ownerID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Guild{}, ErrNotFound
 	}
@@ -206,7 +206,7 @@ func (s *Store) AddGuildMember(ctx context.Context, guildID, actorID int64, user
 	}
 	defer tx.Rollback()
 	var userID int64
-	err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE username = ? AND deleted_at IS NULL AND suspended_at IS NULL`, strings.TrimSpace(username)).Scan(&userID)
+	err = tx.QueryRowContext(ctx, `SELECT id FROM users WHERE username = ? AND deleted_at IS NULL AND suspended_at IS NULL AND permanently_banned = 0`, strings.TrimSpace(username)).Scan(&userID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return GuildMember{}, ErrNotFound
 	}

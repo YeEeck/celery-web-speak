@@ -108,8 +108,12 @@ func (s *Store) SetPermanentBan(ctx context.Context, actorID, userID int64, bann
 		return err
 	}
 	defer tx.Rollback()
+	var suspendedAt any
+	if banned {
+		suspendedAt = formatTime(s.now())
+	}
 	result, err := tx.ExecContext(ctx, `
-UPDATE users SET permanently_banned = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`, banned, formatTime(s.now()), userID)
+UPDATE users SET permanently_banned = ?, suspended_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`, banned, suspendedAt, formatTime(s.now()), userID)
 	if err != nil {
 		return err
 	}
@@ -223,6 +227,13 @@ func (s *Store) DeleteUser(ctx context.Context, actorID, userID int64, confirmat
 	}
 	if confirmationUsername != username {
 		return ErrUsernameConfirm
+	}
+	var ownedGuilds int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM guilds WHERE owner_user_id = ?", userID).Scan(&ownedGuilds); err != nil {
+		return err
+	}
+	if ownedGuilds > 0 {
+		return ErrGuildOwnerTransferRequired
 	}
 	if role == RoleServerAdmin {
 		var count int

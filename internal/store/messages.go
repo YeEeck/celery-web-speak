@@ -226,6 +226,12 @@ func (s *Store) DeleteChannelMessage(ctx context.Context, actorID, channelID, me
 		return err
 	}
 	defer tx.Rollback()
+	var guildID int64
+	if err := tx.QueryRowContext(ctx, "SELECT guild_id FROM channels WHERE id = ?", channelID).Scan(&guildID); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE id = ? AND channel_id = ?", messageID, channelID)
 	if err != nil {
 		return err
@@ -233,7 +239,7 @@ func (s *Store) DeleteChannelMessage(ctx context.Context, actorID, channelID, me
 	if count, _ := result.RowsAffected(); count == 0 {
 		return ErrNotFound
 	}
-	if err := insertAudit(ctx, tx, actorID, nil, "delete_message", fmt.Sprintf("channel_id=%d message_id=%d", channelID, messageID)); err != nil {
+	if err := insertGuildAudit(ctx, tx, guildID, actorID, nil, "delete_message", fmt.Sprintf("channel_id=%d message_id=%d", channelID, messageID)); err != nil {
 		return err
 	}
 	return tx.Commit()

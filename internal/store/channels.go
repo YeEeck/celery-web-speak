@@ -175,7 +175,7 @@ func (s *Store) UpdateChannel(ctx context.Context, actorID, channelID int64, nam
 		return Channel{}, err
 	}
 	details := fmt.Sprintf("channel_id=%d type=%s name=%q bitrate=%d background_bitrate=%d audio_red=%t background_audio_red=%t retention=%d", channelID, channel.Type, name, audioBitrateKbps, backgroundAudioBitrateKbps, audioRedEnabled, backgroundAudioRedEnabled, messageRetention)
-	if err := insertAudit(ctx, tx, actorID, nil, "update_channel", details); err != nil {
+	if err := insertGuildAudit(ctx, tx, channel.GuildID, actorID, nil, "update_channel", details); err != nil {
 		return Channel{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -209,7 +209,7 @@ FROM channels WHERE id = ?`, channelID))
 	if _, err := tx.ExecContext(ctx, "DELETE FROM channels WHERE id = ?", channelID); err != nil {
 		return Channel{}, err
 	}
-	if err := insertAudit(ctx, tx, actorID, nil, "delete_channel", fmt.Sprintf("channel_id=%d type=%s name=%q", channel.ID, channel.Type, channel.Name)); err != nil {
+	if err := insertGuildAudit(ctx, tx, channel.GuildID, actorID, nil, "delete_channel", fmt.Sprintf("channel_id=%d type=%s name=%q", channel.ID, channel.Type, channel.Name)); err != nil {
 		return Channel{}, err
 	}
 	if err := tx.Commit(); err != nil {

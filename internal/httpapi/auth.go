@@ -137,6 +137,8 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "channel_limit", "同类型频道数量已达到上限")
 	case errors.Is(err, store.ErrChannelNameExists):
 		writeError(w, http.StatusConflict, "channel_name_exists", "同类型频道名称已存在")
+	case errors.Is(err, store.ErrGuildOwnerTransferRequired):
+		writeError(w, http.StatusConflict, "guild_owner_transfer_required", "请先转让或删除该账号拥有的服务器")
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 	}
