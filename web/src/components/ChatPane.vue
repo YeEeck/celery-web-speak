@@ -192,8 +192,8 @@ function formatTime(value: string) {
 }
 
 function roleLabel(role: string) {
-  if (role === 'server_admin') return '服务器管理员'
-  if (role === 'channel_admin') return '频道管理员'
+  if (role === 'server_admin') return '服务器所有者'
+  if (role === 'channel_admin') return '服务器管理员'
   return ''
 }
 </script>

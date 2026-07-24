@@ -567,6 +567,13 @@ func TestDeleteUserAnonymizesAccountAndPreservesHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defaultGuildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, defaultGuildID, admin.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
 	invite, err := db.CreateInvite(ctx, target.ID, 2, time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)

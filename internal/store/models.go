@@ -31,6 +31,16 @@ const (
 
 func (r GuildRole) IsAdmin() bool { return r == GuildRoleOwner || r == GuildRoleAdmin }
 
+func legacyRoleForGuildRole(role GuildRole) Role {
+	if role == GuildRoleOwner {
+		return RoleServerAdmin
+	}
+	if role == GuildRoleAdmin {
+		return RoleChannelAdmin
+	}
+	return RoleMember
+}
+
 type Guild struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`

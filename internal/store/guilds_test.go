@@ -119,3 +119,49 @@ func TestGuildMembershipIsolation(t *testing.T) {
 		t.Fatalf("default membership error = %v", err)
 	}
 }
+
+func TestGuildMessagesUseEffectiveServerRoles(t *testing.T) {
+	db := newTestStore(t)
+	platformAdmin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	owner, err := db.CreateUser(ctx, "message_owner", "消息所有者", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guild, err := db.CreateGuild(ctx, platformAdmin.ID, "消息角色服务器", owner.Username)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.JoinGuildAsAdmin(ctx, guild.ID, platformAdmin.ID); err != nil {
+		t.Fatal(err)
+	}
+	channels, err := db.ListGuildChannels(ctx, guild.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var textChannel Channel
+	for _, channel := range channels {
+		if channel.Type == ChannelTypeText {
+			textChannel = channel
+			break
+		}
+	}
+	ownerMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, owner, "所有者消息")
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, platformAdmin, "管理员消息")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ownerMessage.Role != RoleServerAdmin || adminMessage.Role != RoleChannelAdmin {
+		t.Fatalf("created message roles = %q/%q", ownerMessage.Role, adminMessage.Role)
+	}
+	messages, _, err := db.ListGuildChannelMessages(ctx, guild.ID, textChannel.ID, 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 || messages[0].Role != RoleServerAdmin || messages[1].Role != RoleChannelAdmin {
+		t.Fatalf("listed message roles = %+v", messages)
+	}
+}

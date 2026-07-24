@@ -27,8 +27,8 @@ function roleRank(role: string) {
       <div v-for="member in online" :key="member.id" class="member-row">
         <UserAvatar :name="member.displayName" :size="34" :online="true" />
         <span><strong>{{ member.displayName }}</strong><small>@{{ member.username }}</small></span>
-        <Crown v-if="member.role === 'server_admin'" :size="15" class="server-role" aria-label="服务器管理员" />
-        <ShieldCheck v-else-if="member.role === 'channel_admin'" :size="15" class="channel-role" aria-label="频道管理员" />
+        <Crown v-if="member.role === 'server_admin'" :size="15" class="server-role" aria-label="服务器所有者" />
+        <ShieldCheck v-else-if="member.role === 'channel_admin'" :size="15" class="channel-role" aria-label="服务器管理员" />
       </div>
     </section>
     <section v-if="offline.length">
@@ -36,8 +36,8 @@ function roleRank(role: string) {
       <div v-for="member in offline" :key="member.id" class="member-row offline">
         <UserAvatar :name="member.displayName" :size="34" />
         <span><strong>{{ member.displayName }}</strong><small>@{{ member.username }}</small></span>
-        <Crown v-if="member.role === 'server_admin'" :size="15" class="server-role" />
-        <ShieldCheck v-else-if="member.role === 'channel_admin'" :size="15" class="channel-role" />
+        <Crown v-if="member.role === 'server_admin'" :size="15" class="server-role" aria-label="服务器所有者" />
+        <ShieldCheck v-else-if="member.role === 'channel_admin'" :size="15" class="channel-role" aria-label="服务器管理员" />
       </div>
     </section>
   </aside>

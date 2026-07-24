@@ -24,52 +24,7 @@ func (s *Store) ListChannelMessages(ctx context.Context, channelID, beforeID int
 	if channel.Type != ChannelTypeText {
 		return nil, false, errors.New("messages require a text channel")
 	}
-	if limit < 1 || limit > 100 {
-		limit = 50
-	}
-	query := `
-	SELECT m.id, m.channel_id, m.user_id,
-       CASE WHEN u.deleted_at IS NULL THEN u.username ELSE '' END,
-       CASE WHEN u.deleted_at IS NULL THEN u.display_name ELSE '已删除用户' END,
-       CASE WHEN u.deleted_at IS NULL THEN u.role ELSE 'member' END,
-       m.content, m.created_at
-	FROM messages m JOIN users u ON u.id = m.user_id
-	WHERE m.channel_id = ?`
-	args := []any{channelID}
-	if beforeID > 0 {
-		query += " AND m.id < ?"
-		args = append(args, beforeID)
-	}
-	query += " ORDER BY m.id DESC LIMIT ?"
-	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, false, err
-	}
-	defer rows.Close()
-
-	var reversed []Message
-	for rows.Next() {
-		var message Message
-		var createdAt string
-		if err := rows.Scan(&message.ID, &message.ChannelID, &message.UserID, &message.Username, &message.DisplayName, &message.Role, &message.Content, &createdAt); err != nil {
-			return nil, false, err
-		}
-		message.CreatedAt, _ = parseTime(createdAt)
-		reversed = append(reversed, message)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, false, err
-	}
-	hasMore := len(reversed) > limit
-	if hasMore {
-		reversed = reversed[:limit]
-	}
-	messages := make([]Message, len(reversed))
-	for i := range reversed {
-		messages[len(reversed)-1-i] = reversed[i]
-	}
-	return messages, hasMore, nil
+	return s.listChannelMessages(ctx, channelID, beforeID, limit)
 }
 
 func (s *Store) ListGuildChannelMessages(ctx context.Context, guildID, channelID, beforeID int64, limit int) ([]Message, bool, error) {
@@ -87,7 +42,20 @@ func (s *Store) listChannelMessages(ctx context.Context, channelID, beforeID int
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
-	query := `SELECT m.id, m.channel_id, m.user_id, CASE WHEN u.deleted_at IS NULL THEN u.username ELSE '' END, CASE WHEN u.deleted_at IS NULL THEN u.display_name ELSE '已删除用户' END, CASE WHEN u.deleted_at IS NULL THEN u.role ELSE 'member' END, m.content, m.created_at FROM messages m JOIN users u ON u.id = m.user_id WHERE m.channel_id = ?`
+	query := `SELECT m.id, m.channel_id, m.user_id,
+CASE WHEN u.deleted_at IS NULL THEN u.username ELSE '' END,
+CASE WHEN u.deleted_at IS NULL THEN u.display_name ELSE '已删除用户' END,
+CASE WHEN u.deleted_at IS NOT NULL THEN 'member'
+     WHEN g.owner_user_id = u.id THEN 'server_admin'
+     WHEN gm.role = 'admin' THEN 'channel_admin'
+     ELSE 'member' END,
+m.content, m.created_at
+FROM messages m
+JOIN channels c ON c.id = m.channel_id
+JOIN guilds g ON g.id = c.guild_id
+JOIN users u ON u.id = m.user_id
+LEFT JOIN guild_members gm ON gm.guild_id = c.guild_id AND gm.user_id = u.id
+WHERE m.channel_id = ?`
 	args := []any{channelID}
 	if beforeID > 0 {
 		query += " AND m.id < ?"
@@ -133,37 +101,11 @@ func (s *Store) CreateMessage(ctx context.Context, user User, content string) (M
 }
 
 func (s *Store) CreateChannelMessage(ctx context.Context, channelID int64, user User, content string) (Message, error) {
-	content = strings.TrimSpace(content)
-	if content == "" || len([]rune(content)) > 2000 {
-		return Message{}, errors.New("message must contain 1 to 2000 characters")
-	}
-	if user.TextMuted {
-		return Message{}, errors.New("text muted")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	channel, err := s.ChannelByID(ctx, channelID)
 	if err != nil {
 		return Message{}, err
 	}
-	defer tx.Rollback()
-	now := s.now()
-	var retention int
-	if err := tx.QueryRowContext(ctx, "SELECT message_retention FROM channels WHERE id = ? AND type = 'text'", channelID).Scan(&retention); errors.Is(err, sql.ErrNoRows) {
-		return Message{}, ErrNotFound
-	} else if err != nil {
-		return Message{}, err
-	}
-	result, err := tx.ExecContext(ctx, "INSERT INTO messages (channel_id, user_id, content, created_at) VALUES (?, ?, ?, ?)", channelID, user.ID, content, formatTime(now))
-	if err != nil {
-		return Message{}, err
-	}
-	if err := trimChannelMessages(ctx, tx, channelID, retention); err != nil {
-		return Message{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return Message{}, err
-	}
-	id, _ := result.LastInsertId()
-	return Message{ID: id, ChannelID: channelID, UserID: user.ID, Username: user.Username, DisplayName: user.DisplayName, Role: user.Role, Content: content, CreatedAt: now}, nil
+	return s.CreateGuildChannelMessage(ctx, channel.GuildID, channelID, user, content)
 }
 
 func (s *Store) CreateGuildChannelMessage(ctx context.Context, guildID, channelID int64, user User, content string) (Message, error) {
@@ -178,7 +120,9 @@ func (s *Store) CreateGuildChannelMessage(ctx context.Context, guildID, channelI
 	if member.TextMuted {
 		return Message{}, errors.New("text muted")
 	}
-	return s.createChannelMessage(ctx, channel, user, content)
+	message, err := s.createChannelMessage(ctx, channel, user, content)
+	message.Role = legacyRoleForGuildRole(member.Role)
+	return message, err
 }
 
 func (s *Store) createChannelMessage(ctx context.Context, channel Channel, user User, content string) (Message, error) {
