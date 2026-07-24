@@ -136,6 +136,7 @@ func (s *Server) handlePlatformJoinServer(w http.ResponseWriter, r *http.Request
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.AddUserGuild(member.UserID, member.GuildID)
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
 
@@ -165,10 +166,28 @@ func (s *Server) handlePlatformDeleteServer(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "invalid_id", "服务器编号无效")
 		return
 	}
+	channels, err := s.store.ListGuildChannels(r.Context(), guildID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
 	if err := s.store.DeleteGuild(r.Context(), guildID, currentUser(r).ID); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	if err := s.media.RemoveGuildParticipants(ctx, guildID); err != nil {
+		s.logger.Warn("remove deleted server voice participants", "guild_id", guildID, "error", err)
+	}
+	for _, channel := range channels {
+		if channel.Type == store.ChannelTypeVoice {
+			if err := s.media.DeleteGuildRoom(ctx, guildID, channel.ID); err != nil {
+				s.logger.Warn("delete deleted server voice room", "guild_id", guildID, "channel_id", channel.ID, "error", err)
+			}
+		}
+	}
+	cancel()
+	s.hub.RemoveGuild(guildID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -228,6 +247,7 @@ func (s *Server) handleServerRename(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.BroadcastGuild(guildID, "server_updated", guild)
 	writeJSON(w, http.StatusOK, map[string]any{"server": guild})
 }
 
@@ -253,6 +273,7 @@ func (s *Server) handleServerAddMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.hub.AddUserGuild(member.UserID, member.GuildID)
+	s.hub.BroadcastGuild(member.GuildID, "member_added", member)
 	writeJSON(w, http.StatusCreated, map[string]any{"member": member})
 }
 
@@ -261,12 +282,21 @@ func (s *Server) handleServerRemoveMember(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
+	if userID == currentUser(r).ID {
+		writeError(w, http.StatusBadRequest, "self_action", "请使用离开服务器操作")
+		return
+	}
+	if !s.guildCanManageTarget(w, r, userID, currentUser(r).IsPlatformAdmin || guildMembership(r).Role == store.GuildRoleOwner) {
+		return
+	}
+	guildID := guildMembership(r).GuildID
 	if err := s.store.RemoveGuildMember(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, userID); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
-	s.hub.RemoveUserGuild(userID, guildMembership(r).GuildID)
-	s.hub.BroadcastGuild(guildMembership(r).GuildID, "server_removed", map[string]any{"userId": userID})
+	s.hub.RemoveUserGuild(userID, guildID)
+	s.removeFromGuildVoice(r, guildID, userID)
+	s.hub.BroadcastGuild(guildID, "member_removed", map[string]any{"userId": userID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -290,6 +320,7 @@ func (s *Server) handleServerMemberRole(w http.ResponseWriter, r *http.Request) 
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.BroadcastGuild(guildMembership(r).GuildID, "member_updated", member)
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
 
@@ -321,11 +352,16 @@ func (s *Server) handleServerMemberMute(w http.ResponseWriter, r *http.Request) 
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	member, err := s.store.SetGuildMemberMute(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, targetID, input.VoiceMuted, input.TextMuted)
+	guildID := guildMembership(r).GuildID
+	member, err := s.store.SetGuildMemberMute(r.Context(), guildID, currentUser(r).ID, targetID, input.VoiceMuted, input.TextMuted)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
+	if err := s.media.SetGuildCanPublish(r.Context(), targetID, guildID, !input.VoiceMuted); err != nil {
+		s.logger.Warn("sync server voice mute", "guild_id", guildID, "user_id", targetID, "error", err)
+	}
+	s.hub.BroadcastGuild(guildID, "member_updated", member)
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
 
@@ -344,14 +380,20 @@ func (s *Server) handleServerMemberBan(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	member, err := s.store.SetGuildMemberBan(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, targetID, input.Banned, input.TemporaryBanUntil)
+	guildID := guildMembership(r).GuildID
+	member, err := s.store.SetGuildMemberBan(r.Context(), guildID, currentUser(r).ID, targetID, input.Banned, input.TemporaryBanUntil)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
 	if input.Banned || input.TemporaryBanUntil != nil {
-		s.removeFromVoice(r, targetID)
+		s.hub.RemoveUserGuild(targetID, guildID)
+		s.removeFromGuildVoice(r, guildID, targetID)
+		s.scheduleGuildMembershipRestore(guildID, targetID, input.TemporaryBanUntil)
+	} else {
+		s.hub.AddUserGuild(targetID, guildID)
 	}
+	s.hub.BroadcastGuild(guildID, "member_updated", member)
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
 
@@ -363,11 +405,14 @@ func (s *Server) handleServerClearTemporaryBan(w http.ResponseWriter, r *http.Re
 	if !s.guildCanManageTarget(w, r, targetID, currentUser(r).IsPlatformAdmin || guildMembership(r).Role == store.GuildRoleOwner) {
 		return
 	}
-	member, err := s.store.ClearGuildMemberTemporaryBan(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, targetID)
+	guildID := guildMembership(r).GuildID
+	member, err := s.store.ClearGuildMemberTemporaryBan(r.Context(), guildID, currentUser(r).ID, targetID)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.AddUserGuild(targetID, guildID)
+	s.hub.BroadcastGuild(guildID, "member_updated", member)
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
 
@@ -377,6 +422,9 @@ func (s *Server) handleServerLeave(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.RemoveUserGuild(currentUser(r).ID, member.GuildID)
+	s.removeFromGuildVoice(r, member.GuildID, currentUser(r).ID)
+	s.hub.BroadcastGuild(member.GuildID, "member_removed", map[string]any{"userId": currentUser(r).ID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -393,6 +441,7 @@ func (s *Server) handleServerChannels(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.BroadcastGuild(channel.GuildID, "channel_created", channel)
 	writeJSON(w, http.StatusCreated, map[string]any{"channel": channel})
 }
 
@@ -428,6 +477,7 @@ func (s *Server) handleServerUpdateChannel(w http.ResponseWriter, r *http.Reques
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.BroadcastGuild(channel.GuildID, "channel_updated", channel)
 	writeJSON(w, http.StatusOK, map[string]any{"channel": channel})
 }
 
@@ -445,6 +495,14 @@ func (s *Server) handleServerDeleteChannel(w http.ResponseWriter, r *http.Reques
 		s.writeStoreError(w, err)
 		return
 	}
+	if channel.Type == store.ChannelTypeVoice {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		if err := s.media.DeleteGuildRoom(ctx, channel.GuildID, channel.ID); err != nil {
+			s.logger.Warn("delete server voice room", "guild_id", channel.GuildID, "channel_id", channel.ID, "error", err)
+		}
+		cancel()
+	}
+	s.hub.BroadcastGuild(channel.GuildID, "channel_deleted", map[string]any{"id": channel.ID, "type": channel.Type})
 	writeJSON(w, http.StatusOK, map[string]any{"channel": channel})
 }
 
@@ -508,6 +566,7 @@ func (s *Server) handleServerDeleteMessage(w http.ResponseWriter, r *http.Reques
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.BroadcastGuild(guildMembership(r).GuildID, "message_deleted", map[string]int64{"channelId": channelID, "id": messageID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -525,6 +584,7 @@ func (s *Server) handleServerRead(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
+	s.hub.BroadcastGuild(guildMembership(r).GuildID, "channel_read", map[string]any{"userId": currentUser(r).ID, "readState": state})
 	writeJSON(w, http.StatusOK, map[string]any{"readState": state})
 }
 
@@ -570,4 +630,32 @@ func (s *Server) handleServerVoiceState(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) removeFromGuildVoice(r *http.Request, guildID, userID int64) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	if err := s.media.RemoveParticipantFromGuild(ctx, userID, guildID); err != nil {
+		s.logger.Warn("remove server voice participant", "guild_id", guildID, "user_id", userID, "error", err)
+	}
+	s.broadcastVoiceRooms(ctx)
+}
+
+func (s *Server) scheduleGuildMembershipRestore(guildID, userID int64, until *time.Time) {
+	if until == nil {
+		return
+	}
+	delay := time.Until(*until)
+	if delay < 0 {
+		delay = 0
+	}
+	time.AfterFunc(delay, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		member, err := s.store.GuildMembership(ctx, guildID, userID)
+		if err == nil && !member.PermanentlyBanned && (member.TemporaryBanUntil == nil || !member.TemporaryBanUntil.After(time.Now())) {
+			s.hub.AddUserGuild(userID, guildID)
+			s.hub.BroadcastGuild(guildID, "member_updated", member)
+		}
+	})
 }

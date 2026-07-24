@@ -146,7 +146,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
-	s.hub.Broadcast("user_updated", user)
+	s.hub.BroadcastUser(user.ID, "user_updated", user)
 	writeJSON(w, http.StatusCreated, map[string]any{"user": user})
 }
 
@@ -179,7 +179,7 @@ func (s *Server) handleSetMute(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	updated, _ := s.store.UserByID(r.Context(), targetID)
-	s.hub.Broadcast("user_updated", updated)
+	s.hub.BroadcastUser(targetID, "user_updated", updated)
 	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
 }
 
@@ -199,7 +199,7 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, _ := s.store.UserByID(r.Context(), targetID)
-	s.hub.Broadcast("user_updated", updated)
+	s.hub.BroadcastUser(targetID, "user_updated", updated)
 	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
 }
 
@@ -244,7 +244,7 @@ func (s *Server) handleKick(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.DisconnectUser(targetID)
 	s.removeFromVoice(r, targetID)
-	s.hub.Broadcast("user_updated", map[string]any{"id": targetID, "temporaryBanUntil": input.Until})
+	s.hub.BroadcastUser(targetID, "user_updated", map[string]any{"id": targetID, "temporaryBanUntil": input.Until})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -261,7 +261,7 @@ func (s *Server) handleClearTemporaryBan(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	updated, _ := s.store.UserByID(r.Context(), targetID)
-	s.hub.Broadcast("user_updated", updated)
+	s.hub.BroadcastUser(targetID, "user_updated", updated)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -289,7 +289,7 @@ func (s *Server) handlePermanentBan(w http.ResponseWriter, r *http.Request) {
 		s.removeFromVoice(r, targetID)
 	}
 	updated, _ := s.store.UserByID(r.Context(), targetID)
-	s.hub.Broadcast("user_updated", updated)
+	s.hub.BroadcastUser(targetID, "user_updated", updated)
 	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
 }
 
@@ -310,7 +310,7 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.DisconnectUser(targetID)
 	s.removeFromVoice(r, targetID)
-	s.hub.Broadcast("user_deleted", map[string]int64{"id": targetID})
+	s.hub.BroadcastUser(targetID, "user_deleted", map[string]int64{"id": targetID})
 	w.WriteHeader(http.StatusNoContent)
 }
 

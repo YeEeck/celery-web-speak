@@ -113,7 +113,7 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	if err := s.media.UpdateName(r.Context(), user.ID, user.DisplayName); err != nil {
 		s.logger.Warn("update livekit participant name", "user_id", user.ID, "error", err)
 	}
-	s.hub.Broadcast("user_updated", user)
+	s.hub.BroadcastUser(user.ID, "user_updated", user)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
 

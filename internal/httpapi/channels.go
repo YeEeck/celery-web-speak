@@ -22,13 +22,17 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
-	s.hub.Broadcast("channel_created", channel)
+	s.hub.BroadcastGuild(channel.GuildID, "channel_created", channel)
 	writeJSON(w, http.StatusCreated, map[string]any{"channel": channel})
 }
 
 func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "id")
 	if !ok {
+		return
+	}
+	if _, err := s.store.GuildChannelByID(r.Context(), guildMembership(r).GuildID, channelID); err != nil {
+		s.writeStoreError(w, err)
 		return
 	}
 	var input struct {
@@ -55,13 +59,17 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
-	s.hub.Broadcast("channel_updated", channel)
+	s.hub.BroadcastGuild(channel.GuildID, "channel_updated", channel)
 	writeJSON(w, http.StatusOK, map[string]any{"channel": channel})
 }
 
 func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "id")
 	if !ok {
+		return
+	}
+	if _, err := s.store.GuildChannelByID(r.Context(), guildMembership(r).GuildID, channelID); err != nil {
+		s.writeStoreError(w, err)
 		return
 	}
 	channel, err := s.store.DeleteChannel(r.Context(), currentUser(r).ID, channelID)
@@ -71,20 +79,25 @@ func (s *Server) handleDeleteChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	if channel.Type == store.ChannelTypeVoice {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-		err := s.media.DeleteRoom(ctx, channel.ID)
+		err := s.media.DeleteGuildRoom(ctx, channel.GuildID, channel.ID)
 		cancel()
 		if err != nil {
 			s.logger.Warn("delete livekit room", "channel_id", channel.ID, "error", err)
 		}
 		s.broadcastVoiceRooms(r.Context())
 	}
-	s.hub.Broadcast("channel_deleted", map[string]any{"id": channel.ID, "type": channel.Type})
+	s.hub.BroadcastGuild(channel.GuildID, "channel_deleted", map[string]any{"id": channel.ID, "type": channel.Type})
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleListChannelMessages(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "id")
 	if !ok {
+		return
+	}
+	channel, err := s.store.ChannelByID(r.Context(), channelID)
+	if err != nil || channel.GuildID != guildMembership(r).GuildID {
+		writeError(w, http.StatusNotFound, "not_found", "频道不存在")
 		return
 	}
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
@@ -100,6 +113,11 @@ func (s *Server) handleListChannelMessages(w http.ResponseWriter, r *http.Reques
 func (s *Server) handleCreateChannelMessage(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "id")
 	if !ok {
+		return
+	}
+	channel, err := s.store.ChannelByID(r.Context(), channelID)
+	if err != nil || channel.GuildID != guildMembership(r).GuildID {
+		writeError(w, http.StatusNotFound, "not_found", "频道不存在")
 		return
 	}
 	user := currentUser(r)
@@ -122,7 +140,7 @@ func (s *Server) handleCreateChannelMessage(w http.ResponseWriter, r *http.Reque
 		}
 		return
 	}
-	s.hub.Broadcast("message_created", message)
+	s.hub.BroadcastGuild(channel.GuildID, "message_created", message)
 	writeJSON(w, http.StatusCreated, map[string]any{"message": message})
 }
 
@@ -135,11 +153,16 @@ func (s *Server) handleDeleteChannelMessage(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	channel, err := s.store.ChannelByID(r.Context(), channelID)
+	if err != nil || channel.GuildID != guildMembership(r).GuildID {
+		writeError(w, http.StatusNotFound, "not_found", "频道不存在")
+		return
+	}
 	if err := s.store.DeleteChannelMessage(r.Context(), currentUser(r).ID, channelID, messageID); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
-	s.hub.Broadcast("message_deleted", map[string]int64{"channelId": channelID, "id": messageID})
+	s.hub.BroadcastGuild(channel.GuildID, "message_deleted", map[string]int64{"channelId": channelID, "id": messageID})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -148,12 +171,17 @@ func (s *Server) handleMarkChannelRead(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	channel, err := s.store.ChannelByID(r.Context(), channelID)
+	if err != nil || channel.GuildID != guildMembership(r).GuildID {
+		writeError(w, http.StatusNotFound, "not_found", "频道不存在")
+		return
+	}
 	state, err := s.store.MarkChannelRead(r.Context(), currentUser(r).ID, channelID)
 	if err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
-	s.hub.Broadcast("channel_read", map[string]any{"userId": currentUser(r).ID, "readState": state})
+	s.hub.BroadcastGuild(channel.GuildID, "channel_read", map[string]any{"userId": currentUser(r).ID, "readState": state})
 	writeJSON(w, http.StatusOK, map[string]any{"readState": state})
 }
 
@@ -167,11 +195,15 @@ func (s *Server) handleChannelVoiceToken(w http.ResponseWriter, r *http.Request)
 		s.writeStoreError(w, err)
 		return
 	}
+	if channel.GuildID != guildMembership(r).GuildID {
+		writeError(w, http.StatusNotFound, "not_found", "频道不存在")
+		return
+	}
 	if channel.Type != store.ChannelTypeVoice {
 		writeError(w, http.StatusBadRequest, "invalid_channel_type", "该频道不是语音频道")
 		return
 	}
-	credentials, err := s.media.JoinCredentials(r.Context(), currentUser(r), channelID)
+	credentials, err := s.media.JoinGuildCredentials(r.Context(), currentUser(r), guildMembership(r), channelID)
 	if err != nil {
 		s.internalError(w, "create voice token", err)
 		return
@@ -182,6 +214,11 @@ func (s *Server) handleChannelVoiceToken(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleChannelVoiceState(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "id")
 	if !ok {
+		return
+	}
+	channel, err := s.store.ChannelByID(r.Context(), channelID)
+	if err != nil || channel.GuildID != guildMembership(r).GuildID {
+		writeError(w, http.StatusNotFound, "not_found", "频道不存在")
 		return
 	}
 	var state struct {

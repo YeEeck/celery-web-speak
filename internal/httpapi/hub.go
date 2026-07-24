@@ -208,10 +208,30 @@ func (h *Hub) BroadcastGuild(guildID int64, eventType string, data any) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients {
-		if len(c.guilds) > 0 {
-			if _, ok := c.guilds[guildID]; !ok {
-				continue
-			}
+		if _, ok := c.guilds[guildID]; !ok {
+			continue
+		}
+		select {
+		case c.send <- payload:
+		default:
+			c.stop()
+		}
+	}
+}
+
+// BroadcastUser sends account changes only to the account's own connections
+// and connections that share at least one subscribed server with it.
+func (h *Hub) BroadcastUser(userID int64, eventType string, data any) {
+	payload, err := json.Marshal(event{Type: eventType, Data: data})
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	targetGuilds := h.memberships[userID]
+	for c := range h.clients {
+		if c.user.ID != userID && !guildSetsIntersect(c.guilds, targetGuilds) {
+			continue
 		}
 		select {
 		case c.send <- payload:
@@ -279,10 +299,48 @@ func (h *Hub) RemoveUserGuild(userID, guildID int64) {
 	h.BroadcastPresence()
 }
 
-func (h *Hub) onlineIDsForGuildLocked(c *client) []int64 {
-	if len(c.guilds) == 0 {
-		return h.onlineIDsLocked()
+// RemoveGuild removes a server subscription from every connected member and
+// sends a targeted server_removed event. It is used when a server is deleted.
+func (h *Hub) RemoveGuild(guildID int64) {
+	h.mu.Lock()
+	for userID, guilds := range h.memberships {
+		delete(guilds, guildID)
+		if len(guilds) == 0 {
+			delete(h.memberships, userID)
+		}
 	}
+	for c := range h.clients {
+		if _, ok := c.guilds[guildID]; !ok {
+			continue
+		}
+		delete(c.guilds, guildID)
+		payload, _ := json.Marshal(event{Type: "server_removed", ServerID: guildID, Data: map[string]any{"serverId": guildID}})
+		select {
+		case c.send <- payload:
+		default:
+			c.stop()
+		}
+	}
+	h.mu.Unlock()
+	h.BroadcastPresence()
+}
+
+func guildSetsIntersect(first, second map[int64]struct{}) bool {
+	if len(first) == 0 || len(second) == 0 {
+		return false
+	}
+	if len(first) > len(second) {
+		first, second = second, first
+	}
+	for guildID := range first {
+		if _, ok := second[guildID]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Hub) onlineIDsForGuildLocked(c *client) []int64 {
 	ids := make([]int64, 0, len(h.counts))
 	for id := range h.counts {
 		for guildID := range c.guilds {

@@ -71,13 +71,16 @@ func TestHubReconnectDuringLeaseDoesNotGoOffline(t *testing.T) {
 func TestHubPresenceSnapshotReplacesPendingValue(t *testing.T) {
 	hub := newHub(15 * time.Second)
 	observer := newClient(store.User{ID: 1})
+	observer.guilds[10] = struct{}{}
 	hub.register(observer)
 	for range cap(observer.send) {
 		observer.send <- []byte(`{"type":"message_created"}`)
 	}
 
 	second := newClient(store.User{ID: 2})
+	second.guilds[10] = struct{}{}
 	third := newClient(store.User{ID: 3})
+	third.guilds[10] = struct{}{}
 	hub.register(second)
 	hub.register(third)
 
@@ -126,6 +129,55 @@ func TestHubGuildBroadcastIsIsolated(t *testing.T) {
 	}
 }
 
+func TestHubGuildBroadcastExcludesClientsWithoutServerMembership(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	member := newClient(store.User{ID: 1})
+	member.guilds[10] = struct{}{}
+	noServers := newClient(store.User{ID: 2})
+	hub.register(member)
+	hub.register(noServers)
+
+	hub.BroadcastGuild(10, "message_created", map[string]int64{"id": 1})
+	select {
+	case <-member.send:
+	case <-time.After(time.Second):
+		t.Fatal("guild member did not receive event")
+	}
+	select {
+	case <-noServers.send:
+		t.Fatal("client without a server membership received event")
+	default:
+	}
+	assertPresenceSnapshot(t, noServers, nil)
+}
+
+func TestHubUserBroadcastRequiresSharedServer(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	target := newClient(store.User{ID: 1})
+	target.guilds[10] = struct{}{}
+	shared := newClient(store.User{ID: 2})
+	shared.guilds[10] = struct{}{}
+	other := newClient(store.User{ID: 3})
+	other.guilds[20] = struct{}{}
+	hub.register(target)
+	hub.register(shared)
+	hub.register(other)
+
+	hub.BroadcastUser(1, "user_updated", map[string]int64{"id": 1})
+	for _, client := range []*client{target, shared} {
+		select {
+		case <-client.send:
+		case <-time.After(time.Second):
+			t.Fatal("shared server client did not receive account event")
+		}
+	}
+	select {
+	case <-other.send:
+		t.Fatal("unrelated server client received account event")
+	default:
+	}
+}
+
 func TestHubGuildPresenceIsIsolated(t *testing.T) {
 	hub := newHub(15 * time.Second)
 	first := newClient(store.User{ID: 1})
@@ -149,6 +201,7 @@ func TestHubGuildPresenceIsIsolated(t *testing.T) {
 func TestHubPeriodicallyRebroadcastsPresence(t *testing.T) {
 	hub := newHub(15 * time.Second)
 	client := newClient(store.User{ID: 4})
+	client.guilds[10] = struct{}{}
 	hub.register(client)
 	assertPresenceSnapshot(t, client, []int64{4})
 

@@ -57,7 +57,7 @@ func (s *Server) handleCreateMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	s.hub.Broadcast("message_created", message)
+	s.hub.BroadcastGuild(guildMembership(r).GuildID, "message_created", message)
 	writeJSON(w, http.StatusCreated, map[string]any{"message": message})
 }
 
@@ -70,7 +70,7 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
-	s.hub.Broadcast("message_deleted", map[string]int64{"id": id})
+	s.hub.BroadcastGuild(guildMembership(r).GuildID, "message_deleted", map[string]int64{"id": id})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -80,7 +80,7 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "get default voice channel", err)
 		return
 	}
-	credentials, err := s.media.JoinCredentials(r.Context(), currentUser(r), channel.ID)
+	credentials, err := s.media.JoinGuildCredentials(r.Context(), currentUser(r), guildMembership(r), channel.ID)
 	if err != nil {
 		s.internalError(w, "create voice token", err)
 		return

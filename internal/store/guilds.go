@@ -241,9 +241,23 @@ func (s *Store) AddGuildMember(ctx context.Context, guildID, actorID int64, user
 }
 
 func (s *Store) JoinGuildAsAdmin(ctx context.Context, guildID, userID int64) (GuildMember, error) {
-	now := formatTime(s.now())
-	_, err := s.db.ExecContext(ctx, `INSERT INTO guild_members (guild_id, user_id, role, joined_at, updated_at) VALUES (?, ?, 'admin', ?, ?) ON CONFLICT(guild_id, user_id) DO UPDATE SET role = 'admin', updated_at = excluded.updated_at WHERE guild_members.permanently_banned = 0`, guildID, userID, now, now)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return GuildMember{}, err
+	}
+	defer tx.Rollback()
+	now := formatTime(s.now())
+	result, err := tx.ExecContext(ctx, `INSERT INTO guild_members (guild_id, user_id, role, joined_at, updated_at) VALUES (?, ?, 'admin', ?, ?) ON CONFLICT(guild_id, user_id) DO UPDATE SET role = 'admin', updated_at = excluded.updated_at WHERE guild_members.permanently_banned = 0`, guildID, userID, now, now)
+	if err != nil {
+		return GuildMember{}, err
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return GuildMember{}, ErrGuildMemberBanned
+	}
+	if err := insertGuildAudit(ctx, tx, guildID, userID, &userID, "join_guild_as_platform_admin", ""); err != nil {
+		return GuildMember{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return GuildMember{}, err
 	}
 	return s.GuildMembership(ctx, guildID, userID)

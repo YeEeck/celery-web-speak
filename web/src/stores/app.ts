@@ -370,6 +370,15 @@ export const useAppStore = defineStore('app', () => {
       const removedServerId = serverId ?? (data as { serverId?: number }).serverId
       servers.value = servers.value.filter((server) => server.id !== removedServerId)
       if (removedServerId === activeServerId.value) { activeServerId.value = null; void bootstrap() }
+    } else if (type === 'server_updated') {
+      const server = data as ServerSummary
+      const index = servers.value.findIndex((item) => item.id === server.id)
+      if (index >= 0) servers.value[index] = { ...servers.value[index], ...server }
+    } else if (type === 'member_added' || type === 'member_updated') {
+      const member = data as { userId: number; username: string; displayName: string; role: string; voiceMuted: boolean; textMuted: boolean; permanentlyBanned: boolean; joinedAt: string }
+      upsertUser({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role === 'owner' ? 'server_admin' : member.role === 'admin' ? 'channel_admin' : 'member', voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt } as User)
+    } else if (type === 'member_removed') {
+      removeUser((data as { userId: number }).userId)
     } else if (type === 'presence') {
       const memberIDs = new Set(users.value.map((item) => item.id))
       onlineIds.value = (data as number[]).filter((id) => memberIDs.has(id))

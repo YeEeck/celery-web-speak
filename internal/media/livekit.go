@@ -196,6 +196,19 @@ func (s *Service) SetCanPublish(ctx context.Context, userID int64, canPublish bo
 	return err
 }
 
+func (s *Service) SetGuildCanPublish(ctx context.Context, userID, guildID int64, canPublish bool) error {
+	target := s.currentTarget(userID)
+	if target.ChannelID == 0 || target.GuildID != guildID {
+		return nil
+	}
+	_, err := s.room.UpdateParticipant(ctx, &livekit.UpdateParticipantRequest{
+		Room:       target.roomName(),
+		Identity:   Identity(userID),
+		Permission: voiceParticipantPermission(canPublish),
+	})
+	return err
+}
+
 func voicePublishSources() []livekit.TrackSource {
 	return []livekit.TrackSource{
 		livekit.TrackSource_MICROPHONE,
@@ -286,6 +299,34 @@ func (s *Service) RemoveParticipant(ctx context.Context, userID int64) error {
 	return result
 }
 
+// RemoveParticipantFromGuild revokes a user's current voice connection only
+// when that connection belongs to the specified server. A connection in a
+// different server must remain active.
+func (s *Service) RemoveParticipantFromGuild(ctx context.Context, userID, guildID int64) error {
+	target := s.currentTarget(userID)
+	if target.ChannelID == 0 || target.GuildID != guildID {
+		return nil
+	}
+	return s.RemoveParticipant(ctx, userID)
+}
+
+// RemoveGuildParticipants revokes all current voice targets in a server.
+func (s *Service) RemoveGuildParticipants(ctx context.Context, guildID int64) error {
+	s.mu.RLock()
+	userIDs := make([]int64, 0)
+	for userID, target := range s.targets {
+		if target.GuildID == guildID && target.ChannelID > 0 {
+			userIDs = append(userIDs, userID)
+		}
+	}
+	s.mu.RUnlock()
+	var result error
+	for _, userID := range userIDs {
+		result = errors.Join(result, s.RemoveParticipantFromGuild(ctx, userID, guildID))
+	}
+	return result
+}
+
 func (s *Service) DeleteRoom(ctx context.Context, channelID int64) error {
 	s.mu.Lock()
 	delete(s.rooms, channelID)
@@ -298,6 +339,21 @@ func (s *Service) DeleteRoom(ctx context.Context, channelID int64) error {
 	s.revision++
 	s.mu.Unlock()
 	_, err := s.room.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: RoomName(channelID)})
+	return err
+}
+
+func (s *Service) DeleteGuildRoom(ctx context.Context, guildID, channelID int64) error {
+	s.mu.Lock()
+	delete(s.rooms, channelID)
+	for userID, target := range s.targets {
+		if target.GuildID == guildID && target.ChannelID == channelID {
+			target.ChannelID = 0
+			s.targets[userID] = target
+		}
+	}
+	s.revision++
+	s.mu.Unlock()
+	_, err := s.room.DeleteRoom(ctx, &livekit.DeleteRoomRequest{Room: GuildRoomName(guildID, channelID)})
 	return err
 }
 
