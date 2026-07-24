@@ -332,6 +332,7 @@ SQLite 对现有约束的修改需要重建受影响的表。迁移前的生产�
 ```text
 GET    /api/platform/servers
 POST   /api/platform/servers
+PATCH  /api/platform/servers/{serverID}
 PATCH  /api/platform/servers/{serverID}/owner
 DELETE /api/platform/servers/{serverID}
 POST   /api/platform/servers/{serverID}/join

@@ -125,6 +125,14 @@ func (s *Server) handlePlatformCreateServer(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusCreated, map[string]any{"server": guild})
 }
 
+func (s *Server) handlePlatformRenameServer(w http.ResponseWriter, r *http.Request) {
+	guildID, ok := parsePathID(w, r, "serverID")
+	if !ok {
+		return
+	}
+	s.renameServer(w, r, guildID)
+}
+
 func (s *Server) handlePlatformJoinServer(w http.ResponseWriter, r *http.Request) {
 	guildID, err := guildIDFromRequest(r)
 	if err != nil {
@@ -232,10 +240,14 @@ func (s *Server) mustGuild(r *http.Request, id int64) store.Guild {
 
 func (s *Server) handleServerRename(w http.ResponseWriter, r *http.Request) {
 	guildID := guildMembership(r).GuildID
-	if guildMembership(r).Role != store.GuildRoleOwner {
+	if guildMembership(r).Role != store.GuildRoleOwner && !currentUser(r).IsPlatformAdmin {
 		writeError(w, http.StatusForbidden, "forbidden", "只有服务器所有者可以重命名")
 		return
 	}
+	s.renameServer(w, r, guildID)
+}
+
+func (s *Server) renameServer(w http.ResponseWriter, r *http.Request, guildID int64) {
 	var input struct {
 		Name string `json:"name"`
 	}

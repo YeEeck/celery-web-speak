@@ -135,6 +135,101 @@ func TestPlatformResetPasswordRevokesSessions(t *testing.T) {
 	}
 }
 
+func TestServerRenamePermissions(t *testing.T) {
+	db, admin, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	owner, err := db.CreateUser(ctx, "rename_owner", "重命名所有者", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guild, err := db.CreateGuild(ctx, admin.ID, "重命名前", owner.Username)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminToken, _, err := db.CreateSession(ctx, admin.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerToken, _, err := db.CreateSession(ctx, owner.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := serveGuildHTTPRequest(server, adminToken, http.MethodPatch, "/api/platform/servers/"+formatID(guild.ID), `{"name":"平台重命名"}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("platform rename = %d %s", recorder.Code, recorder.Body.String())
+	}
+	updated, err := db.GuildByID(ctx, guild.ID)
+	if err != nil || updated.Name != "平台重命名" {
+		t.Fatalf("platform renamed guild = %#v, err = %v", updated, err)
+	}
+
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/platform/servers/"+formatID(guild.ID), `{"name":"越权重命名"}`)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("non-platform rename = %d, want 403", recorder.Code)
+	}
+
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/servers/"+formatID(guild.ID), `{"name":"所有者重命名"}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("owner rename = %d %s", recorder.Code, recorder.Body.String())
+	}
+	updated, err = db.GuildByID(ctx, guild.ID)
+	if err != nil || updated.Name != "所有者重命名" {
+		t.Fatalf("owner renamed guild = %#v, err = %v", updated, err)
+	}
+}
+
+func TestServerMemberLeaveAndRemoval(t *testing.T) {
+	db, admin, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaving, err := db.CreateUser(ctx, "leaving_member", "主动离开成员", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	removed, err := db.CreateUser(ctx, "removed_member", "被移出成员", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []store.User{leaving, removed} {
+		if _, err := db.AddGuildMember(ctx, guildID, admin.ID, user.Username); err != nil {
+			t.Fatal(err)
+		}
+	}
+	leavingToken, _, err := db.CreateSession(ctx, leaving.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminToken, _, err := db.CreateSession(ctx, admin.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := serveGuildHTTPRequest(server, leavingToken, http.MethodPost, "/api/servers/"+formatID(guildID)+"/leave", "")
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("member leave = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := db.GuildMembership(ctx, guildID, leaving.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("leaving membership error = %v, want ErrNotFound", err)
+	}
+
+	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPost, "/api/servers/"+formatID(guildID)+"/leave", "")
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("owner leave = %d, want 400", recorder.Code)
+	}
+
+	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPost, "/api/servers/"+formatID(guildID)+"/members/"+formatID(removed.ID)+"/kick", "")
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("remove member = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := db.GuildMembership(ctx, guildID, removed.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("removed membership error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestGuildAuthorizationDoesNotCrossServerThroughLegacyOrScopedRoutes(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()

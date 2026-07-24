@@ -70,6 +70,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/bootstrap", s.requireAuth(http.HandlerFunc(s.handleBootstrap)))
 	mux.Handle("GET /api/platform/servers", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformServers)))
 	mux.Handle("POST /api/platform/servers", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformCreateServer)))
+	mux.Handle("PATCH /api/platform/servers/{serverID}", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformRenameServer)))
 	mux.Handle("PATCH /api/platform/servers/{serverID}/owner", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformServerOwner)))
 	mux.Handle("DELETE /api/platform/servers/{serverID}", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformDeleteServer)))
 	mux.Handle("POST /api/platform/servers/{serverID}/join", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformJoinServer)))
