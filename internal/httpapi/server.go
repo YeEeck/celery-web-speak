@@ -68,36 +68,45 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/me", s.requireAuth(http.HandlerFunc(s.handleMe)))
 	mux.Handle("PATCH /api/me", s.requireAuth(http.HandlerFunc(s.handleUpdateMe)))
 	mux.Handle("GET /api/bootstrap", s.requireAuth(http.HandlerFunc(s.handleBootstrap)))
-	mux.Handle("POST /api/channels", s.requireAdmin(http.HandlerFunc(s.handleCreateChannel)))
-	mux.Handle("PATCH /api/channels/{id}", s.requireAdmin(http.HandlerFunc(s.handleUpdateChannel)))
-	mux.Handle("DELETE /api/channels/{id}", s.requireAdmin(http.HandlerFunc(s.handleDeleteChannel)))
-	mux.Handle("GET /api/channels/{id}/messages", s.requireAuth(http.HandlerFunc(s.handleListChannelMessages)))
-	mux.Handle("POST /api/channels/{id}/messages", s.requireAuth(http.HandlerFunc(s.handleCreateChannelMessage)))
-	mux.Handle("DELETE /api/channels/{channelID}/messages/{messageID}", s.requireAdmin(http.HandlerFunc(s.handleDeleteChannelMessage)))
-	mux.Handle("POST /api/channels/{id}/read", s.requireAuth(http.HandlerFunc(s.handleMarkChannelRead)))
-	mux.Handle("POST /api/channels/{id}/voice/token", s.requireAuth(http.HandlerFunc(s.handleChannelVoiceToken)))
-	mux.Handle("PATCH /api/channels/{id}/voice/state", s.requireAuth(http.HandlerFunc(s.handleChannelVoiceState)))
-	mux.Handle("GET /api/messages", s.requireAuth(http.HandlerFunc(s.handleListMessages)))
-	mux.Handle("POST /api/messages", s.requireAuth(http.HandlerFunc(s.handleCreateMessage)))
-	mux.Handle("DELETE /api/messages/{id}", s.requireAdmin(http.HandlerFunc(s.handleDeleteMessage)))
+	mux.Handle("GET /api/platform/servers", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformServers)))
+	mux.Handle("POST /api/platform/servers", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformCreateServer)))
+	mux.Handle("PATCH /api/platform/servers/{serverID}", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformRenameServer)))
+	mux.Handle("PATCH /api/platform/servers/{serverID}/owner", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformServerOwner)))
+	mux.Handle("DELETE /api/platform/servers/{serverID}", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformDeleteServer)))
+	mux.Handle("POST /api/platform/servers/{serverID}/join", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformJoinServer)))
+	mux.Handle("GET /api/platform/users", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformUsers)))
+	mux.Handle("POST /api/platform/users", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformCreateUser)))
+	mux.Handle("PATCH /api/platform/users/{id}/role", s.requirePlatformAdmin(http.HandlerFunc(s.handleSetPlatformRole)))
+	mux.Handle("POST /api/platform/users/{id}/reset-password", s.requirePlatformAdmin(http.HandlerFunc(s.handleResetPassword)))
+	mux.Handle("PATCH /api/platform/users/{id}/suspend", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformSuspend)))
+	mux.Handle("DELETE /api/platform/users/{id}", s.requirePlatformAdmin(http.HandlerFunc(s.handleDeleteUser)))
+	mux.Handle("GET /api/platform/invites", s.requirePlatformAdmin(http.HandlerFunc(s.handleListInvites)))
+	mux.Handle("POST /api/platform/invites", s.requirePlatformAdmin(http.HandlerFunc(s.handleCreateInvite)))
+	mux.Handle("DELETE /api/platform/invites/{id}", s.requirePlatformAdmin(http.HandlerFunc(s.handleRevokeInvite)))
+	mux.Handle("DELETE /api/platform/invites/{id}/permanent", s.requirePlatformAdmin(http.HandlerFunc(s.handleDeleteInvite)))
+	mux.Handle("GET /api/servers/{serverID}/bootstrap", s.requireGuildMember(http.HandlerFunc(s.handleServerBootstrap)))
+	mux.Handle("PATCH /api/servers/{serverID}", s.requireGuildMember(http.HandlerFunc(s.handleServerRename)))
+	mux.Handle("POST /api/servers/{serverID}/leave", s.requireGuildMember(http.HandlerFunc(s.handleServerLeave)))
+	mux.Handle("GET /api/servers/{serverID}/members", s.requireGuildMember(http.HandlerFunc(s.handleServerMembers)))
+	mux.Handle("POST /api/servers/{serverID}/members", s.requireGuildAdmin(http.HandlerFunc(s.handleServerAddMember)))
+	mux.Handle("PATCH /api/servers/{serverID}/members/{userID}/role", s.requireGuildAdmin(http.HandlerFunc(s.handleServerMemberRole)))
+	mux.Handle("PATCH /api/servers/{serverID}/members/{userID}/mute", s.requireGuildAdmin(http.HandlerFunc(s.handleServerMemberMute)))
+	mux.Handle("PATCH /api/servers/{serverID}/members/{userID}/ban", s.requireGuildAdmin(http.HandlerFunc(s.handleServerMemberBan)))
+	mux.Handle("DELETE /api/servers/{serverID}/members/{userID}/temporary-ban", s.requireGuildAdmin(http.HandlerFunc(s.handleServerClearTemporaryBan)))
+	mux.Handle("POST /api/servers/{serverID}/members/{userID}/kick", s.requireGuildAdmin(http.HandlerFunc(s.handleServerRemoveMember)))
+	mux.Handle("POST /api/servers/{serverID}/channels", s.requireGuildAdmin(http.HandlerFunc(s.handleServerChannels)))
+	mux.Handle("PATCH /api/servers/{serverID}/channels/{channelID}", s.requireGuildAdmin(http.HandlerFunc(s.handleServerUpdateChannel)))
+	mux.Handle("DELETE /api/servers/{serverID}/channels/{channelID}", s.requireGuildAdmin(http.HandlerFunc(s.handleServerDeleteChannel)))
+	mux.Handle("GET /api/servers/{serverID}/channels/{channelID}/messages", s.requireGuildMember(http.HandlerFunc(s.handleServerMessages)))
+	mux.Handle("POST /api/servers/{serverID}/channels/{channelID}/messages", s.requireGuildMember(http.HandlerFunc(s.handleServerCreateMessage)))
+	mux.Handle("POST /api/servers/{serverID}/channels/{channelID}/voice/token", s.requireGuildMember(http.HandlerFunc(s.handleServerVoiceToken)))
+	mux.Handle("PATCH /api/servers/{serverID}/channels/{channelID}/voice/state", s.requireGuildMember(http.HandlerFunc(s.handleServerVoiceState)))
+	mux.Handle("POST /api/servers/{serverID}/voice/leave", s.requireGuildMember(http.HandlerFunc(s.handleServerVoiceLeave)))
+	mux.Handle("DELETE /api/servers/{serverID}/channels/{channelID}/messages/{messageID}", s.requireGuildAdmin(http.HandlerFunc(s.handleServerDeleteMessage)))
+	mux.Handle("POST /api/servers/{serverID}/channels/{channelID}/read", s.requireGuildMember(http.HandlerFunc(s.handleServerRead)))
 	mux.Handle("GET /api/ws", s.requireAuth(http.HandlerFunc(s.handleWebSocket)))
-	mux.Handle("POST /api/voice/token", s.requireAuth(http.HandlerFunc(s.handleVoiceToken)))
-	mux.Handle("POST /api/voice/leave", s.requireAuth(http.HandlerFunc(s.handleVoiceLeave)))
-	mux.Handle("PATCH /api/voice/state", s.requireAuth(http.HandlerFunc(s.handleVoiceState)))
-	mux.Handle("GET /api/admin/invites", s.requireServerAdmin(http.HandlerFunc(s.handleListInvites)))
 	mux.Handle("GET /api/version", s.requireAuth(http.HandlerFunc(s.handleVersion)))
 	mux.Handle("GET /api/changelog", s.requireAuth(http.HandlerFunc(s.handleChangelog)))
-	mux.Handle("POST /api/admin/invites", s.requireServerAdmin(http.HandlerFunc(s.handleCreateInvite)))
-	mux.Handle("DELETE /api/admin/invites/{id}", s.requireServerAdmin(http.HandlerFunc(s.handleRevokeInvite)))
-	mux.Handle("DELETE /api/admin/invites/{id}/permanent", s.requireServerAdmin(http.HandlerFunc(s.handleDeleteInvite)))
-	mux.Handle("POST /api/admin/users", s.requireServerAdmin(http.HandlerFunc(s.handleCreateUser)))
-	mux.Handle("PATCH /api/admin/users/{id}/mute", s.requireAdmin(http.HandlerFunc(s.handleSetMute)))
-	mux.Handle("PATCH /api/admin/users/{id}/role", s.requireServerAdmin(http.HandlerFunc(s.handleSetRole)))
-	mux.Handle("POST /api/admin/users/{id}/reset-password", s.requireServerAdmin(http.HandlerFunc(s.handleResetPassword)))
-	mux.Handle("POST /api/admin/users/{id}/kick", s.requireAdmin(http.HandlerFunc(s.handleKick)))
-	mux.Handle("DELETE /api/admin/users/{id}/temporary-ban", s.requireAdmin(http.HandlerFunc(s.handleClearTemporaryBan)))
-	mux.Handle("PATCH /api/admin/users/{id}/ban", s.requireServerAdmin(http.HandlerFunc(s.handlePermanentBan)))
-	mux.Handle("DELETE /api/admin/users/{id}", s.requireServerAdmin(http.HandlerFunc(s.handleDeleteUser)))
 	mux.Handle("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "接口不存在")
 	}))
@@ -147,26 +156,6 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), userContextKey, user)))
 	})
-}
-
-func (s *Server) requireAdmin(next http.Handler) http.Handler {
-	return s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !currentUser(r).Role.IsAdmin() {
-			writeError(w, http.StatusForbidden, "forbidden", "需要频道管理员权限")
-			return
-		}
-		next.ServeHTTP(w, r)
-	}))
-}
-
-func (s *Server) requireServerAdmin(next http.Handler) http.Handler {
-	return s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if currentUser(r).Role != store.RoleServerAdmin {
-			writeError(w, http.StatusForbidden, "forbidden", "需要服务器管理员权限")
-			return
-		}
-		next.ServeHTTP(w, r)
-	}))
 }
 
 func currentUser(r *http.Request) store.User {

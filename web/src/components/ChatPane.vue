@@ -99,7 +99,8 @@ function resizeComposer() {
 
 async function removeMessage(id: number) {
   if (app.activeTextChannelId === null) return
-  await request<void>(`/api/channels/${app.activeTextChannelId}/messages/${id}`, { method: 'DELETE' })
+  if (app.activeServerId === null) return
+  await request<void>(`/api/servers/${app.activeServerId}/channels/${app.activeTextChannelId}/messages/${id}`, { method: 'DELETE' })
 }
 
 async function loadEarlierMessages() {
@@ -191,8 +192,8 @@ function formatTime(value: string) {
 }
 
 function roleLabel(role: string) {
-  if (role === 'server_admin') return '服务器管理员'
-  if (role === 'channel_admin') return '频道管理员'
+  if (role === 'owner') return '服务器所有者'
+  if (role === 'admin') return '服务器管理员'
   return ''
 }
 </script>

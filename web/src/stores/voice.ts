@@ -26,7 +26,7 @@ import {
   type ApplicationAudioState,
   type DesktopApplicationAudioBridge,
 } from '../audio/applicationAudioBridge'
-import type { Role, User, VoiceCredentials } from '../types'
+import type { Channel, GuildRole, User, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
 import { useSoundStore } from './sounds'
 
@@ -56,13 +56,17 @@ export interface VoiceParticipant {
   backgroundAudioVolume: number
   microphoneMuted: boolean
   backgroundAudioMuted: boolean
-  role: Role
+  role: GuildRole
   joinedAt: number | null
 }
 
 export const useVoiceStore = defineStore('voice', () => {
   const status = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'>('idle')
   const connectedChannelId = ref<number | null>(null)
+  const connectedServerId = ref<number | null>(null)
+  const connectedServerName = ref('')
+  const connectedChannelName = ref('')
+  const connectedPublishSettings = ref(defaultConnectedPublishSettings())
   const errorMessage = ref('')
   const muted = ref(false)
   const deafened = ref(false)
@@ -118,14 +122,16 @@ export const useVoiceStore = defineStore('voice', () => {
   const applicationAudioChanging = computed(() => applicationAudioOperating.value || ['selecting', 'starting', 'stopping'].includes(applicationAudioState.value))
   const participants = computed(() => {
     const app = useAppStore()
-    return [...participantStates.value].sort((a, b) => compareParticipants(a, b, app.users))
+    const connectedUsers = app.activeServerId === connectedServerId.value ? app.users : []
+    return [...participantStates.value].sort((a, b) => compareParticipants(a, b, connectedUsers))
   })
 
   // 页面关闭时主动通知后端离开语音频道，避免依赖 LiveKit 的断开检测延迟（关闭标签页/窗口时
   // LiveKit 可能需要数十秒才能通过心跳超时发现连接已断开，导致成员列表出现幽灵状态）。
   window.addEventListener('pagehide', () => {
-    if (!joined.value) return
-    navigator.sendBeacon('/api/voice/leave')
+    const serverId = connectedServerId.value
+    if (!joined.value || serverId === null) return
+    navigator.sendBeacon(`/api/servers/${serverId}/voice/leave`)
   })
 
   async function join(channelId: number) {
@@ -133,6 +139,7 @@ export const useVoiceStore = defineStore('voice', () => {
     if (status.value === 'connecting') return
     if (room) await leave()
     voiceSession += 1
+    const session = voiceSession
     const app = useAppStore()
     status.value = 'connecting'
     errorMessage.value = ''
@@ -142,7 +149,13 @@ export const useVoiceStore = defineStore('voice', () => {
     try {
       const channel = app.voiceChannels.find((item) => item.id === channelId)
       if (!channel) throw new Error('语音频道不存在')
-      const credentials = await request<VoiceCredentials>(`/api/channels/${channelId}/voice/token`, { method: 'POST' })
+      const server = app.activeServer
+      if (!server || app.activeServerId !== server.id) throw new Error('未选择服务器')
+      const serverId = server.id
+      const serverName = server.name
+      const serverVoiceMuted = app.user?.voiceMuted ?? false
+      const credentials = await request<VoiceCredentials>(`/api/servers/${serverId}/channels/${channelId}/voice/token`, { method: 'POST' })
+      if (session !== voiceSession) return
       const nextRoom = markRaw(new Room({
         adaptiveStream: true,
         dynacast: true,
@@ -162,25 +175,35 @@ export const useVoiceStore = defineStore('voice', () => {
       }))
       room = nextRoom
       connectedChannelId.value = channelId
+      connectedServerId.value = serverId
+      connectedServerName.value = serverName
+      connectedChannelName.value = channel.name
+      setConnectedChannelSettings(channel)
       bindRoom(nextRoom)
       await nextRoom.connect(credentials.url, credentials.token, { autoSubscribe: true, maxRetries: 5 })
+      if (session !== voiceSession || room !== nextRoom) return
       await nextRoom.startAudio()
-      if (!app.user?.voiceMuted) {
+      if (session !== voiceSession || room !== nextRoom) return
+      if (!serverVoiceMuted) {
         await nextRoom.localParticipant.setMicrophoneEnabled(true, undefined, publishOptions())
+        if (session !== voiceSession || room !== nextRoom) return
         await attachMicrophoneGain(nextRoom)
+        if (session !== voiceSession || room !== nextRoom) return
       }
-      muted.value = app.user?.voiceMuted ?? false
+      muted.value = serverVoiceMuted
       status.value = 'connected'
       await refreshDevices(true)
+      if (session !== voiceSession || room !== nextRoom) return
       syncParticipants()
       participantSoundsReady = true
       useSoundStore().play('join')
       app.requestVoiceRoomsRefresh()
     } catch (error) {
+      if (session !== voiceSession) return
       participantSoundsReady = false
       room?.disconnect()
       room = null
-      connectedChannelId.value = null
+      clearConnectedChannelSummary()
       status.value = 'error'
       errorMessage.value = error instanceof Error ? error.message : '无法连接语音频道'
       throw error
@@ -190,6 +213,7 @@ export const useVoiceStore = defineStore('voice', () => {
   async function leave() {
     const app = useAppStore()
     const wasJoined = room !== null
+    const serverId = connectedServerId.value
     await stopApplicationAudio()
     voiceSession += 1
     participantSoundsReady = false
@@ -197,7 +221,7 @@ export const useVoiceStore = defineStore('voice', () => {
       room.disconnect()
       room = null
     }
-    connectedChannelId.value = null
+    clearConnectedChannelSummary()
     document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove())
     participantStates.value = []
     status.value = 'idle'
@@ -208,7 +232,10 @@ export const useVoiceStore = defineStore('voice', () => {
     deafenedSyncError.value = ''
     microphoneActivity.destroy()
     useSoundStore().setSuppressed(false)
-    if (wasJoined) app.requestVoiceRoomsRefresh()
+    if (wasJoined && serverId !== null) {
+      await request(`/api/servers/${serverId}/voice/leave`, { method: 'POST' })
+      app.requestVoiceRoomsRefresh()
+    }
   }
 
   async function toggleMute() {
@@ -434,6 +461,22 @@ export const useVoiceStore = defineStore('voice', () => {
     syncParticipants()
   }
 
+  function updateConnectedChannelSettings(channel: Channel) {
+    if (channel.id !== connectedChannelId.value) return { microphoneChanged: false, backgroundAudioChanged: false }
+    const previous = connectedPublishSettings.value
+    const next = {
+      audioBitrateKbps: channel.audioBitrateKbps ?? 64,
+      backgroundAudioBitrateKbps: channel.backgroundAudioBitrateKbps ?? 128,
+      audioRedEnabled: channel.audioRedEnabled ?? true,
+      backgroundAudioRedEnabled: channel.backgroundAudioRedEnabled ?? false,
+    }
+    setConnectedChannelSettings(channel)
+    return {
+      microphoneChanged: previous.audioBitrateKbps !== next.audioBitrateKbps || previous.audioRedEnabled !== next.audioRedEnabled,
+      backgroundAudioChanged: previous.backgroundAudioBitrateKbps !== next.backgroundAudioBitrateKbps || previous.backgroundAudioRedEnabled !== next.backgroundAudioRedEnabled,
+    }
+  }
+
   async function syncServerMute(serverMuted: boolean) {
     if (!room || !serverMuted) return
     const target = room
@@ -491,7 +534,7 @@ export const useVoiceStore = defineStore('voice', () => {
           voiceSession += 1
           participantSoundsReady = false
           room = null
-          connectedChannelId.value = null
+          clearConnectedChannelSummary()
           status.value = 'idle'
           participantStates.value = []
           muted.value = false
@@ -584,6 +627,7 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   async function flushDeafenedSync() {
+	const app = useAppStore()
     const session = voiceSession
     if (deafenedSyncSession === session) return
     deafenedSyncSession = session
@@ -593,7 +637,8 @@ export const useVoiceStore = defineStore('voice', () => {
         pendingDeafenedSync = null
         try {
           if (connectedChannelId.value === null) break
-          await request<void>(`/api/channels/${connectedChannelId.value}/voice/state`, {
+		  if (connectedServerId.value === null) return
+		  await request<void>(`/api/servers/${connectedServerId.value}/channels/${connectedChannelId.value}/voice/state`, {
             method: 'PATCH',
             body: JSON.stringify({ deafened: value }),
           })
@@ -901,23 +946,40 @@ export const useVoiceStore = defineStore('voice', () => {
     return match ? Number(match[1]) : 0
   }
 
+  function setConnectedChannelSettings(channel: Channel) {
+    connectedPublishSettings.value = {
+      audioBitrateKbps: channel.audioBitrateKbps ?? 64,
+      backgroundAudioBitrateKbps: channel.backgroundAudioBitrateKbps ?? 128,
+      audioRedEnabled: channel.audioRedEnabled ?? true,
+      backgroundAudioRedEnabled: channel.backgroundAudioRedEnabled ?? false,
+    }
+  }
+
+  function clearConnectedChannelSummary() {
+    connectedChannelId.value = null
+    connectedServerId.value = null
+    connectedServerName.value = ''
+    connectedChannelName.value = ''
+    connectedPublishSettings.value = defaultConnectedPublishSettings()
+  }
+
   function publishOptions() {
-    const channel = useAppStore().voiceChannels.find((item) => item.id === connectedChannelId.value)
+    const settings = connectedPublishSettings.value
     return {
-      audioPreset: { maxBitrate: (channel?.audioBitrateKbps ?? 64) * 1000 },
+      audioPreset: { maxBitrate: settings.audioBitrateKbps * 1000 },
       dtx: true,
-      red: channel?.audioRedEnabled ?? true,
+      red: settings.audioRedEnabled,
       forceStereo: false,
     }
   }
 
   function applicationAudioPublishOptions() {
-    const channel = useAppStore().voiceChannels.find((item) => item.id === connectedChannelId.value)
+    const settings = connectedPublishSettings.value
     return {
       source: Track.Source.ScreenShareAudio,
-      audioPreset: { maxBitrate: (channel?.backgroundAudioBitrateKbps ?? 128) * 1000 },
+      audioPreset: { maxBitrate: settings.backgroundAudioBitrateKbps * 1000 },
       dtx: false,
-      red: channel?.backgroundAudioRedEnabled ?? false,
+      red: settings.backgroundAudioRedEnabled,
       forceStereo: true,
     }
   }
@@ -969,6 +1031,9 @@ export const useVoiceStore = defineStore('voice', () => {
   return {
     status,
     connectedChannelId,
+    connectedServerId,
+    connectedServerName,
+    connectedChannelName,
     errorMessage,
     deafenedSyncError,
     muted,
@@ -1014,11 +1079,21 @@ export const useVoiceStore = defineStore('voice', () => {
     stopApplicationAudio,
     setApplicationAudioVolume,
     applyPublishSettingsChange,
+    updateConnectedChannelSettings,
     syncServerMute,
     retryDeafenedSync,
     refreshDevices,
   }
 })
+
+function defaultConnectedPublishSettings() {
+  return {
+    audioBitrateKbps: 64,
+    backgroundAudioBitrateKbps: 128,
+    audioRedEnabled: true,
+    backgroundAudioRedEnabled: false,
+  }
+}
 
 function clampVolume(value: number) {
   return Number.isFinite(value) ? Math.max(0, Math.min(MAX_VOLUME, value)) : DEFAULT_VOLUME
@@ -1091,19 +1166,20 @@ function compareParticipants(a: VoiceParticipant, b: VoiceParticipant, users: Us
   return a.userId - b.userId || a.identity.localeCompare(b.identity)
 }
 
-function currentRole(participant: VoiceParticipant, users: User[]): Role {
-  return users.find((user) => user.id === participant.userId)?.role ?? participant.role
+function currentRole(participant: VoiceParticipant, users: User[]): GuildRole {
+  const role = users.find((user) => user.id === participant.userId)?.role ?? participant.role
+  return role === 'owner' || role === 'admin' ? role : 'member'
 }
 
-function roleRank(role: Role) {
-  if (role === 'server_admin') return 2
-  if (role === 'channel_admin') return 1
+function roleRank(role: GuildRole) {
+  if (role === 'owner') return 2
+  if (role === 'admin') return 1
   return 0
 }
 
-function participantRole(participant: Participant): Role {
+function participantRole(participant: Participant): GuildRole {
   const role = participant.attributes.role
-  return role === 'server_admin' || role === 'channel_admin' ? role : 'member'
+  return role === 'owner' || role === 'admin' ? role : 'member'
 }
 
 function participantJoinedAt(participant: Participant): number | null {

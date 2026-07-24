@@ -13,24 +13,34 @@ import (
 	"github.com/yeck/celery-web-speak/internal/store"
 )
 
-func TestRoomNameRoundTrip(t *testing.T) {
-	name := RoomName(42)
-	channelID, ok := ParseRoomName(name)
-	if name != "channel-42" || !ok || channelID != 42 {
-		t.Fatalf("room name round trip = %q, %d, %t", name, channelID, ok)
+func TestLegacyRoomNameDetectionForCleanup(t *testing.T) {
+	channelID, ok := parseLegacyRoomName("channel-42")
+	if !ok || channelID != 42 {
+		t.Fatalf("legacy room parse = %d, %t", channelID, ok)
 	}
 	for _, invalid := range []string{"main", "channel-0", "channel-nope", "other-42"} {
-		if _, ok := ParseRoomName(invalid); ok {
+		if _, ok := parseLegacyRoomName(invalid); ok {
 			t.Fatalf("invalid room name %q was accepted", invalid)
 		}
 	}
 }
 
+func TestGuildRoomNameRoundTrip(t *testing.T) {
+	name := GuildRoomName(12, 45)
+	if name != "guild-12-channel-45" {
+		t.Fatalf("room name = %q", name)
+	}
+	guildID, channelID, ok := ParseGuildRoomName(name)
+	if !ok || guildID != 12 || channelID != 45 {
+		t.Fatalf("parsed room = %d, %d, %t", guildID, channelID, ok)
+	}
+}
+
 func TestVoiceTokenAllowsMicrophoneAndBackgroundAudio(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
-	credentials, err := service.JoinCredentials(context.Background(), store.User{
+	credentials, err := service.JoinGuildCredentials(context.Background(), store.User{
 		ID: 12, Username: "member", DisplayName: "成员",
-	}, 7)
+	}, store.GuildMember{GuildID: 3, UserID: 12, Role: store.GuildRoleMember}, 7)
 	if err != nil {
 		t.Fatalf("join credentials: %v", err)
 	}
@@ -62,14 +72,15 @@ func TestVoiceParticipantPermissionTracksServerMute(t *testing.T) {
 
 func TestWebhookUpdatesVoiceRoomSnapshot(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	generation := uint64(time.Now().UnixNano())
 	joined := &livekit.WebhookEvent{
 		Event: webhook.EventParticipantJoined,
-		Room:  &livekit.Room{Name: RoomName(7)},
+		Room:  &livekit.Room{Name: GuildRoomName(3, 7)},
 		Participant: &livekit.ParticipantInfo{
 			Identity:   Identity(12),
 			Name:       "测试成员",
 			JoinedAtMs: 1234,
-			Attributes: map[string]string{"user_id": "12"},
+			Attributes: map[string]string{"user_id": "12", VoiceGenerationAttribute: fmt.Sprint(generation)},
 		},
 	}
 	if !service.ApplyWebhook(context.Background(), joined) {
@@ -97,7 +108,7 @@ func TestReplaceSnapshotDetectsChangesAndRejectsStaleRefresh(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
 	participant := VoiceParticipant{UserID: 12, Identity: Identity(12), Name: "测试成员", JoinedAt: 1234}
 	rooms := map[int64]map[int64]VoiceParticipant{7: {12: participant}}
-	targets := map[int64]voiceTarget{12: {ChannelID: 7, ExpiresAt: time.Now().Add(time.Minute)}}
+	targets := map[int64]voiceTarget{12: {GuildID: 3, ChannelID: 7, RoomName: GuildRoomName(3, 7), ExpiresAt: time.Now().Add(time.Minute)}}
 
 	revision, _ := service.snapshotState()
 	changed, applied := service.replaceSnapshot(revision, rooms, targets)
@@ -113,7 +124,7 @@ func TestReplaceSnapshotDetectsChangesAndRejectsStaleRefresh(t *testing.T) {
 	staleRevision, _ := service.snapshotState()
 	service.ApplyWebhook(context.Background(), &livekit.WebhookEvent{
 		Event: webhook.EventParticipantLeft,
-		Room:  &livekit.Room{Name: RoomName(7)},
+		Room:  &livekit.Room{Name: GuildRoomName(3, 7)},
 		Participant: &livekit.ParticipantInfo{
 			Identity: Identity(12), Attributes: map[string]string{"user_id": "12"},
 		},
@@ -133,7 +144,7 @@ func TestLatestIssuedVoiceTokenRejectsDelayedOlderJoin(t *testing.T) {
 	service.now = func() time.Time { return now }
 	newGeneration := uint64(now.UnixNano())
 	oldGeneration := newGeneration - 1
-	service.targets[12] = voiceTarget{ChannelID: 8, Generation: newGeneration, ExpiresAt: now.Add(voiceTokenTTL)}
+	service.targets[12] = voiceTarget{GuildID: 3, ChannelID: 8, RoomName: GuildRoomName(3, 8), Generation: newGeneration, ExpiresAt: now.Add(voiceTokenTTL)}
 
 	oldJoin := participantEvent(webhook.EventParticipantJoined, 7, 12, oldGeneration)
 	if service.ApplyWebhook(context.Background(), oldJoin) {
@@ -164,7 +175,7 @@ func TestLatestIssuedVoiceTokenRejectsDelayedOlderJoin(t *testing.T) {
 
 func TestDeleteRoomsExceptRemovesOrphanSnapshotAfterAPIFailure(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
-	if !service.ApplyWebhook(context.Background(), participantEvent(webhook.EventParticipantJoined, 99, 12, 0)) {
+	if !service.ApplyWebhook(context.Background(), participantEvent(webhook.EventParticipantJoined, 99, 12, uint64(time.Now().UnixNano()))) {
 		t.Fatal("orphan participant did not enter snapshot")
 	}
 	changed, err := service.DeleteRoomsExcept(context.Background(), map[int64]struct{}{7: {}})
@@ -179,7 +190,7 @@ func TestDeleteRoomsExceptRemovesOrphanSnapshotAfterAPIFailure(t *testing.T) {
 func participantEvent(event string, channelID, userID int64, generation uint64) *livekit.WebhookEvent {
 	return &livekit.WebhookEvent{
 		Event: event,
-		Room:  &livekit.Room{Name: RoomName(channelID)},
+		Room:  &livekit.Room{Name: GuildRoomName(3, channelID)},
 		Participant: &livekit.ParticipantInfo{
 			Identity: Identity(userID),
 			Name:     "测试成员",
@@ -188,5 +199,47 @@ func participantEvent(event string, channelID, userID int64, generation uint64) 
 				VoiceGenerationAttribute: fmt.Sprint(generation),
 			},
 		},
+	}
+}
+
+func TestCurrentTargetPreservesServerAndRoomFromSnapshot(t *testing.T) {
+	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	generation := uint64(time.Now().UnixNano())
+	if !service.ApplyWebhook(context.Background(), participantEvent(webhook.EventParticipantJoined, 7, 12, generation)) {
+		t.Fatal("participant join did not update snapshot")
+	}
+
+	target := service.currentTarget(12)
+	if target.GuildID != 3 || target.ChannelID != 7 || target.RoomName != GuildRoomName(3, 7) {
+		t.Fatalf("current target = %+v", target)
+	}
+}
+
+func TestLegacyRoomWebhookIsRejected(t *testing.T) {
+	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	event := participantEvent(webhook.EventParticipantJoined, 7, 12, uint64(time.Now().UnixNano()))
+	event.Room.Name = "channel-7"
+
+	if service.ApplyWebhook(context.Background(), event) {
+		t.Fatal("legacy room participant changed snapshot")
+	}
+	if rooms := service.VoiceRooms(); len(rooms) != 0 {
+		t.Fatalf("legacy room remained in snapshot: %+v", rooms)
+	}
+}
+
+func TestRemoveParticipantFromGuildLeavesConnectionInAnotherServer(t *testing.T) {
+	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	service.targets[12] = voiceTarget{
+		GuildID: 3, ChannelID: 7, RoomName: GuildRoomName(3, 7),
+		Generation: uint64(time.Now().UnixNano()), ExpiresAt: time.Now().Add(time.Minute),
+	}
+
+	if err := service.RemoveParticipantFromGuild(context.Background(), 12, 4); err != nil {
+		t.Fatalf("leave another server: %v", err)
+	}
+	target := service.currentTarget(12)
+	if target.GuildID != 3 || target.ChannelID != 7 {
+		t.Fatalf("connection in another server was removed: %+v", target)
 	}
 }

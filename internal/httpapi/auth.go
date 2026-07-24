@@ -113,7 +113,7 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	if err := s.media.UpdateName(r.Context(), user.ID, user.DisplayName); err != nil {
 		s.logger.Warn("update livekit participant name", "user_id", user.ID, "error", err)
 	}
-	s.hub.Broadcast("user_updated", user)
+	s.hub.BroadcastUser(user.ID, "user_updated", user)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
 
@@ -125,10 +125,10 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusBadRequest, "invalid_invite", "邀请码无效、已过期或次数已用完")
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "目标不存在")
-	case errors.Is(err, store.ErrLastServerAdmin):
-		writeError(w, http.StatusConflict, "last_server_admin", "必须保留至少一名服务器管理员")
+	case errors.Is(err, store.ErrLastPlatformAdmin):
+		writeError(w, http.StatusConflict, "last_platform_admin", "必须保留至少一名平台管理员")
 	case errors.Is(err, store.ErrSelfAction):
-		writeError(w, http.StatusBadRequest, "self_action", "不能删除自己的账号")
+		writeError(w, http.StatusBadRequest, "self_action", "不能对自己的账号执行此操作")
 	case errors.Is(err, store.ErrUsernameConfirm):
 		writeError(w, http.StatusBadRequest, "confirmation_mismatch", "输入的登录名与目标账号不一致")
 	case errors.Is(err, store.ErrLastChannel):
@@ -137,6 +137,10 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "channel_limit", "同类型频道数量已达到上限")
 	case errors.Is(err, store.ErrChannelNameExists):
 		writeError(w, http.StatusConflict, "channel_name_exists", "同类型频道名称已存在")
+	case errors.Is(err, store.ErrGuildOwnerTransferRequired):
+		writeError(w, http.StatusConflict, "guild_owner_transfer_required", "请先转让或删除该账号拥有的服务器")
+	case errors.Is(err, store.ErrGuildMemberBanned):
+		writeError(w, http.StatusConflict, "guild_member_banned", "账号当前已被该服务器封禁")
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 	}

@@ -18,17 +18,18 @@ import (
 )
 
 var (
-	ErrNotFound          = errors.New("not found")
-	ErrInvalidLogin      = errors.New("invalid username or password")
-	ErrUsernameExists    = errors.New("username already exists")
-	ErrInvalidInvite     = errors.New("invite is invalid or expired")
-	ErrBanned            = errors.New("account is banned")
-	ErrLastServerAdmin   = errors.New("at least one server admin is required")
-	ErrSelfAction        = errors.New("cannot perform this action on yourself")
-	ErrUsernameConfirm   = errors.New("username confirmation does not match")
-	ErrLastChannel       = errors.New("at least one channel of each type is required")
-	ErrChannelLimit      = errors.New("channel limit reached")
-	ErrChannelNameExists = errors.New("channel name already exists")
+	ErrNotFound                   = errors.New("not found")
+	ErrInvalidLogin               = errors.New("invalid username or password")
+	ErrUsernameExists             = errors.New("username already exists")
+	ErrInvalidInvite              = errors.New("invite is invalid or expired")
+	ErrBanned                     = errors.New("account is banned")
+	ErrLastPlatformAdmin          = errors.New("at least one platform admin is required")
+	ErrSelfAction                 = errors.New("cannot perform this action on yourself")
+	ErrUsernameConfirm            = errors.New("username confirmation does not match")
+	ErrLastChannel                = errors.New("at least one channel of each type is required")
+	ErrChannelLimit               = errors.New("channel limit reached")
+	ErrChannelNameExists          = errors.New("channel name already exists")
+	ErrGuildOwnerTransferRequired = errors.New("guild ownership must be transferred first")
 )
 
 type Store struct {
@@ -108,13 +109,6 @@ CREATE TABLE IF NOT EXISTS invites (
 );
 CREATE INDEX IF NOT EXISTS invites_active_order ON invites(revoked_at, expires_at, id);
 CREATE INDEX IF NOT EXISTS invites_created_order ON invites(created_at DESC, id DESC);
-CREATE TABLE IF NOT EXISTS temporary_bans (
-  user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  expires_at TEXT NOT NULL,
-  reason TEXT NOT NULL DEFAULT '',
-  created_by INTEGER NOT NULL REFERENCES users(id),
-  created_at TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS audit_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   actor_id INTEGER NOT NULL REFERENCES users(id),
@@ -142,10 +136,25 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if err := s.ensureChannelRedColumns(ctx); err != nil {
 		return fmt.Errorf("migrate channel RED settings: %w", err)
 	}
+	if err := s.migrateGuilds(ctx); err != nil {
+		return fmt.Errorf("migrate managed multi-server: %w", err)
+	}
+	if err := s.migratePermissionScope(ctx); err != nil {
+		return fmt.Errorf("migrate scoped permissions: %w", err)
+	}
 	return nil
 }
 
 func (s *Store) migrateChannels(ctx context.Context) error {
+	guildAware := false
+	if exists, err := s.tableExists(ctx, "channels"); err != nil {
+		return err
+	} else if exists {
+		guildAware, err = s.tableHasColumn(ctx, "channels", "guild_id")
+		if err != nil {
+			return err
+		}
+	}
 	legacyMessages, err := s.tableExists(ctx, "messages")
 	if err != nil {
 		return err
@@ -209,18 +218,20 @@ CREATE TABLE IF NOT EXISTS channel_read_states (
 	if _, err := tx.ExecContext(ctx, schema); err != nil {
 		return err
 	}
-	now := formatTime(s.now())
-	if _, err := tx.ExecContext(ctx, `
+	if !guildAware {
+		now := formatTime(s.now())
+		if _, err := tx.ExecContext(ctx, `
 INSERT INTO channels (type, name, message_retention, created_at, updated_at)
 SELECT 'text', '文字聊天', 500, ?, ?
 WHERE NOT EXISTS (SELECT 1 FROM channels WHERE type = 'text')`, now, now); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
 INSERT INTO channels (type, name, audio_bitrate_kbps, created_at, updated_at)
 SELECT 'voice', '语音频道', 64, ?, ?
 WHERE NOT EXISTS (SELECT 1 FROM channels WHERE type = 'voice')`, now, now); err != nil {
-		return err
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx, "PRAGMA user_version = 2"); err != nil {
 		return err
@@ -354,8 +365,11 @@ func (s *Store) EnsureBootstrapAdmin(ctx context.Context, username, password str
 	if err := validateUsername(username); err != nil || len(password) < 10 {
 		return errors.New("empty database requires a valid BOOTSTRAP_ADMIN_USERNAME and a password of at least 10 characters")
 	}
-	_, err := s.createUser(ctx, username, username, password, RoleServerAdmin)
-	return err
+	admin, err := s.createUser(ctx, username, username, password, RolePlatformAdmin)
+	if err != nil {
+		return err
+	}
+	return s.ensureDefaultGuild(ctx, admin.ID)
 }
 
 func (s *Store) createUser(ctx context.Context, username, displayName, password string, role Role) (User, error) {
@@ -380,8 +394,8 @@ func (s *Store) createUser(ctx context.Context, username, displayName, password 
 	}
 	now := formatTime(s.now())
 	result, err := s.db.ExecContext(ctx, `
-INSERT INTO users (username, display_name, password_hash, role, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)`, username, displayName, string(hash), role, now, now)
+INSERT INTO users (username, display_name, password_hash, role, is_platform_admin, created_at, updated_at)
+VALUES (?, ?, ?, 'member', ?, ?, ?)`, username, displayName, string(hash), role == RolePlatformAdmin, now, now)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return User{}, ErrUsernameExists
@@ -402,13 +416,13 @@ func (s *Store) CreateUser(ctx context.Context, username, displayName, password 
 func (s *Store) Authenticate(ctx context.Context, username, password string) (User, error) {
 	var user User
 	var passwordHash, createdAt string
-	var voiceMuted, textMuted, permanentlyBanned int
+	var platformAdmin int
+	var permanentlyBanned int
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, password_hash, role, voice_muted, text_muted,
-       permanently_banned, created_at
+SELECT id, username, display_name, password_hash, permanently_banned, created_at, is_platform_admin
 FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(username)).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &passwordHash, &user.Role,
-		&voiceMuted, &textMuted, &permanentlyBanned, &createdAt,
+		&user.ID, &user.Username, &user.DisplayName, &passwordHash,
+		&permanentlyBanned, &createdAt, &platformAdmin,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrInvalidLogin
@@ -419,14 +433,11 @@ FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(usernam
 	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) != nil {
 		return User{}, ErrInvalidLogin
 	}
-	user.VoiceMuted = voiceMuted != 0
-	user.TextMuted = textMuted != 0
 	user.PermanentlyBanned = permanentlyBanned != 0
+	user.IsPlatformAdmin = platformAdmin != 0
+	user.Role = platformRole(user.IsPlatformAdmin)
 	user.CreatedAt, _ = parseTime(createdAt)
-	if err := s.attachBan(ctx, &user); err != nil {
-		return User{}, err
-	}
-	if user.PermanentlyBanned || (user.TemporaryBanUntil != nil && user.TemporaryBanUntil.After(s.now())) {
+	if user.PermanentlyBanned {
 		return User{}, ErrBanned
 	}
 	return user, nil
@@ -435,12 +446,13 @@ FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(usernam
 func (s *Store) UserByID(ctx context.Context, id int64) (User, error) {
 	var user User
 	var createdAt string
-	var voiceMuted, textMuted, permanentlyBanned int
+	var platformAdmin int
+	var permanentlyBanned int
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, role, voice_muted, text_muted, permanently_banned, created_at
+SELECT id, username, display_name, permanently_banned, created_at, is_platform_admin
 FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &user.Role, &voiceMuted,
-		&textMuted, &permanentlyBanned, &createdAt,
+		&user.ID, &user.Username, &user.DisplayName,
+		&permanentlyBanned, &createdAt, &platformAdmin,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
@@ -448,33 +460,11 @@ FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 	if err != nil {
 		return User{}, fmt.Errorf("get user: %w", err)
 	}
-	user.VoiceMuted = voiceMuted != 0
-	user.TextMuted = textMuted != 0
 	user.PermanentlyBanned = permanentlyBanned != 0
+	user.IsPlatformAdmin = platformAdmin != 0
+	user.Role = platformRole(user.IsPlatformAdmin)
 	user.CreatedAt, _ = parseTime(createdAt)
-	if err := s.attachBan(ctx, &user); err != nil {
-		return User{}, err
-	}
 	return user, nil
-}
-
-func (s *Store) attachBan(ctx context.Context, user *User) error {
-	var expires string
-	err := s.db.QueryRowContext(ctx, "SELECT expires_at FROM temporary_bans WHERE user_id = ?", user.ID).Scan(&expires)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("get temporary ban: %w", err)
-	}
-	until, err := parseTime(expires)
-	if err != nil {
-		return err
-	}
-	if until.After(s.now()) {
-		user.TemporaryBanUntil = &until
-	}
-	return nil
 }
 
 func (s *Store) CreateSession(ctx context.Context, userID int64, ttl time.Duration) (string, time.Time, error) {
@@ -508,7 +498,7 @@ SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?`, hash[:], 
 	if err != nil {
 		return User{}, err
 	}
-	if user.PermanentlyBanned || user.TemporaryBanUntil != nil {
+	if user.PermanentlyBanned {
 		return User{}, ErrBanned
 	}
 	return user, nil
@@ -572,5 +562,12 @@ func validatePassword(value string) error {
 }
 
 func validRole(role Role) bool {
-	return role == RoleMember || role == RoleChannelAdmin || role == RoleServerAdmin
+	return role == RoleMember || role == RolePlatformAdmin
+}
+
+func platformRole(admin bool) Role {
+	if admin {
+		return RolePlatformAdmin
+	}
+	return RoleMember
 }

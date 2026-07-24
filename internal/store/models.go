@@ -12,13 +12,58 @@ const (
 type Role string
 
 const (
-	RoleMember       Role = "member"
-	RoleChannelAdmin Role = "channel_admin"
-	RoleServerAdmin  Role = "server_admin"
+	RoleMember        Role = "member"
+	RolePlatformAdmin Role = "platform_admin"
 )
 
-func (r Role) IsAdmin() bool {
-	return r == RoleChannelAdmin || r == RoleServerAdmin
+type GuildRole string
+
+const (
+	GuildRoleOwner  GuildRole = "owner"
+	GuildRoleAdmin  GuildRole = "admin"
+	GuildRoleMember GuildRole = "member"
+)
+
+func (r GuildRole) IsAdmin() bool { return r == GuildRoleOwner || r == GuildRoleAdmin }
+
+type Guild struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	OwnerUserID int64     `json:"ownerUserId"`
+	CreatedBy   int64     `json:"createdBy"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type GuildSummary struct {
+	Guild
+	Joined      bool      `json:"joined"`
+	Role        GuildRole `json:"role,omitempty"`
+	MemberCount int       `json:"memberCount,omitempty"`
+	UnreadCount int       `json:"unreadCount,omitempty"`
+}
+
+type GuildOwnershipTransfer struct {
+	Guild         Guild
+	PreviousOwner GuildMember
+	NewOwner      GuildMember
+}
+
+type GuildMember struct {
+	GuildID           int64      `json:"guildId"`
+	UserID            int64      `json:"userId"`
+	Username          string     `json:"username"`
+	DisplayName       string     `json:"displayName"`
+	Role              GuildRole  `json:"role"`
+	VoiceMuted        bool       `json:"voiceMuted"`
+	TextMuted         bool       `json:"textMuted"`
+	PermanentlyBanned bool       `json:"permanentlyBanned"`
+	TemporaryBanUntil *time.Time `json:"temporaryBanUntil,omitempty"`
+	JoinedAt          time.Time  `json:"joinedAt"`
+}
+
+func (m GuildMember) ActiveAt(now time.Time) bool {
+	return !m.PermanentlyBanned && (m.TemporaryBanUntil == nil || !m.TemporaryBanUntil.After(now))
 }
 
 type User struct {
@@ -26,15 +71,18 @@ type User struct {
 	Username          string     `json:"username"`
 	DisplayName       string     `json:"displayName"`
 	Role              Role       `json:"role"`
-	VoiceMuted        bool       `json:"voiceMuted"`
-	TextMuted         bool       `json:"textMuted"`
+	VoiceMuted        bool       `json:"voiceMuted,omitempty"`
+	TextMuted         bool       `json:"textMuted,omitempty"`
 	PermanentlyBanned bool       `json:"permanentlyBanned"`
 	TemporaryBanUntil *time.Time `json:"temporaryBanUntil,omitempty"`
+	IsPlatformAdmin   bool       `json:"isPlatformAdmin"`
+	SuspendedAt       *time.Time `json:"suspendedAt,omitempty"`
 	CreatedAt         time.Time  `json:"createdAt"`
 }
 
 type Channel struct {
 	ID                         int64       `json:"id"`
+	GuildID                    int64       `json:"serverId"`
 	Type                       ChannelType `json:"type"`
 	Name                       string      `json:"name"`
 	AudioBitrateKbps           int         `json:"audioBitrateKbps,omitempty"`
@@ -59,7 +107,7 @@ type Message struct {
 	UserID      int64     `json:"userId"`
 	Username    string    `json:"username"`
 	DisplayName string    `json:"displayName"`
-	Role        Role      `json:"role"`
+	Role        GuildRole `json:"role"`
 	Content     string    `json:"content"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
