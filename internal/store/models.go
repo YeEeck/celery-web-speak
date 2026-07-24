@@ -21,6 +21,46 @@ func (r Role) IsAdmin() bool {
 	return r == RoleChannelAdmin || r == RoleServerAdmin
 }
 
+type GuildRole string
+
+const (
+	GuildRoleOwner  GuildRole = "owner"
+	GuildRoleAdmin  GuildRole = "admin"
+	GuildRoleMember GuildRole = "member"
+)
+
+func (r GuildRole) IsAdmin() bool { return r == GuildRoleOwner || r == GuildRoleAdmin }
+
+type Guild struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	OwnerUserID int64     `json:"ownerUserId"`
+	CreatedBy   int64     `json:"createdBy"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type GuildSummary struct {
+	Guild
+	Joined      bool      `json:"joined"`
+	Role        GuildRole `json:"role,omitempty"`
+	MemberCount int       `json:"memberCount,omitempty"`
+	UnreadCount int       `json:"unreadCount,omitempty"`
+}
+
+type GuildMember struct {
+	GuildID           int64      `json:"guildId"`
+	UserID            int64      `json:"userId"`
+	Username          string     `json:"username"`
+	DisplayName       string     `json:"displayName"`
+	Role              GuildRole  `json:"role"`
+	VoiceMuted        bool       `json:"voiceMuted"`
+	TextMuted         bool       `json:"textMuted"`
+	PermanentlyBanned bool       `json:"permanentlyBanned"`
+	TemporaryBanUntil *time.Time `json:"temporaryBanUntil,omitempty"`
+	JoinedAt          time.Time  `json:"joinedAt"`
+}
+
 type User struct {
 	ID                int64      `json:"id"`
 	Username          string     `json:"username"`
@@ -30,11 +70,14 @@ type User struct {
 	TextMuted         bool       `json:"textMuted"`
 	PermanentlyBanned bool       `json:"permanentlyBanned"`
 	TemporaryBanUntil *time.Time `json:"temporaryBanUntil,omitempty"`
+	IsPlatformAdmin   bool       `json:"isPlatformAdmin"`
+	SuspendedAt       *time.Time `json:"suspendedAt,omitempty"`
 	CreatedAt         time.Time  `json:"createdAt"`
 }
 
 type Channel struct {
 	ID                         int64       `json:"id"`
+	GuildID                    int64       `json:"serverId"`
 	Type                       ChannelType `json:"type"`
 	Name                       string      `json:"name"`
 	AudioBitrateKbps           int         `json:"audioBitrateKbps,omitempty"`

@@ -48,8 +48,8 @@ WHERE code_hash = ? AND revoked_at IS NULL AND expires_at > ? AND use_count < ma
 
 	now := formatTime(s.now())
 	result, err := tx.ExecContext(ctx, `
-INSERT INTO users (username, display_name, password_hash, role, created_at, updated_at)
-VALUES (?, ?, ?, 'member', ?, ?)`, username, displayName, string(passwordHash), now, now)
+INSERT INTO users (username, display_name, password_hash, role, is_platform_admin, created_at, updated_at)
+VALUES (?, ?, ?, 'member', 0, ?, ?)`, username, displayName, string(passwordHash), now, now)
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			return User{}, ErrUsernameExists

@@ -11,9 +11,24 @@ import (
 const maxChannelsPerType = 50
 
 func (s *Store) ListChannels(ctx context.Context) ([]Channel, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
-FROM channels ORDER BY id`)
+	return s.listChannels(ctx, 0)
+}
+
+func (s *Store) ListGuildChannels(ctx context.Context, guildID int64) ([]Channel, error) {
+	return s.listChannels(ctx, guildID)
+}
+
+func (s *Store) listChannels(ctx context.Context, guildID int64) ([]Channel, error) {
+	query := `
+SELECT id, guild_id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
+FROM channels`
+	args := make([]any, 0, 1)
+	if guildID > 0 {
+		query += " WHERE guild_id = ?"
+		args = append(args, guildID)
+	}
+	query += " ORDER BY id"
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -31,8 +46,18 @@ FROM channels ORDER BY id`)
 
 func (s *Store) ChannelByID(ctx context.Context, id int64) (Channel, error) {
 	channel, err := scanChannel(s.db.QueryRowContext(ctx, `
-SELECT id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
+SELECT id, guild_id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
 FROM channels WHERE id = ?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Channel{}, ErrNotFound
+	}
+	return channel, err
+}
+
+func (s *Store) GuildChannelByID(ctx context.Context, guildID, id int64) (Channel, error) {
+	channel, err := scanChannel(s.db.QueryRowContext(ctx, `
+SELECT id, guild_id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
+FROM channels WHERE guild_id = ? AND id = ?`, guildID, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Channel{}, ErrNotFound
 	}
@@ -41,7 +66,7 @@ FROM channels WHERE id = ?`, id))
 
 func (s *Store) FirstChannel(ctx context.Context, channelType ChannelType) (Channel, error) {
 	channel, err := scanChannel(s.db.QueryRowContext(ctx, `
-SELECT id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
+SELECT id, guild_id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
 FROM channels WHERE type = ? ORDER BY id LIMIT 1`, channelType))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Channel{}, ErrNotFound
@@ -50,6 +75,14 @@ FROM channels WHERE type = ? ORDER BY id LIMIT 1`, channelType))
 }
 
 func (s *Store) CreateChannel(ctx context.Context, actorID int64, channelType ChannelType, name string) (Channel, error) {
+	guildID, err := s.defaultGuildID(ctx)
+	if err != nil {
+		return Channel{}, err
+	}
+	return s.CreateGuildChannel(ctx, guildID, actorID, channelType, name)
+}
+
+func (s *Store) CreateGuildChannel(ctx context.Context, guildID, actorID int64, channelType ChannelType, name string) (Channel, error) {
 	name = strings.TrimSpace(name)
 	if !validChannelType(channelType) {
 		return Channel{}, errors.New("invalid channel type")
@@ -63,7 +96,7 @@ func (s *Store) CreateChannel(ctx context.Context, actorID int64, channelType Ch
 	}
 	defer tx.Rollback()
 	var count int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM channels WHERE type = ?", channelType).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM channels WHERE guild_id = ? AND type = ?", guildID, channelType).Scan(&count); err != nil {
 		return Channel{}, err
 	}
 	if count >= maxChannelsPerType {
@@ -73,12 +106,12 @@ func (s *Store) CreateChannel(ctx context.Context, actorID int64, channelType Ch
 	var result sql.Result
 	if channelType == ChannelTypeText {
 		result, err = tx.ExecContext(ctx, `
-INSERT INTO channels (type, name, message_retention, created_at, updated_at) VALUES (?, ?, 500, ?, ?)`,
-			channelType, name, formatTime(now), formatTime(now))
+INSERT INTO channels (guild_id, type, name, message_retention, created_at, updated_at) VALUES (?, ?, ?, 500, ?, ?)`,
+			guildID, channelType, name, formatTime(now), formatTime(now))
 	} else {
 		result, err = tx.ExecContext(ctx, `
-INSERT INTO channels (type, name, audio_bitrate_kbps, background_audio_bitrate_kbps, audio_red_enabled, background_audio_red_enabled, created_at, updated_at) VALUES (?, ?, 64, 128, 1, 0, ?, ?)`,
-			channelType, name, formatTime(now), formatTime(now))
+INSERT INTO channels (guild_id, type, name, audio_bitrate_kbps, background_audio_bitrate_kbps, audio_red_enabled, background_audio_red_enabled, created_at, updated_at) VALUES (?, ?, ?, 64, 128, 1, 0, ?, ?)`,
+			guildID, channelType, name, formatTime(now), formatTime(now))
 	}
 	if err != nil {
 		if isUniqueError(err) {
@@ -90,13 +123,13 @@ INSERT INTO channels (type, name, audio_bitrate_kbps, background_audio_bitrate_k
 	if err != nil {
 		return Channel{}, err
 	}
-	if err := insertAudit(ctx, tx, actorID, nil, "create_channel", fmt.Sprintf("channel_id=%d type=%s name=%q", id, channelType, name)); err != nil {
+	if err := insertGuildAudit(ctx, tx, guildID, actorID, nil, "create_channel", fmt.Sprintf("channel_id=%d type=%s name=%q", id, channelType, name)); err != nil {
 		return Channel{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Channel{}, err
 	}
-	return s.ChannelByID(ctx, id)
+	return s.GuildChannelByID(ctx, guildID, id)
 }
 
 func (s *Store) UpdateChannel(ctx context.Context, actorID, channelID int64, name string, audioBitrateKbps, backgroundAudioBitrateKbps int, audioRedEnabled, backgroundAudioRedEnabled bool, messageRetention int) (Channel, error) {
@@ -158,7 +191,7 @@ func (s *Store) DeleteChannel(ctx context.Context, actorID, channelID int64) (Ch
 	}
 	defer tx.Rollback()
 	channel, err := scanChannel(tx.QueryRowContext(ctx, `
-SELECT id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
+SELECT id, guild_id, type, name, COALESCE(audio_bitrate_kbps, 0), COALESCE(background_audio_bitrate_kbps, 0), COALESCE(audio_red_enabled, 0), COALESCE(background_audio_red_enabled, 0), COALESCE(message_retention, 0), created_at, updated_at
 FROM channels WHERE id = ?`, channelID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Channel{}, ErrNotFound
@@ -167,7 +200,7 @@ FROM channels WHERE id = ?`, channelID))
 		return Channel{}, err
 	}
 	var count int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM channels WHERE type = ?", channel.Type).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM channels WHERE guild_id = ? AND type = ?", channel.GuildID, channel.Type).Scan(&count); err != nil {
 		return Channel{}, err
 	}
 	if count <= 1 {
@@ -259,7 +292,7 @@ type channelScanner interface {
 func scanChannel(scanner channelScanner) (Channel, error) {
 	var channel Channel
 	var createdAt, updatedAt string
-	if err := scanner.Scan(&channel.ID, &channel.Type, &channel.Name, &channel.AudioBitrateKbps, &channel.BackgroundAudioBitrateKbps, &channel.AudioRedEnabled, &channel.BackgroundAudioRedEnabled, &channel.MessageRetention, &createdAt, &updatedAt); err != nil {
+	if err := scanner.Scan(&channel.ID, &channel.GuildID, &channel.Type, &channel.Name, &channel.AudioBitrateKbps, &channel.BackgroundAudioBitrateKbps, &channel.AudioRedEnabled, &channel.BackgroundAudioRedEnabled, &channel.MessageRetention, &createdAt, &updatedAt); err != nil {
 		return Channel{}, err
 	}
 	channel.CreatedAt, _ = parseTime(createdAt)
