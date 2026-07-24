@@ -278,7 +278,7 @@ CREATE INDEX guild_members_guild_role ON guild_members(guild_id, role, user_id);
 1. 创建默认服务器，名称固定为“Celery Web Speak”。
 2. 找出最早创建的现有 `server_admin` 作为默认服务器所有者和平台管理员。
 3. 其余现有 `server_admin` 迁移为平台管理员和默认服务器管理员。
-4. 现有 `channel_admin` 迁移为默认服务器管理员。
+4. 现有 `channel_admin` 迁移为默认服务器管理员，并把其全局账号角色归一化为普通账号；迁移完成后 `channel_admin` 不再具有任何平台级授权含义。
 5. 现有未删除普通用户迁移为默认服务器成员；已删除账号墓碑不创建成员关系。
 6. 现有频道写入默认服务器 ID；消息和已读状态通过频道关系自然继承。
 7. 现有文字/语音禁言和临时封禁复制到默认服务器成员状态。
@@ -350,7 +350,7 @@ PATCH  /api/platform/users/{userID}/suspend
 DELETE /api/platform/users/{userID}
 ```
 
-平台账号角色接口只接受 `member` 和兼容值 `server_admin`，分别表示普通账号和平台管理员；服务端同时维护 `is_platform_admin` 与旧角色列，并保证至少保留一名平台管理员。服务器管理员身份只存储在 `guild_members`，不通过平台账号角色接口设置。
+平台账号角色接口只接受 `member` 和 `platform_admin`，分别表示普通账号和平台管理员。`is_platform_admin` 是平台授权的唯一事实来源；旧 `users.role` 列仅在数据库过渡期作为内部镜像，不出现在新接口的授权判断中。服务端必须保证至少保留一名未停用的平台管理员。服务器管理员身份只存储在 `guild_members`，不通过平台账号角色接口设置。
 
 `POST /api/platform/servers/{serverID}/join` 创建平台管理员自己的服务器管理员成员关系，并记录平台管理员加入服务器审计事件。该接口不会代替普通成员的服务器添加流程。
 
@@ -378,6 +378,7 @@ DELETE /api/servers/{serverID}/channels/{channelID}/messages/{messageID}
 POST   /api/servers/{serverID}/channels/{channelID}/read
 POST   /api/servers/{serverID}/channels/{channelID}/voice/token
 PATCH  /api/servers/{serverID}/channels/{channelID}/voice/state
+POST   /api/servers/{serverID}/voice/leave
 ```
 
 服务器成员添加请求使用完整登录名：
@@ -396,6 +397,117 @@ PATCH  /api/servers/{serverID}/channels/{channelID}/voice/state
 - 频道、消息和已读接口必须同时验证 `channel.guild_id == serverID`。单独知道频道或消息数字 ID 不能越过服务器边界。
 - `requirePlatformAdmin` 只保护平台接口；它不替代 `requireGuildMember`，也不自动绕过内容读取权限。
 - 服务器成员操作中，先验证操作者有效角色，再验证目标成员在同一服务器和可被该角色管理。
+
+## 旧兼容接口移除与权限收口
+
+### 决策与范围
+
+Web 前端与 Go 后端嵌入同一制品并同步发布，当前也不支持多版本后端滚动部署，因此不为旧页面保留长期 HTTP 兼容层。升级后的旧页面请求失败时要求用户刷新，不为此继续维护第二套全局授权模型。
+
+数据迁移兼容与 HTTP 接口兼容必须分开处理：旧数据库仍需无损升级，但升级完成后的进程只暴露平台接口、服务器作用域接口和必要的全局会话接口。旧路由直接删除并返回统一的 `404 not_found`，不提供重定向、别名、功能开关或废弃宽限期。
+
+删除以下旧接口族：
+
+```text
+GET|POST|DELETE /api/messages...
+GET|POST|PATCH|DELETE /api/channels...
+POST|PATCH        /api/voice...
+GET|POST|PATCH|DELETE /api/admin/users...
+GET|POST|DELETE       /api/admin/invites...
+```
+
+保留的全局入口只有：
+
+```text
+/api/auth/*
+/api/me
+/api/bootstrap
+/api/platform/*
+/api/servers/{serverID}/*
+/api/ws
+/api/livekit/webhook
+/api/health
+/api/version
+/api/changelog
+```
+
+`POST /api/servers/{serverID}/voice/leave` 替代 `/api/voice/leave`。它只撤销当前账号在指定服务器中的语音目标，不得断开该账号在另一服务器中的新连接。浏览器普通离开和 `pagehide` Beacon 都使用已连接语音服务器的 ID，而不是当前正在浏览的服务器 ID。
+
+### 全局角色与旧数据归一化
+
+删除兼容接口后仍需执行一次独立、幂等的数据收口迁移，且不能依赖首次多服务器迁移是否已经运行：
+
+1. `is_platform_admin = 1` 的账号保持平台管理员；其他账号的旧 `users.role` 统一归一化为 `member`。
+2. 旧 `server_admin` 仅用于识别首次迁移的平台管理员，迁移完成后不再直接参与鉴权。
+3. 旧 `channel_admin` 仅迁移为默认服务器的 `guild_members.role = 'admin'`，之后不能调用任何平台账号审核接口。
+4. 将仍存在于 `temporary_bans` 的旧全局临时封禁合并到默认服务器成员记录，再清空或退役该表；临时封禁不再阻止账号登录整个平台。
+5. 确认旧 `users.voice_muted` 和 `users.text_muted` 已复制到默认服务器成员记录后清零，避免全局账号 DTO 覆盖当前服务器审核状态。
+6. `users.permanently_banned`/`suspended_at` 继续表示平台级账号停用，不迁移为服务器封禁。
+
+迁移完成后平台授权只读取 `is_platform_admin` 和平台停用状态；服务器授权只读取 `guilds.owner_user_id` 与 `guild_members`。不得再使用 `Role.IsAdmin()` 或 `users.role = 'channel_admin'` 保护任何 Handler。
+
+消息作者角色也不再复用旧全局 `Role`。消息 DTO 按消息所属服务器返回 `owner`、`admin` 或 `member`，前端直接使用服务器角色展示标签，避免为了展示兼容值继续保留旧权限类型。
+
+### 代码删除与调用方迁移
+
+后端按引用关系删除以下兼容层：
+
+- 路由注册中的旧 `/api/messages`、`/api/channels`、`/api/voice` 和 `/api/admin` 入口。
+- `requireDefaultGuildMember`、`requireDefaultGuildAdmin`、`requireAdmin`、`requireServerAdmin` 及其全局角色判断。
+- 只为默认频道转发的 Handler，以及 `ListMessages`、`CreateMessage`、`DeleteMessage`、`CreateChannel` 等无服务器参数的 Store 包装函数。
+- 平台范围的旧全局禁言和临时封禁 Handler；平台只保留账号角色、密码重置、停用、恢复和删除。
+- 不再被数据库迁移或内部任务引用的旧角色辅助函数。数据库过渡字段如仍需保留，必须与运行时授权类型隔离。
+
+调用方同步迁移：
+
+- Web 语音 Store 保存连接建立时的 `connectedServerId`，显式离开和 `pagehide` 都调用服务器作用域离开接口。
+- Playwright 的账号准备改用 `/api/platform/users`，随后通过 `/api/servers/{serverID}/members` 加入目标服务器。
+- Playwright 的频道、消息、角色和审核操作全部改用服务器作用域接口，不再用旧接口简化夹具。
+- `docs/native-client-design.md` 和其他示例更新为服务器作用域语音接口。
+- E2E 请求拦截和 Mock 必须包含 `serverID`，从测试层面防止再次引入无作用域调用。
+
+### 同批安全修正
+
+以下问题与旧接口共同影响权限收口，必须在完成接口删除前修正：
+
+- LiveKit 当前目标必须始终保留 `guildID` 和完整房间名；禁言、移出、封禁、停用、离开、频道删除和服务器删除都按 `guild-{guildID}-channel-{channelID}` 操作真实参与者。
+- Webhook 和定期校准拒绝旧代次参与者时使用事件中的完整房间名，不得回退到 `channel-{channelID}`。
+- 账号停用、删除和密码重置时，服务端主动关闭目标账号的全部 WebSocket 并移除 Hub 订阅，不能依赖客户端处理 `session_revoked`。
+- 平台角色降级、账号停用和账号删除在同一存储事务内验证至少保留一名未停用的平台管理员；服务端拒绝停用当前账号。
+- 前端服务器 Bootstrap 使用请求代次或取消机制，快速连续切换时只允许最后一次选择提交状态。
+- 当前服务器禁言状态与全局账号资料分开保存；个人资料更新和平台账号事件不得覆盖服务器成员禁言状态。
+
+### 实施顺序与 Commit 边界
+
+按以下顺序实施，保证每一步都可独立测试和审查：
+
+1. `docs:` 提交本调整计划，冻结新接口和删除范围。
+2. `fix:` 修复 LiveKit 完整房间目标、强制断开和对应媒体单元测试。
+3. `fix:` 修复 WebSocket 服务端会话撤销及最后平台管理员事务约束。
+4. `feat:` 增加服务器作用域语音离开接口，迁移 Web 与原生客户端文档调用。
+5. `refactor:` 归一化全局角色和旧审核数据，拆分平台角色、服务器角色与消息展示 DTO。
+6. `refactor:` 迁移 Playwright 夹具和所有前端调用后，删除旧路由、中间件、Handler 与 Store 包装函数。
+7. `fix:` 增加前端服务器切换竞态保护和全局/服务器账号状态分离。
+8. `test:` 补齐旧接口不可达、跨服务器权限和真实 LiveKit 生命周期验收。
+
+禁止把“先保留旧接口，后续再删”作为中间发布状态。分支内可以分 Commit 实施，但合并和发布时必须同时满足新调用方已迁移、旧权限入口已删除。
+
+### 验收与发布门槛
+
+除现有多服务器验收矩阵外，必须增加：
+
+| 场景 | 预期 |
+| --- | --- |
+| 请求任一旧 `/api/admin`、`/api/channels`、`/api/messages`、`/api/voice` 路径 | 返回 `404`，不执行兼容逻辑 |
+| 旧 `channel_admin` 数据库升级 | 账号全局身份为普通账号，只在默认服务器拥有管理员角色 |
+| 默认服务器成员被封禁 | 新旧无作用域内容路径均不可用，且旧路径本身不存在 |
+| 平台管理员尝试停用自己或最后一名有效平台管理员 | 事务拒绝，平台始终至少有一名可登录管理员 |
+| 停用、删除或重置密码后客户端忽略撤销事件 | WebSocket 仍由服务端关闭，不再收到服务器事件 |
+| 成员在真实 LiveKit 房间中被禁言、移出或封禁 | 发布权限立即变化或参与者立即离开正确的服务器房间 |
+| 在服务器 A 语音中浏览 B 后关闭页面 | Beacon 撤销 A 的语音目标，不误操作 B |
+| 快速依次选择 A、B、C 并乱序返回 Bootstrap | 最终只渲染 C 的成员、频道、未读和禁言状态 |
+
+发布前执行 `go test ./...`、关键包 `go test -race`、前端构建和完整 Playwright；真实 LiveKit 双客户端验收不得由 Mock 替代。数据库升级测试必须同时覆盖尚未升级的旧库和已经运行过当前多服务器迁移的数据库。
 
 ## HTTP Bootstrap 与前端状态
 
