@@ -209,13 +209,20 @@ func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
+	guildIDs, err := s.store.GuildIDsForUser(r.Context(), targetID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
 	if err := s.store.DeleteUser(r.Context(), currentUser(r).ID, targetID, input.Username); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
+	for _, guildID := range guildIDs {
+		s.hub.BroadcastGuild(guildID, "user_deleted", map[string]int64{"id": targetID})
+	}
 	s.hub.DisconnectUser(targetID)
 	s.removeFromVoice(r, targetID)
-	s.hub.BroadcastUser(targetID, "user_deleted", map[string]int64{"id": targetID})
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -102,6 +102,23 @@ ORDER BY CASE WHEN gm.user_id IS NOT NULL THEN gm.joined_at ELSE g.created_at EN
 	return result, rows.Err()
 }
 
+func (s *Store) GuildIDsForUser(ctx context.Context, userID int64) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT guild_id FROM guild_members WHERE user_id = ? ORDER BY guild_id", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]int64, 0)
+	for rows.Next() {
+		var guildID int64
+		if err := rows.Scan(&guildID); err != nil {
+			return nil, err
+		}
+		result = append(result, guildID)
+	}
+	return result, rows.Err()
+}
+
 func (s *Store) GuildMembership(ctx context.Context, guildID, userID int64) (GuildMember, error) {
 	return scanGuildMember(s.db.QueryRowContext(ctx, `
 SELECT gm.guild_id, gm.user_id, u.username, u.display_name,
