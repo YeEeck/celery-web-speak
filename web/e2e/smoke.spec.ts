@@ -69,6 +69,38 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
   expect(Math.abs(verticalLayout.viewport - verticalLayout.composerBottom)).toBeLessThan(2)
 })
 
+test('临时封禁状态在刷新后可见并可提前解除', async ({ page, request }, testInfo) => {
+  await request.post('/api/auth/login', { data: { username, password } })
+  const serverID = await firstJoinedServerID(request)
+  const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
+  const account = {
+    username: `temporary_ban_${suffix}`,
+    displayName: `临时封禁成员${suffix.slice(-3)}`,
+    password: 'member-password-123',
+  }
+  const member = await createServerMember(request, serverID, account)
+  try {
+    const banResponse = await request.patch(`/api/servers/${serverID}/members/${member.id}/ban`, {
+      data: { banned: false, temporaryBanUntil: new Date(Date.now() + 30 * 60_000).toISOString() },
+    })
+    expect(banResponse.ok()).toBeTruthy()
+
+    await page.reload()
+    await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+    const adminButton = page.getByText('管理控制台', { exact: true })
+    if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
+    await adminButton.click()
+    await page.locator('.admin-user-list button').filter({ hasText: account.displayName }).click()
+    const clearButton = page.getByRole('button', { name: '解除临时封禁', exact: true })
+    await expect(clearButton).toBeVisible()
+    await clearButton.click()
+    await expect(clearButton).toHaveCount(0)
+  } finally {
+    const response = await deletePlatformUser(request, member.id, account.username)
+    expect(response.ok()).toBeTruthy()
+  }
+})
+
 test('管理员可创建和删除独立文字频道', async ({ page, isMobile }) => {
   const channelName = `项目频道${Date.now().toString(36).slice(-5)}`
   const channelMessage = `频道隔离检查 ${Date.now()}`

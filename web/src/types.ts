@@ -95,10 +95,23 @@ export interface BootstrapData {
 	voiceRooms?: VoiceRoom[]
 }
 
+export interface GuildMemberPayload {
+  guildId: number
+  userId: number
+  username: string
+  displayName: string
+  role: GuildRole
+  voiceMuted: boolean
+  textMuted: boolean
+  permanentlyBanned: boolean
+  temporaryBanUntil?: string
+  joinedAt: string
+}
+
 export interface ServerBootstrapData {
   server: ServerSummary
-  membership: { guildId: number; userId: number; username: string; displayName: string; role: GuildRole; voiceMuted: boolean; textMuted: boolean }
-  members: Array<{ guildId: number; userId: number; username: string; displayName: string; role: GuildRole; voiceMuted: boolean; textMuted: boolean; permanentlyBanned: boolean; joinedAt: string }>
+  membership: GuildMemberPayload
+  members: GuildMemberPayload[]
   channels: Channel[]
   channelReadStates: ChannelReadState[]
   onlineIds: number[]

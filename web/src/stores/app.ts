@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, request } from '../api'
-import type { BootstrapData, Channel, ChannelReadState, Message, ServerBootstrapData, ServerSummary, User, VoiceRoom } from '../types'
+import type { BootstrapData, Channel, ChannelReadState, GuildMemberPayload, Message, ServerBootstrapData, ServerSummary, User, VoiceRoom } from '../types'
 import { useSoundStore } from './sounds'
 
 type AuthPayload = { user: User }
@@ -80,8 +80,8 @@ export const useAppStore = defineStore('app', () => {
     if (version !== serverBootstrapVersion || activeServerId.value !== serverId) return
     activeTextChannelId.value = savedChannelID(serverId)
     localStorage.setItem('cws.activeServerId', String(serverId))
-    const members: User[] = data.members.map((member) => ({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role, voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt }))
-    const currentUser = { ...user.value!, voiceMuted: data.membership.voiceMuted, textMuted: data.membership.textMuted }
+    const members = data.members.map(mapGuildMember)
+    const currentUser = { ...user.value!, voiceMuted: data.membership.voiceMuted, textMuted: data.membership.textMuted, permanentlyBanned: data.membership.permanentlyBanned, temporaryBanUntil: data.membership.temporaryBanUntil }
     applyBootstrap({ user: currentUser, users: members, channels: data.channels, channelReadStates: data.channelReadStates, onlineIds: data.onlineIds, voiceRooms: data.voiceRooms })
   }
 
@@ -292,8 +292,8 @@ export const useAppStore = defineStore('app', () => {
         }
         if (activeServerId.value === null) { clearServerState(); synchronizingSocket = null; socketStatus.value = 'online'; return }
         const serverData = await request<ServerBootstrapData>(`/api/servers/${activeServerId.value}/bootstrap`)
-        const members: User[] = serverData.members.map((member) => ({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role, voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt }))
-        const currentUser = { ...data.user, voiceMuted: serverData.membership.voiceMuted, textMuted: serverData.membership.textMuted }
+        const members = serverData.members.map(mapGuildMember)
+        const currentUser = { ...data.user, voiceMuted: serverData.membership.voiceMuted, textMuted: serverData.membership.textMuted, permanentlyBanned: serverData.membership.permanentlyBanned, temporaryBanUntil: serverData.membership.temporaryBanUntil }
         applyBootstrap({ user: currentUser, users: members, channels: serverData.channels, channelReadStates: serverData.channelReadStates, onlineIds: serverData.onlineIds, voiceRooms: serverData.voiceRooms }, true)
         const channelId = activeTextChannelId.value
         if (channelId !== null) await loadChannelMessages(channelId, true)
@@ -380,8 +380,8 @@ export const useAppStore = defineStore('app', () => {
       const index = servers.value.findIndex((item) => item.id === server.id)
       if (index >= 0) servers.value[index] = { ...servers.value[index], ...server }
     } else if (type === 'member_added' || type === 'member_updated') {
-      const member = data as { userId: number; username: string; displayName: string; role: string; voiceMuted: boolean; textMuted: boolean; permanentlyBanned: boolean; joinedAt: string }
-      upsertUser({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role === 'owner' || member.role === 'admin' ? member.role : 'member', voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt } as User)
+      const member = data as GuildMemberPayload
+      upsertUser(mapGuildMember(member))
       if (member.userId === user.value?.id && serverId) {
         const serverIndex = servers.value.findIndex((server) => server.id === serverId)
         if (serverIndex >= 0) servers.value[serverIndex] = { ...servers.value[serverIndex], role: member.role === 'owner' || member.role === 'admin' ? member.role : 'member' }
@@ -583,4 +583,18 @@ function savedServerID() {
 
 function isCompleteUser(value: Partial<User>): value is User {
   return typeof value.id === 'number' && typeof value.username === 'string' && typeof value.displayName === 'string'
+}
+
+function mapGuildMember(member: GuildMemberPayload): User {
+  return {
+    id: member.userId,
+    username: member.username,
+    displayName: member.displayName,
+    role: member.role,
+    voiceMuted: member.voiceMuted,
+    textMuted: member.textMuted,
+    permanentlyBanned: member.permanentlyBanned,
+    temporaryBanUntil: member.temporaryBanUntil,
+    createdAt: member.joinedAt,
+  }
 }
