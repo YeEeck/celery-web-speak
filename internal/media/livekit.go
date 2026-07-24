@@ -100,6 +100,10 @@ func ParseRoomName(name string) (int64, bool) {
 	if _, channelID, ok := ParseGuildRoomName(name); ok {
 		return channelID, true
 	}
+	return parseLegacyRoomName(name)
+}
+
+func parseLegacyRoomName(name string) (int64, bool) {
 	id, err := strconv.ParseInt(strings.TrimPrefix(name, "channel-"), 10, 64)
 	return id, strings.HasPrefix(name, "channel-") && err == nil && id > 0
 }
@@ -134,7 +138,7 @@ func (s *Service) joinCredentials(ctx context.Context, user store.User, guildID,
 	s.targets[user.ID] = voiceTarget{ChannelID: channelID, GuildID: guildID, RoomName: roomName, Generation: generation, ExpiresAt: now.Add(voiceTokenTTL)}
 	s.revision++
 	s.mu.Unlock()
-	if previous.ChannelID > 0 && previous.ChannelID != channelID {
+	if previous.ChannelID > 0 && previous.roomName() != roomName {
 		_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: previous.roomName(), Identity: Identity(user.ID)})
 	}
 
@@ -266,14 +270,16 @@ func (s *Service) SetChannelDeafened(ctx context.Context, userID, channelID int6
 
 func (s *Service) RemoveParticipant(ctx context.Context, userID int64) error {
 	s.mu.Lock()
-	channelIDs := make(map[int64]struct{})
+	roomNames := make(map[string]struct{})
 	target := s.targets[userID]
 	if target.ChannelID > 0 {
-		channelIDs[target.ChannelID] = struct{}{}
+		roomNames[target.roomName()] = struct{}{}
 	}
 	for channelID, participants := range s.rooms {
 		if _, ok := participants[userID]; ok {
-			channelIDs[channelID] = struct{}{}
+			if target.ChannelID == channelID {
+				roomNames[target.roomName()] = struct{}{}
+			}
 			delete(participants, userID)
 		}
 	}
@@ -283,16 +289,12 @@ func (s *Service) RemoveParticipant(ctx context.Context, userID int64) error {
 	} else {
 		delete(s.targets, userID)
 	}
-	if len(channelIDs) > 0 {
+	if len(roomNames) > 0 {
 		s.revision++
 	}
 	s.mu.Unlock()
 	var result error
-	for channelID := range channelIDs {
-		roomName := RoomName(channelID)
-		if target.ChannelID == channelID {
-			roomName = target.roomName()
-		}
+	for roomName := range roomNames {
 		_, err := s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: Identity(userID)})
 		result = errors.Join(result, err)
 	}
@@ -373,8 +375,17 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 	}
 	removals := make([]livekit.RoomParticipantIdentity, 0)
 	for _, roomInfo := range response.Rooms {
-		channelID, ok := ParseRoomName(roomInfo.Name)
+		guildID, channelID, ok := ParseGuildRoomName(roomInfo.Name)
 		if !ok {
+			if _, legacy := parseLegacyRoomName(roomInfo.Name); legacy {
+				participants, listErr := s.room.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomInfo.Name})
+				if listErr != nil {
+					return false, listErr
+				}
+				for _, info := range participants.Participants {
+					removals = append(removals, livekit.RoomParticipantIdentity{Room: roomInfo.Name, Identity: info.Identity})
+				}
+			}
 			continue
 		}
 		participants, err := s.room.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomInfo.Name})
@@ -386,7 +397,11 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 			if !ok {
 				continue
 			}
-			if target, exists := issuedTargets[participant.UserID]; exists && target.valid(now) && !target.accepts(channelID, participant.Generation) {
+			if participant.Generation == 0 {
+				removals = append(removals, livekit.RoomParticipantIdentity{Room: roomInfo.Name, Identity: participant.Identity})
+				continue
+			}
+			if target, exists := issuedTargets[participant.UserID]; exists && target.valid(now) && !target.accepts(roomInfo.Name, channelID, participant.Generation) {
 				removals = append(removals, livekit.RoomParticipantIdentity{Room: roomInfo.Name, Identity: participant.Identity})
 				continue
 			}
@@ -397,7 +412,8 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 					removals = append(removals, livekit.RoomParticipantIdentity{Room: roomInfo.Name, Identity: participant.Identity})
 					continue
 				}
-				removals = append(removals, livekit.RoomParticipantIdentity{Room: RoomName(previousChannel), Identity: previous.Identity})
+				previousTarget := targets[participant.UserID]
+				removals = append(removals, livekit.RoomParticipantIdentity{Room: previousTarget.roomName(), Identity: previous.Identity})
 				delete(rooms[previousChannel], participant.UserID)
 			}
 			if rooms[channelID] == nil {
@@ -406,7 +422,7 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 			rooms[channelID][participant.UserID] = participant
 			if participant.Generation > targets[participant.UserID].Generation {
 				target := targetFromParticipant(channelID, participant, now)
-				target.GuildID, _, _ = ParseGuildRoomName(roomInfo.Name)
+				target.GuildID = guildID
 				target.RoomName = roomInfo.Name
 				targets[participant.UserID] = target
 			}
@@ -428,8 +444,14 @@ func (s *Service) ReceiveWebhook(r *http.Request) (*livekit.WebhookEvent, error)
 
 func (s *Service) ApplyWebhook(ctx context.Context, event *livekit.WebhookEvent) bool {
 	roomInfo := event.GetRoom()
-	channelID, ok := ParseRoomName(roomInfo.GetName())
+	roomName := roomInfo.GetName()
+	guildID, channelID, ok := ParseGuildRoomName(roomName)
 	if !ok {
+		if _, legacy := parseLegacyRoomName(roomName); legacy && event.GetEvent() == webhook.EventParticipantJoined {
+			if participant := event.GetParticipant(); participant != nil {
+				_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: participant.Identity})
+			}
+		}
 		return false
 	}
 	switch event.GetEvent() {
@@ -438,11 +460,15 @@ func (s *Service) ApplyWebhook(ctx context.Context, event *livekit.WebhookEvent)
 		if !ok {
 			return false
 		}
+		if participant.Generation == 0 {
+			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: participant.Identity})
+			return false
+		}
 		s.mu.Lock()
 		previous := s.targets[participant.UserID]
-		if previous.valid(s.now()) && !previous.accepts(channelID, participant.Generation) {
+		if previous.valid(s.now()) && !previous.accepts(roomName, channelID, participant.Generation) {
 			s.mu.Unlock()
-			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: RoomName(channelID), Identity: participant.Identity})
+			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: participant.Identity})
 			return false
 		}
 		if s.rooms[channelID] == nil {
@@ -454,8 +480,8 @@ func (s *Service) ApplyWebhook(ctx context.Context, event *livekit.WebhookEvent)
 		s.rooms[channelID][participant.UserID] = participant
 		if participant.Generation >= previous.Generation {
 			target := targetFromParticipant(channelID, participant, s.now())
-			target.GuildID, _, _ = ParseGuildRoomName(roomInfo.GetName())
-			target.RoomName = roomInfo.GetName()
+			target.GuildID = guildID
+			target.RoomName = roomName
 			s.targets[participant.UserID] = target
 		}
 		if participant.Generation > s.generation {
@@ -463,8 +489,8 @@ func (s *Service) ApplyWebhook(ctx context.Context, event *livekit.WebhookEvent)
 		}
 		s.revision++
 		s.mu.Unlock()
-		if previous.ChannelID > 0 && previous.ChannelID != channelID {
-			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: RoomName(previous.ChannelID), Identity: participant.Identity})
+		if previous.ChannelID > 0 && previous.roomName() != roomName {
+			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: previous.roomName(), Identity: participant.Identity})
 		}
 		return true
 	case webhook.EventParticipantLeft:
@@ -528,13 +554,13 @@ func (s *Service) currentChannel(userID int64) int64 {
 func (s *Service) currentTarget(userID int64) voiceTarget {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if target := s.targets[userID]; target.ChannelID > 0 {
+		return target
+	}
 	for channelID, participants := range s.rooms {
 		if _, ok := participants[userID]; ok {
 			return voiceTarget{ChannelID: channelID, RoomName: RoomName(channelID)}
 		}
-	}
-	if target := s.targets[userID]; target.ChannelID > 0 {
-		return target
 	}
 	return voiceTarget{}
 }
@@ -641,8 +667,9 @@ func (target voiceTarget) roomName() string {
 	return RoomName(target.ChannelID)
 }
 
-func (target voiceTarget) accepts(channelID int64, generation uint64) bool {
-	return target.ChannelID > 0 && generation >= target.Generation && (generation != target.Generation || channelID == target.ChannelID)
+func (target voiceTarget) accepts(roomName string, channelID int64, generation uint64) bool {
+	return target.ChannelID > 0 && generation >= target.Generation &&
+		(generation != target.Generation || (channelID == target.ChannelID && roomName == target.roomName()))
 }
 
 func targetFromParticipant(channelID int64, participant VoiceParticipant, now time.Time) voiceTarget {
