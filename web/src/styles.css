@@ -506,6 +506,10 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
   .server-rail, .app-shell > .channel-sidebar { display: none; }
   .mobile-only { display: inline-grid; }
   .channel-sidebar.mobile-drawer-open { position: fixed; z-index: 42; inset: 0 auto 0 0; width: min(300px, 86vw); display: flex; box-shadow: 10px 0 30px rgba(0,0,0,.35); }
+  .server-title { height: auto; flex: 0 0 auto; flex-wrap: wrap; align-content: center; row-gap: 6px; padding: 10px 10px 10px 16px; }
+  .server-title > span { flex: 1 1 calc(100% - 44px); }
+  .server-title small { display: none; }
+  .mobile-server-select { width: min(180px, 60%); margin-left: auto; }
   .drawer-scrim { position: fixed; z-index: 40; inset: 0; display: block; background: rgba(0,0,0,.58); }
   .chat-header { padding: 0 8px; }.chat-header .header-divider, .chat-header small { display: none; }
   .message-row { grid-template-columns: 36px minmax(0,1fr) 30px; padding-left: 10px; gap: 9px; }
