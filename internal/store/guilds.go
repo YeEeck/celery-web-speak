@@ -257,6 +257,9 @@ func (s *Store) JoinGuildAsAdmin(ctx context.Context, guildID, userID int64) (Gu
 	if err := insertGuildAudit(ctx, tx, guildID, userID, &userID, "join_guild_as_platform_admin", ""); err != nil {
 		return GuildMember{}, err
 	}
+	if err := insertAudit(ctx, tx, userID, &userID, "platform_join_guild", fmt.Sprintf("guild_id=%d", guildID)); err != nil {
+		return GuildMember{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return GuildMember{}, err
 	}

@@ -343,9 +343,13 @@ DELETE /api/platform/invites/{inviteID}/permanent
 
 GET    /api/platform/users
 POST   /api/platform/users
+PATCH  /api/platform/users/{userID}/role
+POST   /api/platform/users/{userID}/reset-password
 PATCH  /api/platform/users/{userID}/suspend
 DELETE /api/platform/users/{userID}
 ```
+
+平台账号角色接口只接受 `member` 和兼容值 `server_admin`，分别表示普通账号和平台管理员；服务端同时维护 `is_platform_admin` 与旧角色列，并保证至少保留一名平台管理员。服务器管理员身份只存储在 `guild_members`，不通过平台账号角色接口设置。
 
 `POST /api/platform/servers/{serverID}/join` 创建平台管理员自己的服务器管理员成员关系，并记录平台管理员加入服务器审计事件。该接口不会代替普通成员的服务器添加流程。
 

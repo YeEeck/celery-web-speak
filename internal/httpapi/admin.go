@@ -129,6 +129,14 @@ func (s *Server) handleDeleteInvite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	s.handleCreateUserWithRoles(w, r, false)
+}
+
+func (s *Server) handlePlatformCreateUser(w http.ResponseWriter, r *http.Request) {
+	s.handleCreateUserWithRoles(w, r, true)
+}
+
+func (s *Server) handleCreateUserWithRoles(w http.ResponseWriter, r *http.Request, platformOnly bool) {
 	var input struct {
 		Username    string     `json:"username"`
 		DisplayName string     `json:"displayName"`
@@ -140,6 +148,10 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.Role == "" {
 		input.Role = store.RoleMember
+	}
+	if platformOnly && input.Role != store.RoleMember && input.Role != store.RoleServerAdmin {
+		writeError(w, http.StatusBadRequest, "invalid_platform_role", "平台角色只能是普通账号或平台管理员")
+		return
 	}
 	user, err := s.store.CreateUser(r.Context(), input.Username, input.DisplayName, input.Password, input.Role)
 	if err != nil {
@@ -192,6 +204,30 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request) {
 		Role store.Role `json:"role"`
 	}
 	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.store.SetRole(r.Context(), currentUser(r).ID, targetID, input.Role); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	updated, _ := s.store.UserByID(r.Context(), targetID)
+	s.hub.BroadcastUser(targetID, "user_updated", updated)
+	writeJSON(w, http.StatusOK, map[string]any{"user": updated})
+}
+
+func (s *Server) handleSetPlatformRole(w http.ResponseWriter, r *http.Request) {
+	targetID, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Role store.Role `json:"role"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.Role != store.RoleMember && input.Role != store.RoleServerAdmin {
+		writeError(w, http.StatusBadRequest, "invalid_platform_role", "平台角色只能是普通账号或平台管理员")
 		return
 	}
 	if err := s.store.SetRole(r.Context(), currentUser(r).ID, targetID, input.Role); err != nil {

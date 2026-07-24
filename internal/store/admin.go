@@ -11,10 +11,10 @@ import (
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT u.id, u.username, u.display_name, u.role, u.voice_muted, u.text_muted,
-       u.permanently_banned, u.created_at, b.expires_at
+       u.permanently_banned, u.created_at, b.expires_at, u.is_platform_admin
 FROM users u LEFT JOIN temporary_bans b ON b.user_id = u.id
 WHERE u.deleted_at IS NULL
-ORDER BY CASE u.role WHEN 'server_admin' THEN 0 WHEN 'channel_admin' THEN 1 ELSE 2 END,
+ORDER BY u.is_platform_admin DESC,
          u.display_name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
@@ -23,15 +23,16 @@ ORDER BY CASE u.role WHEN 'server_admin' THEN 0 WHEN 'channel_admin' THEN 1 ELSE
 	var users []User
 	for rows.Next() {
 		var user User
-		var voiceMuted, textMuted, permanentlyBanned int
+		var voiceMuted, textMuted, permanentlyBanned, platformAdmin int
 		var createdAt string
 		var banUntil sql.NullString
-		if err := rows.Scan(&user.ID, &user.Username, &user.DisplayName, &user.Role, &voiceMuted, &textMuted, &permanentlyBanned, &createdAt, &banUntil); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.DisplayName, &user.Role, &voiceMuted, &textMuted, &permanentlyBanned, &createdAt, &banUntil, &platformAdmin); err != nil {
 			return nil, err
 		}
 		user.VoiceMuted = voiceMuted != 0
 		user.TextMuted = textMuted != 0
 		user.PermanentlyBanned = permanentlyBanned != 0
+		user.IsPlatformAdmin = platformAdmin != 0 || user.Role == RoleServerAdmin
 		user.CreatedAt, _ = parseTime(createdAt)
 		if banUntil.Valid {
 			until, err := parseTime(banUntil.String)
@@ -79,21 +80,22 @@ func (s *Store) SetRole(ctx context.Context, actorID, userID int64, role Role) e
 	}
 	defer tx.Rollback()
 	var current Role
-	if err := tx.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ? AND deleted_at IS NULL", userID).Scan(&current); errors.Is(err, sql.ErrNoRows) {
+	var platformAdmin int
+	if err := tx.QueryRowContext(ctx, "SELECT role, is_platform_admin FROM users WHERE id = ? AND deleted_at IS NULL", userID).Scan(&current, &platformAdmin); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
 	}
-	if current == RoleServerAdmin && role != RoleServerAdmin {
+	if (platformAdmin != 0 || current == RoleServerAdmin) && role != RoleServerAdmin {
 		var count int
-		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = 'server_admin' AND deleted_at IS NULL").Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE (is_platform_admin = 1 OR role = 'server_admin') AND deleted_at IS NULL").Scan(&count); err != nil {
 			return err
 		}
 		if count <= 1 {
 			return ErrLastServerAdmin
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE users SET role = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL", role, formatTime(s.now()), userID); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE users SET role = ?, is_platform_admin = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL", role, role == RoleServerAdmin, formatTime(s.now()), userID); err != nil {
 		return err
 	}
 	if err := insertAudit(ctx, tx, actorID, &userID, "set_role", string(role)); err != nil {
@@ -209,18 +211,20 @@ func (s *Store) DeleteUser(ctx context.Context, actorID, userID int64, confirmat
 	defer tx.Rollback()
 
 	var actorRole Role
-	if err := tx.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ? AND deleted_at IS NULL", actorID).Scan(&actorRole); errors.Is(err, sql.ErrNoRows) {
+	var actorPlatformAdmin int
+	if err := tx.QueryRowContext(ctx, "SELECT role, is_platform_admin FROM users WHERE id = ? AND deleted_at IS NULL", actorID).Scan(&actorRole, &actorPlatformAdmin); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
 	}
-	if actorRole != RoleServerAdmin {
+	if actorPlatformAdmin == 0 && actorRole != RoleServerAdmin {
 		return errors.New("server admin role required")
 	}
 
 	var username string
 	var role Role
-	if err := tx.QueryRowContext(ctx, "SELECT username, role FROM users WHERE id = ? AND deleted_at IS NULL", userID).Scan(&username, &role); errors.Is(err, sql.ErrNoRows) {
+	var platformAdmin int
+	if err := tx.QueryRowContext(ctx, "SELECT username, role, is_platform_admin FROM users WHERE id = ? AND deleted_at IS NULL", userID).Scan(&username, &role, &platformAdmin); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
@@ -235,9 +239,9 @@ func (s *Store) DeleteUser(ctx context.Context, actorID, userID int64, confirmat
 	if ownedGuilds > 0 {
 		return ErrGuildOwnerTransferRequired
 	}
-	if role == RoleServerAdmin {
+	if platformAdmin != 0 || role == RoleServerAdmin {
 		var count int
-		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE role = 'server_admin' AND deleted_at IS NULL").Scan(&count); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE (is_platform_admin = 1 OR role = 'server_admin') AND deleted_at IS NULL").Scan(&count); err != nil {
 			return err
 		}
 		if count <= 1 {
@@ -250,7 +254,7 @@ func (s *Store) DeleteUser(ctx context.Context, actorID, userID int64, confirmat
 	result, err := tx.ExecContext(ctx, `
 UPDATE users
 SET username = ?, display_name = '已删除用户', password_hash = '', role = 'member',
-    voice_muted = 0, text_muted = 0, permanently_banned = 0,
+    is_platform_admin = 0, voice_muted = 0, text_muted = 0, permanently_banned = 0,
     deleted_at = ?, updated_at = ?
 WHERE id = ? AND deleted_at IS NULL`, deletedUsername, formatTime(now), formatTime(now), userID)
 	if err != nil {

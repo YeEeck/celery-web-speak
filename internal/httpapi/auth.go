@@ -126,7 +126,7 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "目标不存在")
 	case errors.Is(err, store.ErrLastServerAdmin):
-		writeError(w, http.StatusConflict, "last_server_admin", "必须保留至少一名服务器管理员")
+		writeError(w, http.StatusConflict, "last_server_admin", "必须保留至少一名平台管理员")
 	case errors.Is(err, store.ErrSelfAction):
 		writeError(w, http.StatusBadRequest, "self_action", "不能删除自己的账号")
 	case errors.Is(err, store.ErrUsernameConfirm):
