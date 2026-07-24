@@ -3,7 +3,7 @@
 > - 审查日期：2026-07-24
 > - 审查范围：`f1aa4d3cd54de1a680ed8b4fa5bf6ff4c0719834` 至 `3db7b7fd4fa1e872276b78508d8238479063dd0a`
 > - 审查对象：数据迁移、平台与服务器权限、HTTP API、业务 WebSocket、LiveKit、前端切服与管理流程
-> - 文档状态：问题已确认，尚未修复
+> - 文档状态：问题已确认，并已在后续提交中修复
 
 ## 1. 结论摘要
 
@@ -481,3 +481,35 @@ cd web && E2E_BASE_URL=<独立临时后端> npm run test:e2e
 - MMS-R01 另通过独立临时数据库和真实 HTTP API 完成定向复现。
 
 现有测试全部通过并不否定上述问题：MMS-R01、MMS-R02、MMS-R03 和 MMS-R05 缺少对应生命周期测试，MMS-R04 缺少临时封禁 UI 测试，MMS-R06 缺少可控延迟和乱序响应测试。
+
+## 12. 修复结果
+
+本轮问题已按权限、生命周期、恢复机制和前端状态边界拆分修复：
+
+| 编号 | 修复提交 | 结果 |
+| --- | --- | --- |
+| MMS-R01 | `ca1422c` | 所有权候选联接有效平台账号；软删除同步移除服务器成员关系 |
+| MMS-R02 | `16e67e2` | 临时或永久封禁成员不能通过平台加入或清除部分封禁恢复 Hub 订阅 |
+| MMS-R03 | `d0a14af` | 创建服务器发送 `server_added`；转让所有权广播服务器及新旧角色快照 |
+| MMS-R04 | `66ec0f2` | bootstrap、WebSocket 重同步和成员事件统一保留 `temporaryBanUntil` |
+| MMS-R05 | `d35fdbf` | 服务启动重建待恢复任务，并通过数据库原子状态转换协调到期恢复 |
+| MMS-R06 | `633b00c` | WebSocket、消息和语音异步操作绑定发起时的服务器与请求版本 |
+
+修复后重新执行：
+
+```text
+go test ./...
+go test -race ./internal/httpapi ./internal/media ./internal/store
+go vet ./...
+cd web && npm run typecheck
+cd web && npm run build
+cd web && E2E_BASE_URL=<独立临时后端> npm run test:e2e
+```
+
+最终结果：
+
+- Go 完整测试、竞态检测和 `go vet` 全部通过。
+- 前端类型检查和生产构建通过。
+- 新增临时封禁 UI 与 WebSocket 乱序响应定向 E2E：3 项通过，1 项按移动端条件跳过。
+- 独立全新数据库完整 E2E：40 项通过，12 项按配置或视口条件跳过，无失败。
+- 未设置 `E2E_LIVEKIT=1`，因此真实 LiveKit 双账号音轨、背景音和跨频道连接测试仍按既有条件跳过。
