@@ -33,6 +33,7 @@ const newUsername = ref('')
 const newDisplayName = ref('')
 const newPassword = ref('')
 const newRole = ref<Role>('member')
+const memberUsername = ref('')
 const message = ref('')
 const errorMessage = ref('')
 const busy = ref(false)
@@ -44,6 +45,7 @@ const deleteConfirmationInput = ref<HTMLInputElement | null>(null)
 
 const selectedUser = computed(() => app.users.find((user) => user.id === selectedUserId.value) ?? null)
 const manageableUsers = computed(() => app.users.filter((user) => user.id !== app.user!.id))
+const canManageRoles = computed(() => app.isPlatformAdmin || app.activeServer?.role === 'owner')
 
 watch(selectedChannel, (channel) => {
   channelName.value = channel?.name ?? ''
@@ -56,7 +58,7 @@ watch(selectedChannel, (channel) => {
 
 onMounted(async () => {
   selectedUserId.value = manageableUsers.value[0]?.id ?? null
-  if (app.isServerAdmin) {
+  if (app.isPlatformAdmin) {
     try {
       await loadInvites()
     } catch (error) {
@@ -77,6 +79,16 @@ async function run(action: () => Promise<void>, success: string) {
   } finally {
     busy.value = false
   }
+}
+
+async function addMember() {
+  if (!memberUsername.value.trim() || app.activeServerId === null) return
+  await run(async () => {
+    await request(`/api/servers/${app.activeServerId}/members`, { method: 'POST', body: JSON.stringify({ username: memberUsername.value.trim() }) })
+    memberUsername.value = ''
+    await app.bootstrap()
+    selectedUserId.value = manageableUsers.value.at(-1)?.id ?? null
+  }, '成员已加入服务器')
 }
 
 async function saveSettings() {
@@ -241,7 +253,7 @@ async function loadInvites(reset = true) {
   loadingInvites.value = true
   try {
     const query = !reset && inviteCursor.value ? `?cursor=${encodeURIComponent(inviteCursor.value)}` : ''
-    const payload = await request<{ invites: Invite[] | null; hasMore: boolean; nextCursor: string }>(`/api/admin/invites${query}`)
+    const payload = await request<{ invites: Invite[] | null; hasMore: boolean; nextCursor: string }>(`/api/platform/invites${query}`)
     const pageInvites = Array.isArray(payload.invites) ? payload.invites : []
     if (reset) {
       invites.value = pageInvites
@@ -259,7 +271,7 @@ async function loadInvites(reset = true) {
 async function createInvite() {
   await run(async () => {
     const expiresAt = new Date(Date.now() + inviteDays.value * 86_400_000).toISOString()
-    const payload = await request<{ invite: Invite }>('/api/admin/invites', {
+    const payload = await request<{ invite: Invite }>('/api/platform/invites', {
       method: 'POST',
       body: JSON.stringify({ maxUses: inviteUses.value, expiresAt }),
     })
@@ -275,7 +287,7 @@ async function loadMoreInvites() {
 async function revokeInvite(invite: Invite) {
   if (!window.confirm(`确定撤销邀请码“${invite.code || `#${invite.id}`}”吗？`)) return
   await run(async () => {
-    await request(`/api/admin/invites/${invite.id}`, { method: 'DELETE' })
+    await request(`/api/platform/invites/${invite.id}`, { method: 'DELETE' })
     await loadInvites(true)
   }, '邀请码已撤销')
 }
@@ -283,7 +295,7 @@ async function revokeInvite(invite: Invite) {
 async function deleteInvite(invite: Invite) {
   if (!window.confirm(`永久删除邀请码“${invite.code || `#${invite.id}`}”？此操作无法恢复。`)) return
   await run(async () => {
-    await request(`/api/admin/invites/${invite.id}/permanent`, { method: 'DELETE' })
+    await request(`/api/platform/invites/${invite.id}/permanent`, { method: 'DELETE' })
     await loadInvites(true)
   }, '邀请码已永久删除')
 }
@@ -328,13 +340,13 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
   <div class="modal-backdrop admin-backdrop" @mousedown.self="$emit('close')">
     <section class="admin-panel" role="dialog" aria-modal="true" aria-labelledby="admin-title">
       <header class="panel-header">
-        <div><h2 id="admin-title">管理控制台</h2><p>{{ app.user!.role === 'server_admin' ? '服务器管理员' : '频道管理员' }}</p></div>
+        <div><h2 id="admin-title">管理控制台</h2><p>{{ app.activeServer?.role === 'owner' ? '服务器所有者' : '服务器管理员' }}</p></div>
         <button class="icon-button" title="关闭" @click="$emit('close')"><X :size="21" /></button>
       </header>
       <nav class="admin-tabs">
         <button :class="{ active: tab === 'channel' }" @click="selectTab('channel')"><Gauge :size="17" />频道</button>
         <button :class="{ active: tab === 'users' }" @click="selectTab('users')"><UserCog :size="17" />成员</button>
-        <button v-if="app.isServerAdmin" :class="{ active: tab === 'invites' }" @click="selectTab('invites')"><Ticket :size="17" />账号与邀请</button>
+        <button v-if="app.isPlatformAdmin" :class="{ active: tab === 'invites' }" @click="selectTab('invites')"><Ticket :size="17" />平台账号与邀请</button>
       </nav>
 
       <div ref="adminContent" :class="['admin-content', { 'users-content': tab === 'users' }]">
@@ -377,6 +389,10 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
 
         <section v-else-if="tab === 'users'" class="user-admin-layout">
           <aside class="admin-user-list">
+            <form class="member-add-form" @submit.prevent="addMember">
+              <input v-model.trim="memberUsername" aria-label="成员完整登录名" placeholder="完整登录名" />
+              <button class="icon-button" type="submit" title="添加成员" :disabled="busy || !memberUsername"><UserPlus :size="17" /></button>
+            </form>
             <button
               v-for="member in manageableUsers"
               :key="member.id"
@@ -394,13 +410,15 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
                 <label><span>语音禁言</span><input type="checkbox" :checked="selectedUser.voiceMuted" @change="setMute('voice', ($event.target as HTMLInputElement).checked)" /></label>
                 <label><span>文字禁言</span><input type="checkbox" :checked="selectedUser.textMuted" @change="setMute('text', ($event.target as HTMLInputElement).checked)" /></label>
               </div>
-              <label><span>移出频道并临时封禁</span><span class="inline-actions"><select v-model.number="kickMinutes"><option :value="5">5 分钟</option><option :value="30">30 分钟</option><option :value="60">1 小时</option><option :value="1440">24 小时</option></select><button class="secondary-button danger-text" @click="kick">移出</button></span></label>
+              <label><span>临时封禁服务器访问</span><span class="inline-actions"><select v-model.number="kickMinutes"><option :value="5">5 分钟</option><option :value="30">30 分钟</option><option :value="60">1 小时</option><option :value="1440">24 小时</option></select><button class="secondary-button danger-text" @click="kick">封禁</button></span></label>
               <button v-if="selectedUser.temporaryBanUntil" class="secondary-button" @click="clearTemporaryBan">解除临时封禁</button>
             </template>
             <p v-else class="permission-note"><ShieldCheck :size="17" />频道管理员不能管理其他管理员。</p>
 
-            <template v-if="app.isServerAdmin">
-              <label><span>管理员级别</span><select :value="selectedUser.role" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通成员</option><option value="channel_admin">频道管理员</option><option value="server_admin">服务器管理员</option></select></label>
+            <template v-if="canManageRoles">
+              <label><span>服务器角色</span><select :value="selectedUser.role" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通成员</option><option value="channel_admin">服务器管理员</option></select></label>
+            </template>
+            <template v-if="app.isPlatformAdmin">
               <label><span>重置密码</span><span class="inline-actions"><input v-model="resetPassword" type="password" minlength="10" placeholder="至少 10 位" /><button class="secondary-button" :disabled="resetPassword.length < 10" @click="doResetPassword"><KeyRound :size="16" />重置</button></span></label>
               <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '解除永久封禁' : '永久封禁账号' }}</button>
               <div class="account-danger-zone">

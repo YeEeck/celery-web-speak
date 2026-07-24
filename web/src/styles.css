@@ -382,6 +382,9 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .sound-event-row .setting-toggle { min-height: 42px; }
 .user-admin-layout { height: 100%; min-height: 0; display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 20px; }
 .admin-user-list { min-height: 0; padding-right: 10px; border-right: 1px solid var(--line); overflow-y: auto; overscroll-behavior-y: contain; }
+.member-add-form { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 6px; margin: 0 0 10px; }
+.member-add-form input { min-width: 0; padding: 8px; }
+.member-add-form .icon-button { min-height: 34px; }
 .admin-user-list button { width: 100%; min-height: 46px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; display: flex; align-items: center; gap: 9px; color: var(--muted); text-align: left; cursor: pointer; transition: var(--t-colors); }
 .admin-user-list button:hover, .admin-user-list button.active { background: var(--hover); color: var(--text); }
 .admin-user-list span { min-width: 0; display: grid; }.admin-user-list strong, .admin-user-list small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.admin-user-list small { color: var(--faint); font-size: 10px; }
