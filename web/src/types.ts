@@ -1,4 +1,4 @@
-export type Role = 'member' | 'channel_admin' | 'server_admin'
+export type Role = 'member' | 'channel_admin' | 'server_admin' | 'platform_admin'
 export type ChannelType = 'text' | 'voice'
 export type GuildRole = 'owner' | 'admin' | 'member'
 
@@ -34,7 +34,7 @@ export interface Message {
   userId: number
   username: string
   displayName: string
-  role: Role
+  role: GuildRole
   content: string
   createdAt: string
 }

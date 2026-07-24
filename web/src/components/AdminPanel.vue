@@ -276,8 +276,8 @@ async function deleteUser() {
       method: 'DELETE',
       body: JSON.stringify({ username: deleteConfirmation.value }),
     })
-    if (serverContext.value) app.removeUser(target.id)
-    else platformUsers.value = platformUsers.value.filter((user) => user.id !== target.id)
+    app.removeUser(target.id)
+    if (!serverContext.value) platformUsers.value = platformUsers.value.filter((user) => user.id !== target.id)
     deleteTarget.value = null
     deleteConfirmation.value = ''
     selectedUserId.value = manageableUsers.value[0]?.id ?? null
@@ -480,7 +480,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
               <label><span>服务器角色</span><select :value="selectedUser.role" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通成员</option><option value="channel_admin">服务器管理员</option></select></label>
             </template>
             <template v-if="!serverContext">
-              <label><span>平台角色</span><select :value="selectedUser.isPlatformAdmin ? 'server_admin' : 'member'" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通账号</option><option value="server_admin">平台管理员</option></select></label>
+              <label><span>平台角色</span><select :value="selectedUser.isPlatformAdmin ? 'platform_admin' : 'member'" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通账号</option><option value="platform_admin">平台管理员</option></select></label>
               <label><span>重置密码</span><span class="inline-actions"><input v-model="resetPassword" type="password" minlength="10" placeholder="至少 10 位" /><button class="secondary-button" :disabled="resetPassword.length < 10" @click="doResetPassword"><KeyRound :size="16" />重置</button></span></label>
               <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '恢复平台账号' : '停用平台账号' }}</button>
               <div class="account-danger-zone">
@@ -497,7 +497,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
             <label><span>登录名</span><input v-model.trim="newUsername" required minlength="3" maxlength="32" /></label>
             <label><span>显示名称</span><input v-model.trim="newDisplayName" required maxlength="32" /></label>
             <label><span>初始密码</span><input v-model="newPassword" required type="password" minlength="10" /></label>
-            <label><span>平台角色</span><select v-model="newRole"><option value="member">普通账号</option><option value="server_admin">平台管理员</option></select></label>
+            <label><span>平台角色</span><select v-model="newRole"><option value="member">普通账号</option><option value="platform_admin">平台管理员</option></select></label>
             <button class="primary-button" :disabled="busy"><UserPlus :size="17" />创建账号</button>
           </form>
 

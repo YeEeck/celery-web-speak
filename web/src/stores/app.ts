@@ -35,11 +35,12 @@ export const useAppStore = defineStore('app', () => {
   let synchronizingSocket: WebSocket | null = null
   let socketActivityVersion = 0
   let voiceRoomsRefreshTimer: number | undefined
+  let serverBootstrapVersion = 0
   const messageLoadVersions = new Map<number, number>()
 
   const isAdmin = computed(() => activeServer.value?.role === 'owner' || activeServer.value?.role === 'admin')
   const isServerAdmin = computed(() => activeServer.value?.role === 'owner' || activeServer.value?.role === 'admin')
-  const isPlatformAdmin = computed(() => user.value?.isPlatformAdmin === true || user.value?.role === 'server_admin')
+  const isPlatformAdmin = computed(() => user.value?.isPlatformAdmin === true)
   const activeServer = computed(() => servers.value.find((server) => server.id === activeServerId.value && server.joined) ?? null)
   const textChannels = computed(() => channels.value.filter((channel) => channel.type === 'text'))
   const voiceChannels = computed(() => channels.value.filter((channel) => channel.type === 'voice'))
@@ -73,8 +74,10 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function loadServerBootstrap(serverId: number) {
-    const data = await request<ServerBootstrapData>(`/api/servers/${serverId}/bootstrap`)
+    const version = ++serverBootstrapVersion
     activeServerId.value = serverId
+    const data = await request<ServerBootstrapData>(`/api/servers/${serverId}/bootstrap`)
+    if (version !== serverBootstrapVersion || activeServerId.value !== serverId) return
     activeTextChannelId.value = savedChannelID(serverId)
     localStorage.setItem('cws.activeServerId', String(serverId))
     const members: User[] = data.members.map((member) => ({ id: member.userId, username: member.username, displayName: member.displayName, role: member.role === 'owner' ? 'server_admin' : member.role === 'admin' ? 'channel_admin' : 'member', voiceMuted: member.voiceMuted, textMuted: member.textMuted, permanentlyBanned: member.permanentlyBanned, createdAt: member.joinedAt }))
@@ -85,6 +88,7 @@ export const useAppStore = defineStore('app', () => {
   async function selectServer(serverId: number) {
     if (!servers.value.some((server) => server.id === serverId && server.joined)) return
     if (serverId === activeServerId.value) return
+    activeServerId.value = serverId
     clearServerState()
     await loadServerBootstrap(serverId)
   }
@@ -215,8 +219,7 @@ export const useAppStore = defineStore('app', () => {
         newPassword: payload.newPassword ?? '',
       }),
     })
-    user.value = result.user
-    upsertUser(result.user)
+    applyAccountUpdate(result.user)
   }
 
   function getChannelDraft(channelId: number) {
@@ -419,7 +422,7 @@ export const useAppStore = defineStore('app', () => {
     } else if (type === 'voice_rooms') {
       voiceRooms.value = data as VoiceRoom[]
     } else if (type === 'user_updated') {
-      upsertUser(data as Partial<User> & { id: number })
+      applyAccountUpdate(data as Partial<User> & { id: number })
     } else if (type === 'user_deleted') {
       removeUser((data as { id: number }).id)
     } else if (type === 'session_revoked') {
@@ -436,6 +439,19 @@ export const useAppStore = defineStore('app', () => {
     voiceRooms.value = []
     onlineIds.value = []
     activeTextChannelId.value = null
+  }
+
+  function applyAccountUpdate(update: Partial<User> & { id: number }) {
+    const member = users.value.find((item) => item.id === update.id)
+    if (member) {
+      const { role, voiceMuted, textMuted, permanentlyBanned, temporaryBanUntil, ...accountFields } = update
+      Object.assign(member, accountFields)
+    }
+    if (user.value?.id === update.id) {
+      const voiceMuted = user.value.voiceMuted
+      const textMuted = user.value.textMuted
+      user.value = { ...user.value, ...update, voiceMuted, textMuted }
+    }
   }
 
   function upsertChannel(channel: Channel) {
