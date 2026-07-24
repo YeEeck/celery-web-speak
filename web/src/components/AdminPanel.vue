@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Ban, Clipboard, Gauge, KeyRound, Plus, Save, ShieldCheck, Ticket, Trash2, UserCog, UserPlus, X } from '@lucide/vue'
+import { Ban, Clipboard, Gauge, KeyRound, Plus, Save, ShieldCheck, Ticket, Trash2, UserCog, UserMinus, UserPlus, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import type { ChannelType, Invite, Role, User } from '../types'
@@ -37,6 +37,7 @@ const newDisplayName = ref('')
 const newPassword = ref('')
 const newRole = ref<Role>('member')
 const memberUsername = ref('')
+const serverName = ref('')
 const message = ref('')
 const errorMessage = ref('')
 const busy = ref(false)
@@ -52,6 +53,11 @@ const userPool = computed(() => serverContext.value ? app.users : platformUsers.
 const selectedUser = computed(() => userPool.value.find((user) => user.id === selectedUserId.value) ?? null)
 const manageableUsers = computed(() => userPool.value.filter((user) => user.id !== app.user!.id))
 const canManageRoles = computed(() => app.isPlatformAdmin || serverContext.value?.role === 'owner')
+const canRenameServer = computed(() => app.isPlatformAdmin || serverContext.value?.role === 'owner')
+
+watch(serverContext, (server) => {
+  serverName.value = server?.name ?? ''
+}, { immediate: true })
 
 watch(selectedChannel, (channel) => {
   channelName.value = channel?.name ?? ''
@@ -103,6 +109,15 @@ async function addMember() {
   }, '成员已加入服务器')
 }
 
+async function renameServer() {
+  const name = serverName.value.trim()
+  if (!name || app.activeServerId === null) return
+  await run(async () => {
+    await request(`/api/servers/${app.activeServerId}`, { method: 'PATCH', body: JSON.stringify({ name }) })
+    await app.bootstrap()
+  }, '服务器名称已更新')
+}
+
 async function saveSettings() {
   const channel = selectedChannel.value
   if (!channel) return
@@ -146,6 +161,7 @@ async function deleteChannel() {
 }
 
 function canModerate(user: User) {
+  if (user.role === 'server_admin') return false
   return app.isPlatformAdmin || serverContext.value?.role === 'owner' || user.role === 'member'
 }
 
@@ -201,6 +217,16 @@ async function clearTemporaryBan() {
     await request(`/api/servers/${app.activeServerId}/members/${target.id}/temporary-ban`, { method: 'DELETE' })
     await app.bootstrap()
   }, '临时封禁已解除')
+}
+
+async function removeMember() {
+  const target = selectedUser.value
+  if (!target || app.activeServerId === null || !window.confirm(`将 ${target.displayName} 移出当前服务器？历史消息会保留，之后可重新添加。`)) return
+  await run(async () => {
+    await request(`/api/servers/${app.activeServerId}/members/${target.id}/kick`, { method: 'POST' })
+    await app.bootstrap()
+    selectedUserId.value = manageableUsers.value[0]?.id ?? null
+  }, '成员已移出服务器')
 }
 
 async function permanentBan(banned: boolean) {
@@ -377,6 +403,13 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
 
       <div ref="adminContent" :class="['admin-content', { 'users-content': tab === 'users' }]">
         <section v-if="tab === 'channel'" class="settings-section channel-settings">
+          <template v-if="canRenameServer">
+            <h3>服务器设置</h3>
+            <div class="server-rename-row">
+              <input v-model.trim="serverName" maxlength="64" aria-label="服务器名称" />
+              <button class="secondary-button" :disabled="busy || !serverName || serverName === serverContext?.name" @click="renameServer"><Save :size="16" />保存名称</button>
+            </div>
+          </template>
           <h3>创建频道</h3>
           <div class="channel-create-row">
             <select v-model="newChannelType" aria-label="频道类型"><option value="text">文字频道</option><option value="voice">语音频道</option></select>
@@ -439,10 +472,11 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
               <label><span>临时封禁服务器访问</span><span class="inline-actions"><select v-model.number="kickMinutes"><option :value="5">5 分钟</option><option :value="30">30 分钟</option><option :value="60">1 小时</option><option :value="1440">24 小时</option></select><button class="secondary-button danger-text" @click="kick">封禁</button></span></label>
               <button v-if="selectedUser.temporaryBanUntil" class="secondary-button" @click="clearTemporaryBan">解除临时封禁</button>
               <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '解除服务器永久封禁' : '服务器永久封禁' }}</button>
+              <button class="secondary-button danger-text" @click="removeMember"><UserMinus :size="16" />移出服务器</button>
             </template>
             <p v-else-if="serverContext" class="permission-note"><ShieldCheck :size="17" />服务器管理员不能管理其他管理员。</p>
 
-            <template v-if="serverContext && canManageRoles">
+            <template v-if="serverContext && canManageRoles && selectedUser.role !== 'server_admin'">
               <label><span>服务器角色</span><select :value="selectedUser.role" @change="setRole(($event.target as HTMLSelectElement).value as Role)"><option value="member">普通成员</option><option value="channel_admin">服务器管理员</option></select></label>
             </template>
             <template v-if="!serverContext">

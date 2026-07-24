@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { LogIn, Plus, RefreshCw, ServerCog, Trash2, UserCog, UserRoundCog, X } from '@lucide/vue'
+import { LogIn, Plus, RefreshCw, Save, ServerCog, Trash2, UserCog, UserRoundCog, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import type { ServerSummary, User } from '../types'
@@ -14,6 +14,7 @@ const selectedServerId = ref<number | null>(props.initialServerId ?? null)
 const newServerName = ref('')
 const newOwnerUsername = ref('')
 const newOwnerId = ref<number | null>(null)
+const renamedServerName = ref('')
 const deleteConfirmation = ref('')
 const showDeleteConfirmation = ref(false)
 const busy = ref(false)
@@ -36,6 +37,9 @@ watch(selectedServerId, () => {
   message.value = ''
   errorMessage.value = ''
 })
+watch(selectedServer, (server) => {
+  renamedServerName.value = server?.name ?? ''
+}, { immediate: true })
 
 onMounted(async () => {
   await refresh()
@@ -100,6 +104,20 @@ async function joinServer() {
     await Promise.all([refresh(), app.bootstrap()])
     await app.selectServer(server.id)
   }, '已加入服务器')
+}
+
+async function renameServer() {
+  const server = selectedServer.value
+  const name = renamedServerName.value.trim()
+  if (!server || !name || name === server.name) return
+  await run(async () => {
+    await request(`/api/platform/servers/${server.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    })
+    await Promise.all([refresh(), app.bootstrap()])
+    selectedServerId.value = server.id
+  }, '服务器名称已更新')
 }
 
 async function transferOwner() {
@@ -167,9 +185,17 @@ async function deleteServer() {
             <div><dt>状态</dt><dd>{{ selectedServer.joined ? '已加入' : '未加入' }}</dd></div>
           </dl>
 
-          <button v-if="!selectedServer.joined" class="primary-button" type="button" :disabled="busy" @click="joinServer"><LogIn :size="17" />加入为服务器管理员</button>
+            <button v-if="!selectedServer.joined" class="primary-button" type="button" :disabled="busy" @click="joinServer"><LogIn :size="17" />加入为服务器管理员</button>
 
-          <section class="platform-owner-action">
+            <section class="platform-owner-action">
+              <h3><ServerCog :size="18" />服务器名称</h3>
+              <div class="inline-actions">
+                <input v-model.trim="renamedServerName" maxlength="64" aria-label="修改服务器名称" />
+                <button class="secondary-button" type="button" :disabled="busy || !renamedServerName || renamedServerName === selectedServer.name" @click="renameServer"><Save :size="16" />保存</button>
+              </div>
+            </section>
+
+            <section class="platform-owner-action">
             <h3><UserRoundCog :size="18" />转让所有权</h3>
             <div class="inline-actions">
               <select v-model="newOwnerId" aria-label="新所有者">

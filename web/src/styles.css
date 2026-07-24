@@ -366,6 +366,7 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .accent-swatch.active { border-color: var(--text); }
 .accent-swatch-inner { width: 26px; height: 26px; border-radius: 50%; }
 .channel-settings { max-width: 620px; border: 0; }
+.server-rename-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .channel-create-row { display: grid; grid-template-columns: 132px minmax(0,1fr) auto; gap: 8px; align-items: end; }
 .channel-create-row .primary-button { min-width: 92px; }
 .channel-admin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -519,6 +520,8 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
   .two-column { grid-template-columns: 1fr; }
   .channel-create-row { grid-template-columns: 1fr; }
   .channel-create-row .primary-button { width: 100%; }
+  .server-rename-row { grid-template-columns: 1fr; }
+  .server-rename-row button { width: 100%; }
   .sound-event-row { grid-template-columns: 1fr; }
   .profile-audio-layout { grid-template-columns: 1fr; gap: 12px; }
   .profile-audio-nav { display: flex; gap: 4px; padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--line); }

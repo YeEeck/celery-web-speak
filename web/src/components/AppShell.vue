@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Hash, Plus, Radio, ServerCog, X } from '@lucide/vue'
+import { Hash, LogOut, Plus, Radio, ServerCog, X } from '@lucide/vue'
 import AdminPanel from './AdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
 import ChatPane from './ChatPane.vue'
@@ -30,6 +30,7 @@ const platformInitialServerId = ref<number | null>(null)
 const platformCreateOnOpen = ref(false)
 const adminInitialTab = ref<'channel' | 'users' | 'invites'>('channel')
 const adminPlatformMode = ref(false)
+const leavingServer = ref(false)
 const currentVersion = ref('')
 let wideMemberQuery: MediaQueryList | null = null
 let mobileQuery: MediaQueryList | null = null
@@ -119,6 +120,22 @@ function openPlatformAccounts() {
   adminOpen.value = true
 }
 
+async function leaveServer() {
+  const server = app.activeServer
+  if (!server || server.role === 'owner' || leavingServer.value || !window.confirm(`离开服务器“${server.name}”？之后需要由服务器管理员重新添加。`)) return
+  leavingServer.value = true
+  try {
+    await request(`/api/servers/${server.id}/leave`, { method: 'POST' })
+    if (voice.connectedServerId === server.id) await voice.leave()
+    await app.bootstrap()
+    channelsOpen.value = false
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : '离开服务器失败')
+  } finally {
+    leavingServer.value = false
+  }
+}
+
 async function checkVersionAndShowChangelog() {
   try {
     const data = await request<VersionResponse>('/api/version')
@@ -186,6 +203,9 @@ function closeChangelog() {
         </button>
         <div v-if="app.isAdmin" class="admin-entry">
           <button class="channel-row" @click="adminInitialTab = 'channel'; adminPlatformMode = false; adminOpen = true; channelsOpen = false"><ServerCog :size="18" /><span class="channel-label"><strong>管理控制台</strong><small>{{ app.isServerAdmin ? '服务器与频道' : '频道管理' }}</small></span></button>
+        </div>
+        <div v-if="app.activeServer && app.activeServer.role !== 'owner'" class="admin-entry server-leave-entry">
+          <button class="channel-row danger-text" :disabled="leavingServer" @click="leaveServer"><LogOut :size="18" /><span class="channel-label"><strong>{{ leavingServer ? '正在离开' : '离开服务器' }}</strong><small>退出当前服务器</small></span></button>
         </div>
       </div>
       <div v-if="voice.joined" class="voice-connection-panel">
