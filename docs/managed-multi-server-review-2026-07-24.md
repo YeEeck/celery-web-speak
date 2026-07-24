@@ -490,7 +490,7 @@ cd web && E2E_BASE_URL=<独立临时后端> npm run test:e2e
 | --- | --- | --- |
 | MMS-R01 | `ca1422c` | 所有权候选联接有效平台账号；软删除同步移除服务器成员关系 |
 | MMS-R02 | `16e67e2` | 临时或永久封禁成员不能通过平台加入或清除部分封禁恢复 Hub 订阅 |
-| MMS-R03 | `d0a14af` | 创建服务器发送 `server_added`；转让所有权广播服务器及新旧角色快照 |
+| MMS-R03 | `d0a14af`、`d61ce22` | 创建服务器发送 `server_added`；转让所有权广播角色快照并校正非活动服务器摘要 |
 | MMS-R04 | `66ec0f2` | bootstrap、WebSocket 重同步和成员事件统一保留 `temporaryBanUntil` |
 | MMS-R05 | `d35fdbf` | 服务启动重建待恢复任务，并通过数据库原子状态转换协调到期恢复 |
 | MMS-R06 | `633b00c` | WebSocket、消息和语音异步操作绑定发起时的服务器与请求版本 |
