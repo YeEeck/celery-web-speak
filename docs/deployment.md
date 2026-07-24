@@ -2,7 +2,7 @@
 
 本文档是 Celery Web Speak 的完整生产部署与运维手册。只需要在具有固定公网 IPv4 的服务器上完成默认 Caddy Gateway 部署时，可直接按照 [README 标准流程](../README.md#生产部署) 操作；域名、自管反向代理、NAT、自定义端口、故障排查、更新回滚和数据备份等场景以本文档为准。
 
-当前稳定版本为 `v0.3.9`。生产环境应让仓库标签、部署文件和 `APP_IMAGE` 使用同一版本，不要长期跟随 `latest`。
+当前稳定版本为 `v0.3.10`。生产环境应让仓库标签、部署文件和 `APP_IMAGE` 使用同一版本，不要长期跟随 `latest`。
 
 ## 部署拓扑
 
@@ -39,7 +39,7 @@ Caddy 只承载网页、业务 WebSocket 和 LiveKit 信令，不转发音频数
 ### 1. 获取固定版本的部署文件
 
 ```bash
-git clone --branch v0.3.9 --depth 1 https://github.com/YeEeck/celery-web-speak.git
+git clone --branch v0.3.10 --depth 1 https://github.com/YeEeck/celery-web-speak.git
 cd celery-web-speak
 ```
 
@@ -73,7 +73,7 @@ BOOTSTRAP_ADMIN_PASSWORD=一段足够长的随机密码
 LIVEKIT_API_KEY=生成的Key
 LIVEKIT_API_SECRET=生成的Secret
 
-APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.3.9
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.3.10
 COMPOSE_PROFILES=gateway
 HTTPS_PORT=443
 ```
@@ -262,17 +262,17 @@ sudo ufw allow 7882/udp
 
 ## 更新与回滚
 
-更新前先完成 SQLite 数据备份，并确认目标版本的发布说明。将下面的 `v0.3.9` 替换为要升级到的版本：
+更新前先完成 SQLite 数据备份，并确认目标版本的发布说明。将下面的 `v0.3.10` 替换为要升级到的版本：
 
 ```bash
-git fetch --depth 1 origin tag v0.3.9
-git checkout v0.3.9
+git fetch --depth 1 origin tag v0.3.10
+git checkout v0.3.10
 ```
 
 同步修改 `.env` 中的镜像版本：
 
 ```env
-APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.3.9
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.3.10
 ```
 
 检查配置并替换容器：
