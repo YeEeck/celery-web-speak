@@ -10,6 +10,37 @@ import (
 	"github.com/yeck/celery-web-speak/internal/store"
 )
 
+func (s *Server) handlePlatformUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := s.store.ListUsers(r.Context())
+	if err != nil {
+		s.internalError(w, "list platform users", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"users": users})
+}
+
+func (s *Server) handlePlatformSuspend(w http.ResponseWriter, r *http.Request) {
+	targetID, ok := parseID(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Suspended bool `json:"suspended"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if err := s.store.SetPermanentBan(r.Context(), currentUser(r).ID, targetID, input.Suspended); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	if input.Suspended {
+		s.hub.DisconnectUser(targetID)
+		s.removeFromVoice(r, targetID)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"suspended": input.Suspended})
+}
+
 func (s *Server) handleListInvites(w http.ResponseWriter, r *http.Request) {
 	cursor, ok := decodeInviteCursor(r.URL.Query().Get("cursor"))
 	if !ok {

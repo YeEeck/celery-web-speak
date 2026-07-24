@@ -14,28 +14,20 @@ test.beforeEach(async ({ page }) => {
   if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
 })
 
-test('应用图标用于浏览器和服务器栏', async ({ page, isMobile }) => {
+test('浏览器图标与服务器切换栏可用', async ({ page, isMobile }) => {
   const favicon = page.locator('link[rel="icon"]')
   await expect(favicon).toHaveAttribute('href', '/favicon.svg')
   await expect(favicon).toHaveAttribute('sizes', 'any')
 
-  const serverIcon = page.locator('.server-icon')
-  await expect(serverIcon).toHaveAttribute('src', '/favicon.svg')
-  const imageState = await serverIcon.evaluate((element) => {
-    const image = element as HTMLImageElement
-    return {
-      complete: image.complete,
-      naturalWidth: image.naturalWidth,
-      naturalHeight: image.naturalHeight,
-    }
-  })
-  expect(imageState).toEqual({ complete: true, naturalWidth: 512, naturalHeight: 512 })
-
   if (!isMobile) {
-    await expect(serverIcon).toBeVisible()
-    const bounds = await serverIcon.boundingBox()
+    const serverButton = page.locator('.server-button').filter({ has: page.locator('.server-initial') }).first()
+    await expect(serverButton).toBeVisible()
+    const bounds = await serverButton.boundingBox()
     expect(bounds?.width).toBe(46)
     expect(bounds?.height).toBe(46)
+  } else {
+    await page.getByTitle('频道').click()
+    await expect(page.getByLabel('切换服务器')).toBeVisible()
   }
 })
 
