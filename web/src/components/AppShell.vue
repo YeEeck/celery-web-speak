@@ -143,7 +143,8 @@ function openHeaderServerActions(event: MouseEvent) {
     return
   }
   const bounds = trigger.getBoundingClientRect()
-  openServerActionMenu(server, trigger, bounds.right, bounds.bottom + 4, 'end')
+  const headerBounds = mobileQuery?.matches ? trigger.closest('.server-title')?.getBoundingClientRect() : null
+  openServerActionMenu(server, trigger, headerBounds ? headerBounds.right - 10 : bounds.right, (headerBounds?.bottom ?? bounds.bottom) + 4, 'end')
 }
 
 function openServerContextMenu(server: ServerSummary, event: MouseEvent) {
@@ -293,7 +294,7 @@ function closeChangelog() {
       <header class="server-title">
         <span><strong>{{ app.activeServer?.name ?? '尚未加入服务器' }}</strong><small>{{ app.activeServer ? '服务器频道' : '请联系服务器管理员' }}</small></span>
         <button v-if="app.activeServer" ref="serverActionTrigger" class="icon-button server-actions-trigger" type="button" title="服务器操作" aria-label="服务器操作" :aria-expanded="serverActionMenu?.trigger === serverActionTrigger" @click="openHeaderServerActions"><EllipsisVertical :size="20" /></button>
-        <select class="mobile-server-select mobile-only" :value="app.activeServerId ?? ''" aria-label="切换服务器" @change="selectMobileServer">
+        <select v-if="app.activeServer" class="mobile-server-select mobile-only" :value="app.activeServerId ?? ''" aria-label="切换服务器" @change="selectMobileServer">
           <option v-for="server in app.servers.filter((item) => item.joined)" :key="server.id" :value="server.id">{{ server.name }}</option>
         </select>
         <button v-if="app.isPlatformAdmin && !app.activeServer" class="icon-button mobile-only" title="平台服务器管理" @click="openPlatformServers(); channelsOpen = false"><ServerCog :size="19" /></button>

@@ -518,12 +518,12 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
   .app-shell { grid-template-columns: minmax(0,1fr); }
   .server-rail, .app-shell > .channel-sidebar { display: none; }
   .mobile-only { display: inline-grid; }
+  .server-action-menu { width: calc(min(300px, 86vw) - 26px); }
   .channel-sidebar.mobile-drawer-open { position: fixed; z-index: 42; inset: 0 auto 0 0; width: min(300px, 86vw); display: flex; box-shadow: 10px 0 30px rgba(0,0,0,.35); }
   .server-title { height: auto; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-start; row-gap: 6px; padding: 10px 10px 10px 16px; }
   .server-title > span { flex: 1 1 calc(100% - 88px); min-width: 0; }
   .server-title small { display: none; }
-  .mobile-server-select { order: 1; flex: 1; width: auto; }
-  .server-title button[title="平台服务器管理"] { order: 1; }
+  .mobile-server-select { order: 1; flex: 1 1 100%; width: 100%; }
   .drawer-scrim { position: fixed; z-index: 40; inset: 0; display: block; background: rgba(0,0,0,.58); }
   .chat-header { padding: 0 8px; }.chat-header .header-divider, .chat-header small { display: none; }
   .message-row { grid-template-columns: 36px minmax(0,1fr) 30px; padding-left: 10px; gap: 9px; }
