@@ -1,7 +1,6 @@
 import { computed, markRaw, ref } from 'vue'
 import { defineStore } from 'pinia'
 import {
-  ConnectionQuality,
   LocalAudioTrack,
   type LocalTrackPublication,
   Participant,
@@ -21,48 +20,45 @@ import {
   connectApplicationAudioBridge,
   isApplicationAudioSnapshot,
   onApplicationAudioPcmPort,
-  type ApplicationAudioError,
   type ApplicationAudioSnapshot,
   type ApplicationAudioState,
   type DesktopApplicationAudioBridge,
 } from '../audio/applicationAudioBridge'
-import type { Channel, GuildRole, User, VoiceCredentials } from '../types'
+import type { Channel, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
 import { useSoundStore } from './sounds'
+import {
+  APPLICATION_AUDIO_PORT_TIMEOUT_MS,
+  APPLICATION_AUDIO_VOLUME_KEY,
+  DEFAULT_AUDIO_BITRATE_KBPS,
+  DEAFENED_ATTRIBUTE,
+  ECHO_CANCELLATION_KEY,
+  MICROPHONE_GAIN_KEY,
+  NOISE_SUPPRESSION_KEY,
+  OUTPUT_VOLUME_KEY,
+  applicationAudioErrorMessage,
+  applicationAudioSnapshotError,
+  clampApplicationAudioVolume,
+  clampVolume,
+  compareParticipants,
+  defaultConnectedPublishSettings,
+  getSavedApplicationAudioVolume,
+  getSavedBoolean,
+  getSavedLevel,
+  getSavedMuted,
+  getSavedTransmissionMode,
+  hasBackgroundAudio,
+  isBackgroundAudioPlaying,
+  isSourcePickerCancellation,
+  participantJoinedAt,
+  participantRole,
+  saveTransmissionMode,
+  setAudioSink,
+  type VoiceParticipant,
+  type VoiceTransmissionMode,
+} from './voice-utils'
 
-const DEFAULT_VOLUME = 1
-const MAX_VOLUME = 3
-const MICROPHONE_GAIN_KEY = 'cws.microphoneGain'
-const OUTPUT_VOLUME_KEY = 'cws.outputVolume'
-const DEAFENED_ATTRIBUTE = 'deafened'
-const ECHO_CANCELLATION_KEY = 'cws.echoCancellation'
-const NOISE_SUPPRESSION_KEY = 'cws.noiseSuppression'
-const TRANSMISSION_MODE_KEY = 'cws.voiceTransmissionMode'
-const APPLICATION_AUDIO_VOLUME_KEY = 'cws.applicationAudioVolume'
-const APPLICATION_AUDIO_DEFAULT_VOLUME = 0.5
-const APPLICATION_AUDIO_PORT_TIMEOUT_MS = 10_000
-const DEFAULT_AUDIO_BITRATE_KBPS = 64
-
-export type VoiceTransmissionMode = 'voice-activity' | 'continuous'
-
-export interface VoiceParticipant {
-  identity: string
-  userId: number
-  name: string
-  isLocal: boolean
-  isSpeaking: boolean
-  microphoneEnabled: boolean
-  backgroundAudioAvailable: boolean
-  backgroundAudioPlaying: boolean
-  deafened: boolean
-  quality: ConnectionQuality
-  microphoneVolume: number
-  backgroundAudioVolume: number
-  microphoneMuted: boolean
-  backgroundAudioMuted: boolean
-  role: GuildRole
-  joinedAt: number | null
-}
+export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils'
 
 export const useVoiceStore = defineStore('voice', () => {
   const status = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'>('idle')
@@ -1139,117 +1135,3 @@ export const useVoiceStore = defineStore('voice', () => {
     refreshDevices,
   }
 })
-
-function defaultConnectedPublishSettings() {
-  return {
-    audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS,
-    backgroundAudioBitrateKbps: 128,
-    audioRedEnabled: true,
-    backgroundAudioRedEnabled: false,
-  }
-}
-
-function clampVolume(value: number) {
-  return Number.isFinite(value) ? Math.max(0, Math.min(MAX_VOLUME, value)) : DEFAULT_VOLUME
-}
-
-function getSavedLevel(key: string) {
-  const saved = localStorage.getItem(key)
-  if (saved === null) return DEFAULT_VOLUME
-  return clampVolume(Number(saved))
-}
-
-function getSavedMuted(key: string) {
-  return localStorage.getItem(key) === 'true'
-}
-
-function getSavedPreMuteVolume(key: string) {
-  const saved = localStorage.getItem(key)
-  if (saved === null) return DEFAULT_VOLUME
-  return clampVolume(Number(saved))
-}
-
-function getSavedBoolean(key: string, defaultValue: boolean) {
-  const saved = localStorage.getItem(key)
-  if (saved === null) return defaultValue
-  return saved !== 'false'
-}
-
-function getSavedTransmissionMode(): VoiceTransmissionMode {
-  return localStorage.getItem(TRANSMISSION_MODE_KEY) === 'continuous' ? 'continuous' : 'voice-activity'
-}
-
-function saveTransmissionMode(mode: VoiceTransmissionMode) {
-  localStorage.setItem(TRANSMISSION_MODE_KEY, mode)
-}
-
-function getSavedApplicationAudioVolume() {
-  const saved = localStorage.getItem(APPLICATION_AUDIO_VOLUME_KEY)
-  if (saved === null) return APPLICATION_AUDIO_DEFAULT_VOLUME
-  return clampApplicationAudioVolume(Number(saved))
-}
-
-function clampApplicationAudioVolume(value: number) {
-  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : APPLICATION_AUDIO_DEFAULT_VOLUME
-}
-
-function isBackgroundAudioPlaying(participant: Participant) {
-  const publication = participant.getTrackPublication(Track.Source.ScreenShareAudio)
-  return Boolean(publication && !publication.isMuted)
-}
-
-function hasBackgroundAudio(participant: Participant) {
-  return Boolean(participant.getTrackPublication(Track.Source.ScreenShareAudio))
-}
-
-function isSourcePickerCancellation(snapshot: ApplicationAudioSnapshot) {
-  return snapshot.error?.code === 'source_picker_cancelled' || (snapshot.state === 'idle' && !snapshot.sessionId)
-}
-
-function applicationAudioSnapshotError(snapshot: ApplicationAudioSnapshot, fallback: string) {
-  return snapshot.error ?? new Error(fallback)
-}
-
-function applicationAudioErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message) return error.message
-  if (isApplicationAudioError(error) && error.message) return error.message
-  return '应用背景音操作失败，请重新选择'
-}
-
-function isApplicationAudioError(value: unknown): value is ApplicationAudioError {
-  return typeof value === 'object' && value !== null && typeof (value as ApplicationAudioError).code === 'string'
-    && typeof (value as ApplicationAudioError).message === 'string'
-}
-
-function compareParticipants(a: VoiceParticipant, b: VoiceParticipant, users: User[]) {
-  const roleDifference = roleRank(currentRole(b, users)) - roleRank(currentRole(a, users))
-  if (roleDifference !== 0) return roleDifference
-  if (a.joinedAt !== null && b.joinedAt !== null && a.joinedAt !== b.joinedAt) return a.joinedAt - b.joinedAt
-  return a.userId - b.userId || a.identity.localeCompare(b.identity)
-}
-
-function currentRole(participant: VoiceParticipant, users: User[]): GuildRole {
-  const role = users.find((user) => user.id === participant.userId)?.role ?? participant.role
-  return role === 'owner' || role === 'admin' ? role : 'member'
-}
-
-function roleRank(role: GuildRole) {
-  if (role === 'owner') return 2
-  if (role === 'admin') return 1
-  return 0
-}
-
-function participantRole(participant: Participant): GuildRole {
-  const role = participant.attributes.role
-  return role === 'owner' || role === 'admin' ? role : 'member'
-}
-
-function participantJoinedAt(participant: Participant): number | null {
-  const timestamp = participant.joinedAt?.getTime()
-  return timestamp !== undefined && Number.isFinite(timestamp) ? timestamp : null
-}
-
-async function setAudioSink(element: HTMLAudioElement, deviceId: string) {
-  const sinkElement = element as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }
-  if (sinkElement.setSinkId) await sinkElement.setSinkId(deviceId)
-}
