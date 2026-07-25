@@ -183,7 +183,7 @@ test('服务器操作菜单集中展示当前角色可用操作', async ({ page,
     await page.keyboard.press('Shift+F10')
     await expect(menu).toBeVisible()
   } else {
-    await expect(page.locator('button[title="平台服务器管理"]:visible')).toHaveCount(0)
+    await expect(page.locator('.server-rail button[title="平台服务器管理"]')).toBeVisible()
     await expect(page.getByLabel('切换服务器')).toHaveCount(0)
     const titleLayout = await page.locator('.server-title').evaluate((element) => {
       const children = Array.from(element.children).filter((child) => getComputedStyle(child).display !== 'none')
@@ -799,8 +799,9 @@ test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ pa
 
   await expect(permanentList).toBeVisible()
   await expect(channelSidebar).toHaveCSS('width', '300px')
-  await expect(channelSidebar.locator('.current-user small')).toHaveText('未连接语音')
-  await expect.poll(() => channelSidebar.locator('.current-user small').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await expect(channelSidebar.locator('.current-user')).toHaveCount(0)
+  await expect(channelSidebar.locator('.user-controls')).toHaveCount(0)
+  await expect(page.locator('.server-rail .account-trigger')).toBeVisible()
   await expect(memberButton).toHaveAttribute('aria-pressed', 'true')
   await memberButton.click()
   await expect(permanentList).toBeHidden()
