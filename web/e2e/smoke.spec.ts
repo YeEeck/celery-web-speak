@@ -621,7 +621,7 @@ test('WebSocket 重同步的旧响应不会覆盖同一服务器的新状态', a
     await delayedRequest
     await page.getByTitle(secondServerName).click()
     await expect(page.locator('.server-title strong')).toHaveText(secondServerName)
-    await page.getByTitle(firstServerName, { exact: true }).click()
+    await page.getByRole('button', { name: firstServerName, exact: true }).click()
     await expect(page.locator('.server-title strong')).toHaveText(firstServerName)
     await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
     releaseDelayedResponse()
