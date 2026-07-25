@@ -311,7 +311,10 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .channel-intro { min-height: 205px; display: flex; flex-direction: column; justify-content: flex-end; padding: 28px 16px 18px; }
 .intro-icon { width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; background: var(--active); margin-bottom: 12px; }
 .channel-intro .intro-title { font-size: 24px; }.channel-intro p { margin-top: 6px; color: var(--muted); }
-.message-row { position: relative; display: grid; grid-template-columns: 40px minmax(0,1fr) 34px; gap: 12px; padding: 4px 12px 4px 16px; }
+.message-row { position: relative; display: grid; grid-template-columns: 40px minmax(0,1fr) 34px; column-gap: 12px; padding: 4px 12px 4px 16px; }
+.message-date-divider { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 7px 0 3px; color: var(--faint); font-size: 10px; line-height: 16px; }
+.message-date-divider::before, .message-date-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
+.message-date-divider span { flex: 0 0 auto; }
 .message-row:hover { background: var(--row-hover-bg); }
 .message-body { min-width: 0; }
 .message-body header { min-height: 20px; display: flex; align-items: center; gap: 7px; }
@@ -550,7 +553,7 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
   .server-title small { display: none; }
   .drawer-scrim { position: fixed; z-index: 40; inset: 0 0 0 56px; display: block; background: rgba(0,0,0,.58); }
   .chat-header { padding: 0 8px; }.chat-header .header-divider, .chat-header small { display: none; }
-  .message-row { grid-template-columns: 36px minmax(0,1fr) 30px; padding-left: 10px; gap: 9px; }
+  .message-row { grid-template-columns: 36px minmax(0,1fr) 30px; padding-left: 10px; column-gap: 9px; }
   .message-row .avatar-wrap { width: 36px !important; height: 36px !important; }
   .channel-intro { min-height: 170px; }.composer-area { padding-left: 8px; padding-right: 8px; }
   .character-count { display: none; }.composer { grid-template-columns: minmax(0,1fr) auto; }

@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch, type ComponentPublicInstance } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
 import { ArrowDown, ChevronUp, Hash, Menu, Send, Trash2, Users } from '@lucide/vue'
 import UserAvatar from './UserAvatar.vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
+
+const monthDayFormatter = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' })
+const fullDateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
 
 defineProps<{ membersVisible: boolean }>()
 defineEmits<{ channels: []; members: [] }>()
@@ -14,22 +17,35 @@ const sending = ref(false)
 const list = ref<HTMLElement | null>(null)
 const composer = ref<HTMLTextAreaElement | null>(null)
 const atBottom = ref(true)
+const dateLabelReference = ref(new Date())
 let markReadTimer: number | undefined
+let dateLabelTimer: number | undefined
 let restoringChannel = false
 let programmaticScroll = false
 
 const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>(computed(() => ({
   count: app.messages.length + 1,
   getScrollElement: () => list.value as HTMLDivElement | null,
-  estimateSize: (index: number) => index === 0 ? (app.hasEarlierMessages ? 46 : 205) : 64,
+  estimateSize: (index: number) => {
+    if (index === 0) return app.hasEarlierMessages ? 46 : 205
+    return startsNewDay(index - 1) ? 97 : 64
+  },
   getItemKey: (index: number) => index === 0 ? `history-${app.activeTextChannelId}` : (app.messages[index - 1]?.id ?? index),
   overscan: 10,
 })))
-const visibleRows = computed(() => virtualizer.value.getVirtualItems().map((virtualRow) => ({
-  virtualRow,
-  message: virtualRow.index === 0 ? null : app.messages[virtualRow.index - 1],
-})))
+const visibleRows = computed(() => virtualizer.value.getVirtualItems().map((virtualRow) => {
+  const messageIndex = virtualRow.index - 1
+  const message = virtualRow.index === 0 ? null : app.messages[messageIndex]
+  const showDate = message !== null && startsNewDay(messageIndex)
+  return {
+    virtualRow,
+    message,
+    dateLabel: showDate ? formatMessageDate(message.createdAt, dateLabelReference.value) : null,
+  }
+}))
 const totalSize = computed(() => virtualizer.value.getTotalSize())
+
+onMounted(scheduleDateLabelRefresh)
 
 watch(() => app.activeTextChannelId, async (channelId, previousChannelId) => {
   if (typeof previousChannelId === 'number' && list.value) app.setChannelScroll(previousChannelId, list.value.scrollTop, atBottom.value)
@@ -66,6 +82,7 @@ watch(() => [app.activeTextChannelId, app.messages.at(-1)?.id] as const, async (
 
 onBeforeUnmount(() => {
   if (markReadTimer) window.clearTimeout(markReadTimer)
+  if (dateLabelTimer) window.clearTimeout(dateLabelTimer)
   if (app.activeTextChannelId !== null && list.value) app.setChannelScroll(app.activeTextChannelId, list.value.scrollTop, atBottom.value)
 })
 
@@ -180,11 +197,47 @@ function messageOffset(messageID: number) {
   if (!list.value) return null
   const element = Array.from(list.value.querySelectorAll<HTMLElement>('[data-message-id]'))
     .find((item) => Number(item.dataset.messageId) === messageID)
+    ?.querySelector<HTMLElement>('.message-body')
   return element ? element.getBoundingClientRect().top - list.value.getBoundingClientRect().top : null
 }
 
 function animationFrame() {
   return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+}
+
+function startsNewDay(messageIndex: number) {
+  const message = app.messages[messageIndex]
+  if (!message) return false
+  const previous = app.messages[messageIndex - 1]
+  return !previous || localDateKey(message.createdAt) !== localDateKey(previous.createdAt)
+}
+
+function localDateKey(value: string | Date) {
+  const date = typeof value === 'string' ? new Date(value) : value
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+}
+
+function formatMessageDate(value: string, reference: Date) {
+  const date = new Date(value)
+  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate())
+  if (localDateKey(date) === localDateKey(today)) return '今天'
+
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (localDateKey(date) === localDateKey(yesterday)) return '昨天'
+
+  return date.getFullYear() === reference.getFullYear()
+    ? monthDayFormatter.format(date)
+    : fullDateFormatter.format(date)
+}
+
+function scheduleDateLabelRefresh() {
+  if (dateLabelTimer) window.clearTimeout(dateLabelTimer)
+  const now = new Date()
+  dateLabelReference.value = now
+  const nextMidnight = new Date(now)
+  nextMidnight.setHours(24, 0, 0, 0)
+  dateLabelTimer = window.setTimeout(scheduleDateLabelRefresh, nextMidnight.getTime() - now.getTime() + 100)
 }
 
 function formatTime(value: string) {
@@ -240,6 +293,9 @@ function roleLabel(role: string) {
               </div>
             </template>
             <article v-else-if="row.message" class="message-row">
+              <div v-if="row.dateLabel" class="message-date-divider" role="separator" :aria-label="row.dateLabel">
+                <span>{{ row.dateLabel }}</span>
+              </div>
               <UserAvatar :name="row.message.displayName" :size="40" />
               <div class="message-body">
                 <header>
