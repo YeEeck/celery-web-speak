@@ -119,8 +119,13 @@ test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isM
   const modeButton = toolbar.locator('.transmission-mode-button')
   const modeTooltip = toolbar.locator('.transmission-mode-tooltip')
   const controlButtons = toolbar.locator('.control-buttons')
+  const connectionLocation = connectionPanel.locator('.voice-connection-location')
+  const connectionBitrate = connectionPanel.locator('.voice-connection-bitrate')
   await expect(connectionPanel).toBeVisible()
   await expect(connectionPanel.locator('button')).toHaveCount(0)
+  await expect(connectionLocation).toHaveText('测试服务器 / 测试语音频道')
+  await expect(connectionBitrate).toHaveText('· 64 kbps')
+  await expect(connectionBitrate).not.toHaveAttribute('title')
   await expect(toolbar).toBeVisible()
   await expect(modeButton).toHaveAccessibleName('当前模式：语音感应；切换为持续传输')
   await expect(modeButton).not.toHaveAttribute('aria-pressed')
@@ -157,6 +162,35 @@ test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isM
   expect(layout.controlsRight).toBeGreaterThanOrEqual(7)
   expect(layout.modeUsesTextColor).toBe(true)
   await expect(controlButtons).toBeVisible()
+
+  const initialConnectionHeight = await connectionPanel.evaluate((element) => element.getBoundingClientRect().height)
+  await setSyntheticVoiceConnection(page, {
+    status: 'reconnecting',
+    serverName: '很长的测试服务器名称'.repeat(8),
+    channelName: '很长的测试语音频道名称'.repeat(8),
+    audioBitrateKbps: 96,
+  })
+  await expect(connectionPanel.getByText('正在恢复连接', { exact: true })).toBeVisible()
+  await expect(connectionBitrate).toHaveText('· 96 kbps')
+  const connectionLayout = await connectionPanel.evaluate((element) => {
+    const detail = element.querySelector('.voice-connection-detail')!.getBoundingClientRect()
+    const locationElement = element.querySelector('.voice-connection-location') as HTMLElement
+    const location = locationElement.getBoundingClientRect()
+    const bitrate = element.querySelector('.voice-connection-bitrate')!.getBoundingClientRect()
+    return {
+      panelHeight: element.getBoundingClientRect().height,
+      locationTruncated: locationElement.scrollWidth > locationElement.clientWidth,
+      locationBeforeBitrate: location.right <= bitrate.left,
+      bitrateInsideDetail: bitrate.right <= detail.right + 0.5,
+      sameColor: getComputedStyle(locationElement).color === getComputedStyle(element.querySelector('.voice-connection-bitrate')!).color,
+    }
+  })
+  expect(connectionLayout.panelHeight).toBe(initialConnectionHeight)
+  expect(connectionLayout.locationTruncated).toBe(true)
+  expect(connectionLayout.locationBeforeBitrate).toBe(true)
+  expect(connectionLayout.bitrateInsideDetail).toBe(true)
+  expect(connectionLayout.sameColor).toBe(true)
+  await setSyntheticVoiceConnection(page, { audioBitrateKbps: 96 })
 
   await page.keyboard.press('Tab')
   await modeButton.focus()
@@ -1001,22 +1035,33 @@ async function toneCount(page: import('@playwright/test').Page) {
   return page.evaluate(() => (window as typeof window & { __cwsToneCount?: number }).__cwsToneCount ?? 0)
 }
 
-async function setSyntheticVoiceConnection(page: Page) {
-  await page.evaluate(() => {
+async function setSyntheticVoiceConnection(page: Page, options: {
+  status?: 'connected' | 'reconnecting'
+  serverName?: string
+  channelName?: string
+  audioBitrateKbps?: number
+} = {}) {
+  await page.evaluate((summary) => {
     type VoiceStoreTestState = {
-      status: 'connected'
+      status: 'connected' | 'reconnecting'
+      connectedChannelId: number | null
       connectedServerName: string
       connectedChannelName: string
+      updateConnectedChannelSettings: (channel: { id: number; audioBitrateKbps?: number }) => unknown
     }
     type PiniaTestState = { _s: Map<string, VoiceStoreTestState> }
     type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
     const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
     const voice = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('voice')
     if (!voice) throw new Error('未找到语音 store')
-    voice.status = 'connected'
-    voice.connectedServerName = '测试服务器'
-    voice.connectedChannelName = '测试语音频道'
-  })
+    voice.status = summary.status ?? 'connected'
+    voice.connectedServerName = summary.serverName ?? '测试服务器'
+    voice.connectedChannelName = summary.channelName ?? '测试语音频道'
+    if (summary.audioBitrateKbps !== undefined) {
+      voice.connectedChannelId = 99_999
+      voice.updateConnectedChannelSettings({ id: 99_999, audioBitrateKbps: summary.audioBitrateKbps })
+    }
+  }, options)
 }
 
 test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile }) => {

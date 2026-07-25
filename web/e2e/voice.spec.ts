@@ -34,6 +34,7 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
       const tonesBeforeJoin = await toneCount(page)
       await page.getByRole('button', { name: /语音频道/ }).click()
       await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
+      await expect(page.locator('.voice-connection-bitrate')).toHaveText(/· \d+ kbps/)
       await expect(page.getByTitle('共享应用背景音', { exact: true })).toHaveCount(0)
       await expect.poll(() => toneCount(page)).toBeGreaterThanOrEqual(tonesBeforeJoin + 2)
     }
