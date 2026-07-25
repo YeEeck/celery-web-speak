@@ -43,6 +43,7 @@ async function openPlatformAccounts(page: Page) {
   }
   await page.getByTitle('平台账号与邀请码').click()
   await expect(page.getByRole('heading', { name: '平台管理' })).toBeVisible()
+  await expect(page.locator('.admin-panel .panel-header p')).toHaveText('平台管理员')
 }
 
 async function mockMemberModerationRoles(
@@ -516,6 +517,7 @@ test('临时封禁状态在刷新后可见并可提前解除', async ({ page, re
 
 test('服务器管理员只能审核普通成员并按目标角色显示原因', async ({ page }) => {
   await mockMemberModerationRoles(page, { actorRole: 'admin', isPlatformAdmin: false })
+  await expect(page.locator('.admin-panel .panel-header p')).toHaveText('服务器管理员')
   const list = page.locator('.admin-user-list')
   const detail = page.locator('.user-admin-detail')
 
@@ -537,6 +539,7 @@ test('服务器管理员只能审核普通成员并按目标角色显示原因',
 
 test('服务器所有者仍可审核管理员', async ({ page }) => {
   await mockMemberModerationRoles(page, { actorRole: 'owner', isPlatformAdmin: false })
+  await expect(page.locator('.admin-panel .panel-header p')).toHaveText('服务器所有者')
   const detail = page.locator('.user-admin-detail')
   await page.locator('.admin-user-list button').filter({ hasText: '权限测试管理员' }).click()
   await expect(detail.getByText('语音禁言', { exact: true })).toBeVisible()
@@ -546,6 +549,7 @@ test('服务器所有者仍可审核管理员', async ({ page }) => {
 
 test('平台管理员可审核管理员但不能审核服务器所有者', async ({ page }) => {
   await mockMemberModerationRoles(page, { actorRole: 'admin', isPlatformAdmin: true })
+  await expect(page.locator('.admin-panel .panel-header p')).toHaveText('服务器管理员 · 平台管理员')
   const detail = page.locator('.user-admin-detail')
 
   await page.locator('.admin-user-list button').filter({ hasText: '权限测试管理员' }).click()
@@ -556,6 +560,11 @@ test('平台管理员可审核管理员但不能审核服务器所有者', async
   await expect(detail.getByText('服务器所有者不能在成员管理中被审核；如需更换所有者，请使用所有权转让。', { exact: true })).toBeVisible()
   await expect(detail.getByText('语音禁言', { exact: true })).toHaveCount(0)
   await expect(detail.getByRole('button', { name: '移出服务器', exact: true })).toHaveCount(0)
+})
+
+test('服务器所有者兼平台管理员显示双重角色副标题', async ({ page }) => {
+  await mockMemberModerationRoles(page, { actorRole: 'owner', isPlatformAdmin: true })
+  await expect(page.locator('.admin-panel .panel-header p')).toHaveText('服务器所有者 · 平台管理员')
 })
 
 test('WebSocket 重同步的旧服务器响应不会覆盖当前服务器', async ({ page, request, isMobile }) => {
