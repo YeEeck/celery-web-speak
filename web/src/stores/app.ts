@@ -3,16 +3,10 @@ import { defineStore } from 'pinia'
 import { ApiError, request } from '../api'
 import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildMemberPayload, Message, OnlineClient, ServerBootstrapData, ServerSummary, User, VoiceRoom } from '../types'
 import { useSoundStore } from './sounds'
+import { activeChannelKey, emptyMessageState, isCompleteUser, mapGuildMember, savedChannelID, savedServerID, type MessageState } from './app-utils'
 
 type AuthPayload = { user: User }
 type SocketEvent = { type: string; serverId?: number; data: unknown }
-
-interface MessageState {
-  messages: Message[]
-  hasEarlier: boolean
-  loading: boolean
-  loaded: boolean
-}
 
 const VOICE_ROOMS_REFRESH_DELAY_MS = 350
 
@@ -586,48 +580,3 @@ export const useAppStore = defineStore('app', () => {
     getChannelScroll, setChannelScroll, removeUser,
   }
 })
-
-function emptyMessageState(): MessageState {
-  return { messages: [], hasEarlier: false, loading: false, loaded: false }
-}
-
-function savedChannelID(serverId: number | null) {
-  if (serverId === null) return null
-  const key = activeChannelKey(serverId)
-  const value = Number(localStorage.getItem(key))
-  if (Number.isFinite(value) && value > 0) return value
-  const legacyValue = Number(localStorage.getItem('cws.activeTextChannelId'))
-  if (Number.isFinite(legacyValue) && legacyValue > 0) {
-    localStorage.setItem(key, String(legacyValue))
-    localStorage.removeItem('cws.activeTextChannelId')
-    return legacyValue
-  }
-  return null
-}
-
-function activeChannelKey(serverId: number) {
-  return `cws.server.${serverId}.activeTextChannelId`
-}
-
-function savedServerID() {
-  const value = Number(localStorage.getItem('cws.activeServerId'))
-  return Number.isFinite(value) && value > 0 ? value : null
-}
-
-function isCompleteUser(value: Partial<User>): value is User {
-  return typeof value.id === 'number' && typeof value.username === 'string' && typeof value.displayName === 'string'
-}
-
-function mapGuildMember(member: GuildMemberPayload): User {
-  return {
-    id: member.userId,
-    username: member.username,
-    displayName: member.displayName,
-    role: member.role,
-    voiceMuted: member.voiceMuted,
-    textMuted: member.textMuted,
-    permanentlyBanned: member.permanentlyBanned,
-    temporaryBanUntil: member.temporaryBanUntil,
-    createdAt: member.joinedAt,
-  }
-}
