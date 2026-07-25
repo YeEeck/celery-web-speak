@@ -472,7 +472,7 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .platform-server-danger { margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(218,55,60,.45); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .platform-server-danger p { margin-top: 4px; color: var(--faint); font-size: 11px; }
 .server-delete-confirmation { flex: 1; display: grid; grid-template-columns: minmax(120px, 1fr) auto auto; gap: 8px; }
-.danger-button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 4px; background: var(--red); color: white; font-weight: 650; cursor: pointer; transition: var(--t-colors); }
+.danger-button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--red); color: white; font-weight: 650; cursor: pointer; transition: var(--t-colors); }
 .danger-button:hover:not(:disabled) { background: var(--red-hover); }
 .platform-server-empty { display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--faint); }
 .drawer-scrim { display: none; }.mobile-only { display: none; }

@@ -7,7 +7,7 @@ const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080'
 
 async function openCurrentServerActions(page: Page) {
   const trigger = page.getByTitle('服务器操作')
-  if (!(await trigger.isVisible())) await page.getByTitle('频道').click()
+  if (!(await trigger.isVisible())) await page.getByTitle('频道', { exact: true }).click()
   await trigger.click()
   const menu = page.getByRole('menu', { name: /的服务器操作$/ })
   await expect(menu).toBeVisible()
@@ -22,7 +22,7 @@ async function openServerAdmin(page: Page) {
 
 async function openPlatformAccounts(page: Page) {
   const platformButton = page.locator('button[title="平台服务器管理"]:visible')
-  if (!(await platformButton.isVisible()) && await page.getByTitle('频道').isVisible()) await page.getByTitle('频道').click()
+  if (!(await platformButton.isVisible()) && await page.getByTitle('频道', { exact: true }).isVisible()) await page.getByTitle('频道', { exact: true }).click()
   if (await platformButton.isVisible()) await platformButton.click()
   else {
     const menu = await openCurrentServerActions(page)
@@ -54,13 +54,13 @@ test('浏览器图标与服务器切换栏可用', async ({ page, isMobile }) =>
     expect(bounds?.width).toBe(46)
     expect(bounds?.height).toBe(46)
   } else {
-    await page.getByTitle('频道').click()
+    await page.getByTitle('频道', { exact: true }).click()
     await expect(page.getByLabel('切换服务器')).toBeVisible()
   }
 })
 
 test('服务器操作菜单集中展示当前角色可用操作', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   await expect(page.locator('.channel-scroll').getByText('管理控制台', { exact: true })).toHaveCount(0)
   await expect(page.locator('.channel-scroll').getByText('离开服务器', { exact: true })).toHaveCount(0)
 
@@ -132,11 +132,28 @@ test('普通成员离开服务器前看到明确后果且失败时保留对话�
     const dialog = targetPage.getByRole('alertdialog', { name: /离开“.+”？/ })
     await expect(dialog).toContainText('你的成员身份将被移除，之后需要由服务器管理员重新添加。')
     await expect(dialog).toContainText('你发送的历史消息不会被删除。')
+    const leaveButton = dialog.getByRole('button', { name: '离开服务器', exact: true })
+    const buttonLayout = await leaveButton.evaluate((button) => {
+      const icon = button.querySelector('svg')
+      const buttonStyle = getComputedStyle(button)
+      if (!icon) return null
+      const buttonBounds = button.getBoundingClientRect()
+      const iconBounds = icon.getBoundingClientRect()
+      return {
+        alignItems: buttonStyle.alignItems,
+        iconCenterOffset: Math.abs(
+          iconBounds.top + iconBounds.height / 2 - (buttonBounds.top + buttonBounds.height / 2),
+        ),
+      }
+    })
+    expect(buttonLayout).not.toBeNull()
+    expect(buttonLayout?.alignItems).toBe('center')
+    expect(buttonLayout?.iconCenterOffset).toBeLessThanOrEqual(1)
     await targetPage.route(`**/api/servers/${serverID}/leave`, (route) => route.fulfill({
       status: 500,
       json: { error: 'test_failure', message: '测试离开失败' },
     }))
-    await dialog.getByRole('button', { name: '离开服务器', exact: true }).click()
+    await leaveButton.click()
     await expect(dialog).toBeVisible()
     await expect(dialog.getByRole('alert')).toHaveText('测试离开失败')
     await expect.poll(async () => {
