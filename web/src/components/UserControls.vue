@@ -76,7 +76,7 @@ onBeforeUnmount(() => {
       <button
         class="icon-button"
         :class="{ danger: voice.muted || app.user!.voiceMuted }"
-        :disabled="!voice.joined || app.user!.voiceMuted || voice.deafened || voice.deafenChanging"
+        :disabled="!voice.joined || app.user!.voiceMuted || voice.deafened || voice.deafenChanging || voice.transmissionModeChanging"
         :title="voice.deafenChanging ? '耳机状态切换中' : voice.deafened ? '耳机静音中' : voice.muted ? '取消静音' : '麦克风静音'"
         @click="voice.toggleMute()"
       >
@@ -85,7 +85,7 @@ onBeforeUnmount(() => {
       <button
         class="icon-button"
         :class="{ danger: voice.deafened }"
-        :disabled="!voice.joined || voice.deafenChanging"
+        :disabled="!voice.joined || voice.deafenChanging || voice.transmissionModeChanging"
         :title="voice.deafened ? '取消耳机静音' : '耳机静音'"
         @click="voice.toggleDeafen()"
       >
