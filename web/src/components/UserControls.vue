@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
+import { Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, PhoneOff, Play, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
 
@@ -58,7 +58,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <footer class="user-controls">
+  <footer v-if="voice.joined" class="user-controls">
     <div class="control-buttons">
       <button
         class="icon-button"
@@ -92,6 +92,8 @@ onBeforeUnmount(() => {
         <LoaderCircle v-if="voice.applicationAudioChanging" :size="18" class="spin" />
         <Music2 v-else :size="18" />
       </button>
+      <span class="voice-control-divider" aria-hidden="true" />
+      <button class="icon-button danger" title="断开语音" aria-label="断开语音" @click="voice.leave()"><PhoneOff :size="18" /></button>
     </div>
     <section
       v-if="showApplicationAudio && applicationAudioPanelOpen"

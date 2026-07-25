@@ -400,7 +400,6 @@ function closeChangelog() {
       </div>
       <div v-if="voice.joined" class="voice-connection-panel">
         <span class="connection-indicator" /><span><strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong><small>{{ voice.connectedServerName }} / {{ voice.connectedChannelName }}</small></span>
-        <button class="icon-button" title="断开语音" @click="voice.leave()"><X :size="17" /></button>
       </div>
       <UserControls />
     </aside>
