@@ -2,7 +2,7 @@
 
 本文档是 Celery Web Speak 的完整生产部署与运维手册。只需要在具有固定公网 IPv4 的服务器上完成默认 Caddy Gateway 部署时，可直接按照 [README 标准流程](../README.md#生产部署) 操作；域名、自管反向代理、NAT、自定义端口、故障排查、更新回滚和数据备份等场景以本文档为准。
 
-当前稳定版本为 `v0.4.0`。生产环境应让仓库标签、部署文件和 `APP_IMAGE` 使用同一版本，不要长期跟随 `latest`。
+当前稳定版本为 `v0.4.3`。生产环境应让仓库标签、部署文件和 `APP_IMAGE` 使用同一版本，不要长期跟随 `latest`。
 
 ## 部署拓扑
 
@@ -39,7 +39,7 @@ Caddy 只承载网页、业务 WebSocket 和 LiveKit 信令，不转发音频数
 ### 1. 获取固定版本的部署文件
 
 ```bash
-git clone --branch v0.4.0 --depth 1 https://github.com/YeEeck/celery-web-speak.git
+git clone --branch v0.4.3 --depth 1 https://github.com/YeEeck/celery-web-speak.git
 cd celery-web-speak
 ```
 
@@ -73,7 +73,7 @@ BOOTSTRAP_ADMIN_PASSWORD=一段足够长的随机密码
 LIVEKIT_API_KEY=生成的Key
 LIVEKIT_API_SECRET=生成的Secret
 
-APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.0
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.3
 COMPOSE_PROFILES=gateway
 HTTPS_PORT=443
 ```
@@ -262,17 +262,17 @@ sudo ufw allow 7882/udp
 
 ## 更新与回滚
 
-更新前先完成 SQLite 数据备份，并确认目标版本的发布说明。将下面的 `v0.4.0` 替换为要升级到的版本：
+更新前先完成 SQLite 数据备份，并确认目标版本的发布说明。以下示例将服务更新到当前稳定版本 `v0.4.3`：
 
 ```bash
-git fetch --depth 1 origin tag v0.4.0
-git checkout v0.4.0
+git fetch --depth 1 origin tag v0.4.3
+git checkout v0.4.3
 ```
 
 同步修改 `.env` 中的镜像版本：
 
 ```env
-APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.0
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.3
 ```
 
 检查配置并替换容器：
@@ -286,6 +286,8 @@ docker compose ps
 ```
 
 Gateway 通过只读 bind mount 读取 `deploy/Caddyfile`。文件内容变化不会改变 Compose 容器定义，因此更新部署文件后应显式重建 Gateway。不要删除 `caddy-data` 卷。
+
+从 `v0.3.x` 升级到 `v0.4.x` 时，应用会在启动阶段自动创建默认服务器，将既有账号角色、频道、消息、已读状态和设置迁移到多服务器数据模型。迁移不可作为回滚手段；首次启动新版本前必须备份 SQLite，回滚到 `v0.3.x` 时应同时恢复升级前的数据。
 
 回滚时，将仓库标签和 `APP_IMAGE` 一起切换到上一个已验证版本，再次更新服务。数据库迁移在应用启动时自动执行；跨越不兼容数据库版本回滚时必须同时恢复升级前的数据库备份，不能直接使用已迁移的数据卷。例如从 `v0.2.0` 回滚到 `v0.1.x` 时必须恢复旧数据库。
 

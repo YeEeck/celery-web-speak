@@ -2,16 +2,16 @@
 
 Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线语音与文字聊天工具。平台内的逻辑服务器隔离成员、频道、消息、在线和语音状态；前端使用 Vue 3，业务服务使用 Go 与 SQLite，语音通过 LiveKit SFU 集中转发。
 
-当前稳定版本为 `v0.4.0`，生产部署建议固定使用明确版本的预构建镜像。
+当前稳定版本为 `v0.4.3`，生产部署建议固定使用明确版本的预构建镜像。
 
 ## 功能
 
-- 中文 Discord 风格桌面与 Android Chrome 界面
+- 中文 Discord 风格桌面与 Android Chrome 界面，移动端保留常驻服务器栏
 - 平台管理员受控创建服务器和指定所有者，普通用户只看到已加入服务器
 - 服务器栏切换、服务器级成员/角色/禁言/封禁，以及跨服务器 HTTP、WebSocket 和 LiveKit 隔离
 - 公开文字与语音频道创建、改名、删除，以及分频道设置和实时状态
 - 可调 32-128 kbps Opus 单声道语音，背景音独立 64-256 kbps 立体声码率，并可分别配置 RED 丢包冗余
-- 静音、耳机静音、输入/输出设备选择和网络质量提示
+- 静音、耳机静音、输入/输出设备选择、DTX 传输模式和网络质量提示
 - 麦克风、扬声器及按用户独立麦克风和背景音音量支持 0%-300% 增益
 - 语音成员按角色与本次加入时间稳定排序，并显示当前说话人
 - 同一账号跨标签页和设备只保留一个语音连接，切换语音频道时自动断开旧连接
@@ -24,6 +24,15 @@ Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线
 - 平台管理员可停用、重置或不可恢复地删除全局账号；历史消息匿名保留，原登录名可重新使用
 
 完整范围与权限矩阵见 [产品规格](docs/product-spec.md)，服务关系见 [技术架构](docs/architecture.md)，版本发布流程见 [发版流程](docs/release-process.md)。
+
+## v0.4 更新
+
+- `v0.4.0` 将单次部署升级为受控多服务器平台，服务器之间隔离成员、频道、消息、在线状态和语音状态，并加入平台级服务器与账号管理。
+- `v0.4.1` 至 `v0.4.2` 重构服务器栏及移动端频道抽屉布局，使服务器列表独立滚动并保持品牌、管理入口和账户入口稳定可见；在线成员列表同时增加网页端、桌面端和安卓端类型徽章。
+- `v0.4.3` 将管理控制台与离开服务器整合进服务器操作菜单，将用户设置与退出登录迁移到服务器栏底部的头像菜单，并让移动端持续显示服务器栏。
+- `v0.4.3` 同时将频道栏底部收敛为语音控制区，支持在“语音感应”和“持续传输”间切换 DTX 模式，并显示当前连接频道的配置码率。
+
+从 `v0.3.x` 升级时，应用会在启动阶段自动将原有单服务器数据迁移到默认服务器，并保留账号、频道、消息和设置。升级前仍应先备份 SQLite 数据，具体步骤见[更新与回滚](docs/deployment.md#更新与回滚)。
 
 ## 客户端音频设置
 
@@ -69,7 +78,7 @@ Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线
 部署文件与应用镜像必须使用同一版本：
 
 ```bash
-git clone --branch v0.4.0 --depth 1 https://github.com/YeEeck/celery-web-speak.git
+git clone --branch v0.4.3 --depth 1 https://github.com/YeEeck/celery-web-speak.git
 cd celery-web-speak
 ```
 
@@ -99,7 +108,7 @@ BOOTSTRAP_ADMIN_PASSWORD=一段足够长的随机密码
 LIVEKIT_API_KEY=生成的Key
 LIVEKIT_API_SECRET=生成的Secret
 
-APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.0
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.3
 COMPOSE_PROFILES=gateway
 HTTPS_PORT=443
 ```

@@ -12,13 +12,15 @@
 
 ## 发版步骤
 
-### 1. 更新前端版本号
+以下示例以 `v0.4.3` 为目标版本。执行实际发版时，将示例版本和日期替换为目标值。
 
-编辑 `web/package.json`，更新 `version` 字段：
+### 1. 更新前端包版本
+
+编辑 `web/package.json`，并同步更新 `web/package-lock.json` 顶层及根包的 `version` 字段：
 
 ```json
 {
-  "version": "0.4.0"
+  "version": "0.4.3"
 }
 ```
 
@@ -27,10 +29,10 @@
 编辑 `internal/httpapi/changelog.go`，更新 `appVersion` 常量：
 
 ```go
-const appVersion = "0.4.0"
+const appVersion = "0.4.3"
 ```
 
-> **注意**：前端 `package.json` 的 version 与后端 `appVersion` 常量必须保持一致。
+> **注意**：`web/package.json`、`web/package-lock.json` 的根包版本与后端 `appVersion` 常量必须保持一致。
 
 ### 3. 更新更新日志
 
@@ -39,11 +41,11 @@ const appVersion = "0.4.0"
 ```json
 [
   {
-    "version": "0.4.0",
-    "date": "2026-07-24",
+    "version": "0.4.3",
+    "date": "2026-07-25",
     "changes": [
-      "feat: 新增版本更新日志弹窗",
-      "fix: 修复语音频道幽灵成员"
+      "feat: 将账户操作迁移到服务器栏头像菜单",
+      "feat: 增加语音 DTX 模式切换"
     ]
   }
 ]
@@ -71,18 +73,17 @@ npm run build
 
 ```bash
 git add -A
-git commit -m "chore: 更新版本号到 v0.4.0"
-git tag v0.4.0
+git commit -m "chore: 更新版本号到 v0.4.3"
+git tag v0.4.3
 ```
 
 ### 6. 推送发布
 
 ```bash
-git push origin dev
-git push origin v0.4.0
+git push --atomic origin dev v0.4.3
 ```
 
-推送 tag 后，GitHub Actions 会自动构建并推送 Docker 镜像到 GHCR。
+原子推送确保 `dev` 和 tag 同时成功或同时失败。推送 tag 后，GitHub Actions 会自动构建并推送 Docker 镜像到 GHCR。
 
 ## 版本更新日志弹窗行为
 
