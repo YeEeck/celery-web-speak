@@ -36,6 +36,7 @@ export const useAppStore = defineStore('app', () => {
     applyBootstrap,
     loadChannelMessages,
     nextServerBootstrapVersion: () => ++serverBootstrapVersion,
+    isServerBootstrapVersionCurrent: (version) => version === serverBootstrapVersion,
   })
 
   const isAdmin = computed(() => activeServer.value?.role === 'owner' || activeServer.value?.role === 'admin')

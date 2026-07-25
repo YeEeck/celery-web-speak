@@ -18,6 +18,7 @@ export interface SocketContext {
   applyBootstrap: (data: BootstrapData, invalidateMessages?: boolean) => void
   loadChannelMessages: (channelId: number, force?: boolean) => Promise<void>
   nextServerBootstrapVersion: () => number
+  isServerBootstrapVersionCurrent: (version: number) => boolean
 }
 
 export function useSocket(ctx: SocketContext) {
@@ -87,18 +88,18 @@ export function useSocket(ctx: SocketContext) {
           serverData = await request<ServerBootstrapData>(`/api/servers/${serverId}/bootstrap`)
         } catch (error) {
           if (socket !== connection) return
-          if (socketActivityVersion !== activityVersion || ctx.activeServerId.value !== serverId) continue
+          if (socketActivityVersion !== activityVersion || !ctx.isServerBootstrapVersionCurrent(bootstrapVersion) || ctx.activeServerId.value !== serverId) continue
           throw error
         }
         if (socket !== connection) return
-        if (socketActivityVersion !== activityVersion || ctx.activeServerId.value !== serverId) continue
+        if (socketActivityVersion !== activityVersion || !ctx.isServerBootstrapVersionCurrent(bootstrapVersion) || ctx.activeServerId.value !== serverId) continue
         const members = serverData.members.map(mapGuildMember)
         const currentUser = { ...data.user, voiceMuted: serverData.membership.voiceMuted, textMuted: serverData.membership.textMuted, permanentlyBanned: serverData.membership.permanentlyBanned, temporaryBanUntil: serverData.membership.temporaryBanUntil }
         ctx.applyBootstrap({ user: currentUser, users: members, channels: serverData.channels, channelReadStates: serverData.channelReadStates, online: serverData.online, voiceRooms: serverData.voiceRooms }, true)
         const channelId = ctx.activeTextChannelId.value
         if (channelId !== null) await ctx.loadChannelMessages(channelId, true)
         if (socket !== connection) return
-        if (socketActivityVersion !== activityVersion || ctx.activeServerId.value !== serverId) continue
+        if (socketActivityVersion !== activityVersion || !ctx.isServerBootstrapVersionCurrent(bootstrapVersion) || ctx.activeServerId.value !== serverId) continue
         synchronizingSocket = null
         ctx.socketStatus.value = 'online'
         return
