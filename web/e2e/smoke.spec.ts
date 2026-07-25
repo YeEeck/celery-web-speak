@@ -1,14 +1,33 @@
-import { expect, request as createRequestContext, test } from '@playwright/test'
+import { expect, request as createRequestContext, test, type Page } from '@playwright/test'
 import { createServerMember, deletePlatformUser, firstJoinedServerID } from './api-helpers'
 
 const username = process.env.E2E_USERNAME ?? 'admin'
 const password = process.env.E2E_PASSWORD ?? 'admin-password-123'
 const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080'
 
-async function openPlatformAccounts(page: import('@playwright/test').Page) {
+async function openCurrentServerActions(page: Page) {
+  const trigger = page.getByTitle('服务器操作')
+  if (!(await trigger.isVisible())) await page.getByTitle('频道').click()
+  await trigger.click()
+  const menu = page.getByRole('menu', { name: /的服务器操作$/ })
+  await expect(menu).toBeVisible()
+  return menu
+}
+
+async function openServerAdmin(page: Page) {
+  const menu = await openCurrentServerActions(page)
+  await menu.getByRole('menuitem', { name: '管理控制台', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '服务器管理' })).toBeVisible()
+}
+
+async function openPlatformAccounts(page: Page) {
   const platformButton = page.locator('button[title="平台服务器管理"]:visible')
-  if (!(await platformButton.isVisible())) await page.getByTitle('频道').click()
-  await platformButton.click()
+  if (!(await platformButton.isVisible()) && await page.getByTitle('频道').isVisible()) await page.getByTitle('频道').click()
+  if (await platformButton.isVisible()) await platformButton.click()
+  else {
+    const menu = await openCurrentServerActions(page)
+    await menu.getByRole('menuitem', { name: '平台服务器管理', exact: true }).click()
+  }
   await page.getByTitle('平台账号与邀请码').click()
   await expect(page.getByRole('heading', { name: '平台管理' })).toBeVisible()
 }
@@ -40,18 +59,164 @@ test('浏览器图标与服务器切换栏可用', async ({ page, isMobile }) =>
   }
 })
 
+test('服务器操作菜单集中展示当前角色可用操作', async ({ page, isMobile }) => {
+  if (isMobile) await page.getByTitle('频道').click()
+  await expect(page.locator('.channel-scroll').getByText('管理控制台', { exact: true })).toHaveCount(0)
+  await expect(page.locator('.channel-scroll').getByText('离开服务器', { exact: true })).toHaveCount(0)
+
+  const trigger = page.getByTitle('服务器操作')
+  await expect(trigger).toBeVisible()
+  await trigger.click()
+  const menu = page.getByRole('menu', { name: /的服务器操作$/ })
+  await expect(menu.getByRole('menuitem', { name: '管理控制台', exact: true })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '平台服务器管理', exact: true })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '离开服务器', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(trigger).toBeFocused()
+
+  if (!isMobile) {
+    const serverButton = page.locator('.server-button').filter({ has: page.locator('.server-initial') }).first()
+    await serverButton.click({ button: 'right' })
+    await expect(menu).toBeVisible()
+    await page.keyboard.press('Escape')
+    await serverButton.focus()
+    await page.keyboard.press('Shift+F10')
+    await expect(menu).toBeVisible()
+  } else {
+    await expect(page.locator('button[title="平台服务器管理"]:visible')).toHaveCount(0)
+    await expect.poll(() => page.getByLabel('切换服务器').evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(250)
+    const titleLayout = await page.locator('.server-title').evaluate((element) => {
+      const children = Array.from(element.children).filter((child) => getComputedStyle(child).display !== 'none')
+      return children.map((child) => {
+        const bounds = child.getBoundingClientRect()
+        return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom }
+      })
+    })
+    for (let index = 1; index < titleLayout.length; index++) {
+      const previous = titleLayout[index - 1]
+      const current = titleLayout[index]
+      const sameRow = Math.abs(previous.top - current.top) < 2
+      if (sameRow) expect(current.left).toBeGreaterThanOrEqual(previous.right - 1)
+    }
+  }
+})
+
+test('普通成员离开服务器前看到明确后果且失败时保留对话框', async ({ page, request, browser, isMobile }, testInfo) => {
+  await request.post('/api/auth/login', { data: { username, password } })
+  const serverID = await firstJoinedServerID(request)
+  const suffix = `${Date.now().toString(36)}_${isMobile ? 'm' : 'd'}_${testInfo.workerIndex}`
+  const account = {
+    username: `leave_${suffix}`,
+    displayName: `离开菜单成员${suffix.slice(-3)}`,
+    password: 'leave-member-password',
+  }
+  const member = await createServerMember(request, serverID, account)
+  const target = await browser.newContext({ baseURL })
+  const targetPage = await target.newPage()
+  try {
+    await targetPage.goto('/')
+    await targetPage.getByLabel('登录名').fill(account.username)
+    await targetPage.getByLabel('密码').fill(account.password)
+    await targetPage.getByRole('button', { name: '登录', exact: true }).click()
+    await expect(targetPage.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+    const changelog = targetPage.getByRole('dialog', { name: '更新日志' })
+    if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
+
+    const menu = await openCurrentServerActions(targetPage)
+    await expect(menu.getByRole('menuitem')).toHaveCount(1)
+    const leaveItem = menu.getByRole('menuitem', { name: '离开服务器', exact: true })
+    await expect(leaveItem).toHaveClass(/danger/)
+    await leaveItem.click()
+
+    const dialog = targetPage.getByRole('alertdialog', { name: /离开“.+”？/ })
+    await expect(dialog).toContainText('你的成员身份将被移除，之后需要由服务器管理员重新添加。')
+    await expect(dialog).toContainText('你发送的历史消息不会被删除。')
+    await targetPage.route(`**/api/servers/${serverID}/leave`, (route) => route.fulfill({
+      status: 500,
+      json: { error: 'test_failure', message: '测试离开失败' },
+    }))
+    await dialog.getByRole('button', { name: '离开服务器', exact: true }).click()
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('alert')).toHaveText('测试离开失败')
+    await expect.poll(async () => {
+      const response = await target.request.get('/api/bootstrap')
+      const payload = await response.json() as { servers: Array<{ id: number; joined: boolean }> }
+      return payload.servers.some((server) => server.id === serverID && server.joined)
+    }).toBe(true)
+
+    await dialog.getByRole('button', { name: '取消', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await targetPage.unroute(`**/api/servers/${serverID}/leave`)
+    const reopenedMenu = await openCurrentServerActions(targetPage)
+    await reopenedMenu.getByRole('menuitem', { name: '离开服务器', exact: true }).click()
+    await targetPage.getByRole('alertdialog').getByRole('button', { name: '离开服务器', exact: true }).click()
+    await expect(targetPage.getByRole('alertdialog')).toBeHidden()
+    await expect(targetPage.getByTitle('服务器操作')).toHaveCount(0)
+    const bootstrapResponse = await target.request.get('/api/bootstrap')
+    const bootstrap = await bootstrapResponse.json() as { servers: Array<{ joined: boolean }> }
+    expect(bootstrap.servers.some((server) => server.joined)).toBe(false)
+  } finally {
+    await target.close()
+    const response = await deletePlatformUser(request, member.id, account.username)
+    expect(response.ok()).toBeTruthy()
+  }
+})
+
+test('右键离开非当前服务器后保持当前服务器', async ({ request, browser }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('android'), '服务器栏右键菜单仅在桌面布局显示')
+  await request.post('/api/auth/login', { data: { username, password } })
+  const firstServerID = await firstJoinedServerID(request)
+  const suffix = `${Date.now().toString(36)}_${testInfo.workerIndex}`
+  const account = {
+    username: `leave_other_${suffix}`,
+    displayName: `非当前离开成员${suffix.slice(-3)}`,
+    password: 'leave-other-password',
+  }
+  const member = await createServerMember(request, firstServerID, account)
+  const serverName = `非当前服务器${suffix.slice(-5)}`
+  const createResponse = await request.post('/api/platform/servers', { data: { name: serverName, ownerUsername: username } })
+  expect(createResponse.ok()).toBeTruthy()
+  const secondServer = (await createResponse.json() as { server: { id: number } }).server
+  const addResponse = await request.post(`/api/servers/${secondServer.id}/members`, { data: { username: account.username } })
+  expect(addResponse.ok()).toBeTruthy()
+
+  const target = await browser.newContext({ baseURL })
+  const targetPage = await target.newPage()
+  try {
+    await targetPage.goto('/')
+    await targetPage.getByLabel('登录名').fill(account.username)
+    await targetPage.getByLabel('密码').fill(account.password)
+    await targetPage.getByRole('button', { name: '登录', exact: true }).click()
+    await expect(targetPage.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+    const changelog = targetPage.getByRole('dialog', { name: '更新日志' })
+    if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
+    const originalServerName = await targetPage.locator('.server-title strong').textContent()
+
+    await targetPage.getByTitle(serverName).click({ button: 'right' })
+    const menu = targetPage.getByRole('menu', { name: `${serverName}的服务器操作` })
+    await menu.getByRole('menuitem', { name: '离开服务器', exact: true }).click()
+    const dialog = targetPage.getByRole('alertdialog', { name: `离开“${serverName}”？` })
+    await dialog.getByRole('button', { name: '离开服务器', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await expect(targetPage.locator('.server-title strong')).toHaveText(originalServerName ?? '')
+    await expect(targetPage.getByTitle(serverName)).toHaveCount(0)
+  } finally {
+    await target.close()
+    const deleteServerResponse = await request.delete(`/api/platform/servers/${secondServer.id}`)
+    expect(deleteServerResponse.ok()).toBeTruthy()
+    const deleteUserResponse = await deletePlatformUser(request, member.id, account.username)
+    expect(deleteUserResponse.ok()).toBeTruthy()
+  }
+})
+
 test('登录、聊天和管理员设置可用', async ({ page }) => {
   const message = `端到端检查 ${Date.now()}`
   await page.getByPlaceholder('发送消息到 #文字聊天').fill(message)
   await page.getByTitle('发送消息').click()
   await expect(page.getByText(message)).toBeVisible()
 
-  const adminButton = page.getByText('管理控制台', { exact: true })
-  if (!(await adminButton.isVisible())) {
-    await page.getByTitle('频道').click()
-  }
-  await adminButton.click()
-  await expect(page.getByRole('heading', { name: '服务器管理' })).toBeVisible()
+  await openServerAdmin(page)
   await page.getByLabel('选择频道').selectOption({ label: '语音 语音频道' })
   await expect(page.getByText('Opus 发送码率')).toBeVisible()
   await expect(page.getByLabel('语音 RED 丢包冗余')).toBeChecked()
@@ -87,9 +252,7 @@ test('临时封禁状态在刷新后可见并可提前解除', async ({ page, re
 
     await page.reload()
     await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
-    const adminButton = page.getByText('管理控制台', { exact: true })
-    if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
-    await adminButton.click()
+    await openServerAdmin(page)
     await page.getByRole('button', { name: '成员', exact: true }).click()
     await page.locator('.admin-user-list button').filter({ hasText: account.displayName }).click()
     const clearButton = page.getByRole('button', { name: '解除临时封禁', exact: true })
@@ -167,9 +330,7 @@ test('WebSocket 重同步的旧服务器响应不会覆盖当前服务器', asyn
 test('管理员可创建和删除独立文字频道', async ({ page, isMobile }) => {
   const channelName = `项目频道${Date.now().toString(36).slice(-5)}`
   const channelMessage = `频道隔离检查 ${Date.now()}`
-  const adminButton = page.getByText('管理控制台', { exact: true })
-  if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
-  await adminButton.click()
+  await openServerAdmin(page)
   await page.getByLabel('新频道名称').fill(channelName)
   await page.getByRole('button', { name: '创建', exact: true }).click()
   await expect(page.getByLabel('选择频道')).toHaveValue(/\d+/)
@@ -188,8 +349,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   await page.getByRole('button', { name: /文字聊天.*最近/ }).click()
   await expect(page.getByText(channelMessage, { exact: true })).toHaveCount(0)
 
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByText('管理控制台', { exact: true }).click()
+  await openServerAdmin(page)
   await page.getByLabel('选择频道').selectOption({ label: `# ${channelName}` })
   page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: '永久删除', exact: true }).click()
@@ -550,9 +710,7 @@ test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ pa
 
 test('管理控制台外框不随页签内容变化', async ({ page, isMobile }) => {
   await page.setViewportSize({ width: isMobile ? 412 : 1200, height: isMobile ? 800 : 900 })
-  const adminButton = page.getByText('管理控制台', { exact: true })
-  if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
-  await adminButton.click()
+  await openServerAdmin(page)
 
   const panel = page.locator('.admin-panel')
   const panelSize = () => panel.evaluate((element) => {
@@ -693,9 +851,7 @@ test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile
   await page.setViewportSize({ width: isMobile ? 412 : 1200, height: 500 })
   await page.reload()
   await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
-  const adminButton = page.getByText('管理控制台', { exact: true })
-  if (!(await adminButton.isVisible())) await page.getByTitle('频道').click()
-  await adminButton.click()
+  await openServerAdmin(page)
   await page.getByRole('button', { name: '成员', exact: true }).click()
 
   const content = page.locator('.admin-content')
