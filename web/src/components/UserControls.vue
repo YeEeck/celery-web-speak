@@ -11,6 +11,12 @@ const applicationAudioTrigger = ref<HTMLButtonElement | null>(null)
 const applicationAudioPanel = ref<HTMLElement | null>(null)
 
 const showApplicationAudio = computed(() => voice.applicationAudioSupported && voice.joined && !app.user?.voiceMuted)
+const transmissionModeLabel = computed(() => voice.dtxEnabled ? '语音感应' : '持续传输')
+const transmissionModeTarget = computed(() => voice.dtxEnabled ? '持续传输' : '语音感应')
+const transmissionModeTooltip = computed(() => voice.transmissionModeChanging ? '传输模式切换中' : `切换为${transmissionModeTarget.value}`)
+const transmissionModeAriaLabel = computed(() => voice.transmissionModeChanging
+  ? '传输模式切换中'
+  : `当前模式：${transmissionModeLabel.value}；切换为${transmissionModeTarget.value}`)
 
 async function toggleApplicationAudioPanel() {
   if (voice.applicationAudioActive) {
@@ -59,19 +65,21 @@ onBeforeUnmount(() => {
 
 <template>
   <footer v-if="voice.joined" class="user-controls">
-    <button
-      class="transmission-mode-button"
-      type="button"
-      :disabled="voice.transmissionModeChanging || voice.deafenChanging || voice.status !== 'connected'"
-      :title="voice.transmissionModeChanging ? '传输模式切换中' : voice.dtxEnabled ? '语音感应（DTX 已开启）' : '持续传输（DTX 已关闭）'"
-      :aria-pressed="voice.dtxEnabled"
-      @click="voice.toggleTransmissionMode()"
-    >
-      <LoaderCircle v-if="voice.transmissionModeChanging" :size="16" class="spin" />
-      <AudioLines v-else-if="voice.dtxEnabled" :size="16" />
-      <RadioTower v-else :size="16" />
-      <span>{{ voice.dtxEnabled ? '语音感应' : '持续传输' }}</span>
-    </button>
+    <div class="transmission-mode-control">
+      <button
+        class="transmission-mode-button"
+        type="button"
+        :disabled="voice.transmissionModeChanging || voice.deafenChanging || voice.status !== 'connected'"
+        :aria-label="transmissionModeAriaLabel"
+        @click="voice.toggleTransmissionMode()"
+      >
+        <LoaderCircle v-if="voice.transmissionModeChanging" :size="16" class="spin" />
+        <AudioLines v-else-if="voice.dtxEnabled" :size="16" />
+        <RadioTower v-else :size="16" />
+        <span>{{ transmissionModeLabel }}</span>
+      </button>
+      <span class="transmission-mode-tooltip" aria-hidden="true">{{ transmissionModeTooltip }}</span>
+    </div>
     <div class="control-buttons">
       <button
         class="icon-button"
