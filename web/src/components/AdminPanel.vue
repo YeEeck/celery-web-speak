@@ -49,6 +49,11 @@ const deleteConfirmationInput = ref<HTMLInputElement | null>(null)
 const platformUsers = ref<User[]>([])
 
 const serverContext = computed(() => props.platformMode ? null : app.activeServer)
+const adminSubtitle = computed(() => {
+  if (!serverContext.value) return '平台管理员'
+  const serverRole = serverContext.value.role === 'owner' ? '服务器所有者' : '服务器管理员'
+  return app.isPlatformAdmin ? `${serverRole} · 平台管理员` : serverRole
+})
 const userPool = computed(() => serverContext.value ? app.users : platformUsers.value)
 const selectedUser = computed(() => userPool.value.find((user) => user.id === selectedUserId.value) ?? null)
 const manageableUsers = computed(() => userPool.value.filter((user) => user.id !== app.user!.id))
@@ -404,7 +409,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
   <div class="modal-backdrop admin-backdrop" @mousedown.self="$emit('close')">
     <section class="admin-panel" role="dialog" aria-modal="true" aria-labelledby="admin-title">
       <header class="panel-header">
-        <div><h2 id="admin-title">{{ serverContext ? '服务器管理' : '平台管理' }}</h2><p>{{ serverContext?.role === 'owner' ? '服务器所有者' : serverContext ? '服务器管理员' : '平台管理员' }}</p></div>
+        <div><h2 id="admin-title">{{ serverContext ? '服务器管理' : '平台管理' }}</h2><p>{{ adminSubtitle }}</p></div>
         <button class="icon-button" title="关闭" @click="$emit('close')"><X :size="21" /></button>
       </header>
       <nav class="admin-tabs">
