@@ -909,6 +909,8 @@ test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page 
   let newestID = 0
   let channelID = 0
   let currentUser = { id: 0, username: '', displayName: '', role: 'member' }
+  const messageBaseTime = new Date()
+  messageBaseTime.setHours(12, 0, 0, 0)
   const makeMessage = (id: number, content: string) => ({
     id,
     channelId: channelID,
@@ -917,7 +919,7 @@ test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page 
     displayName: currentUser.displayName,
     role: currentUser.role,
     content,
-    createdAt: new Date(Date.now() - (newestID - id) * 1000).toISOString(),
+    createdAt: new Date(messageBaseTime.getTime() - (newestID - id) * 1000).toISOString(),
   })
 
   await page.route('**/api/servers/*/bootstrap', async (route) => {
@@ -955,6 +957,7 @@ test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page 
   await messageList.evaluate((element) => { element.scrollTop = 0 })
   const loadEarlier = page.getByRole('button', { name: '加载更早消息' })
   await expect(loadEarlier).toBeVisible()
+  await expect(page.locator('.message-date-divider')).toHaveCount(1)
   const anchor = page.getByText(`虚拟消息 ${newestID - 49}`, { exact: true })
   const anchorTop = await anchor.evaluate((element) => element.getBoundingClientRect().top)
   await loadEarlier.click()
@@ -964,6 +967,7 @@ test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page 
 
   await messageList.evaluate((element) => { element.scrollTop = 0 })
   await expect(page.getByText('这是 #文字聊天 的开始。')).toBeVisible()
+  await expect(page.locator('.message-date-divider')).toHaveCount(1)
   await expect(loadEarlier).toBeHidden()
   await expect(page.locator('.jump-to-latest')).toBeVisible()
 
@@ -975,6 +979,77 @@ test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page 
   await jumpToLatest.click()
   await expect(page.getByText(realtimeMessage, { exact: true })).toBeVisible()
   await expect(page.locator('.jump-to-latest')).toBeHidden()
+})
+
+test('消息按本地自然日显示日期分隔线并在零点更新', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-07-25T12:00:00Z') })
+  const dates = await page.evaluate(() => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9)
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const sameYear = new Date(now.getFullYear(), 0, 15, 9)
+    const previousYear = new Date(now.getFullYear() - 1, 11, 31, 9)
+    const monthDay = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' })
+    const fullDate = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+    const nextMidnight = new Date(now)
+    nextMidnight.setHours(24, 0, 0, 0)
+    return {
+      today: today.toISOString(),
+      yesterdayMorning: yesterday.toISOString(),
+      yesterdayAfternoon: new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 15).toISOString(),
+      sameYear: sameYear.toISOString(),
+      previousYear: previousYear.toISOString(),
+      sameYearLabel: monthDay.format(sameYear),
+      previousYearLabel: fullDate.format(previousYear),
+      yesterdayAfterMidnightLabel: monthDay.format(yesterday),
+      millisecondsToMidnight: nextMidnight.getTime() - now.getTime(),
+    }
+  })
+  let channelID = 0
+  let currentUser = { id: 0, username: '', displayName: '', role: 'member' }
+
+  await page.routeWebSocket(/\/api\/ws\?/, () => {})
+  await page.route('**/api/servers/*/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    currentUser = {
+      id: payload.membership.userId,
+      username: payload.membership.username,
+      displayName: payload.membership.displayName,
+      role: payload.membership.role,
+    }
+    channelID = payload.channels.find((channel: { type: string }) => channel.type === 'text').id
+    await route.fulfill({ response, json: payload })
+  })
+  await page.route('**/api/servers/*/channels/*/messages?**', async (route) => {
+    const timestamps = [dates.previousYear, dates.sameYear, dates.yesterdayMorning, dates.yesterdayAfternoon, dates.today]
+    const messages = timestamps.map((createdAt, index) => ({
+      id: 20_000 + index,
+      channelId: channelID,
+      userId: currentUser.id,
+      username: currentUser.username,
+      displayName: currentUser.displayName,
+      role: currentUser.role,
+      content: `日期消息 ${index + 1}`,
+      createdAt,
+    }))
+    await route.fulfill({ json: { messages, hasMore: false } })
+  })
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+  await expect(page.locator('.message-date-divider')).toHaveText([
+    dates.previousYearLabel,
+    dates.sameYearLabel,
+    '昨天',
+    '今天',
+  ])
+
+  await page.clock.fastForward(dates.millisecondsToMidnight + 200)
+  await expect(page.getByRole('separator', { name: '今天' })).toHaveCount(0)
+  await expect(page.getByRole('separator', { name: '昨天' })).toHaveCount(1)
+  await expect(page.getByRole('separator', { name: dates.yesterdayAfterMidnightLabel })).toHaveCount(1)
 })
 
 test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ page, isMobile }) => {
