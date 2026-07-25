@@ -5,6 +5,19 @@ const username = process.env.E2E_USERNAME ?? 'admin'
 const password = process.env.E2E_PASSWORD ?? 'admin-password-123'
 const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080'
 
+async function openAccountMenu(page: Page) {
+  await page.getByTitle('用户账户').click()
+  const menu = page.getByRole('menu', { name: '用户账户操作' })
+  await expect(menu).toBeVisible()
+  return menu
+}
+
+async function openUserSettings(page: Page) {
+  const menu = await openAccountMenu(page)
+  await menu.getByRole('menuitem', { name: '用户设置', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '用户设置' })).toBeVisible()
+}
+
 async function openCurrentServerActions(page: Page) {
   const trigger = page.getByTitle('服务器操作')
   if (!(await trigger.isVisible())) await page.getByTitle('频道', { exact: true }).click()
@@ -400,8 +413,7 @@ test('最新消息与文字输入框保持间距', async ({ page }) => {
 })
 
 test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '音频', exact: true }).click()
   await page.getByRole('button', { name: '输入', exact: true }).click()
 
@@ -425,8 +437,7 @@ test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, is
 test('紧凑视口下用户设置页签与内容不重叠', async ({ page, isMobile }) => {
   test.skip(isMobile, '桌面项目覆盖可调整高度的紧凑视口')
   await page.setViewportSize({ width: 720, height: 600 })
-  await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '音效', exact: true }).click()
 
   const layout = await page.locator('.settings-panel').evaluate((panel) => {
@@ -449,8 +460,7 @@ test('紧凑视口下用户设置页签与内容不重叠', async ({ page, isMob
 })
 
 test('操作提示音默认开启并持久化到浏览器', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '音效', exact: true }).click()
 
   const masterSwitch = page.getByLabel('启用提示音')
@@ -481,8 +491,7 @@ test('操作提示音默认开启并持久化到浏览器', async ({ page, isMob
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.enabled'))).toBe('false')
 
   await page.reload()
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '音效', exact: true }).click()
   await expect(page.getByLabel('启用提示音')).not.toBeChecked()
   await expect(page.getByLabel('提示音音量')).toHaveValue('0.35')
@@ -491,8 +500,7 @@ test('操作提示音默认开启并持久化到浏览器', async ({ page, isMob
 })
 
 test('主题模式与强调色持久化到浏览器', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '主题', exact: true }).click()
 
   await page.getByRole('button', { name: '亮色', exact: true }).click()
@@ -508,8 +516,7 @@ test('主题模式与强调色持久化到浏览器', async ({ page, isMobile })
 })
 
 test('音频处理开关持久化到浏览器', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '音频', exact: true }).click()
 
   const echoToggle = page.getByLabel('回声抑制')
@@ -584,40 +591,44 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
   }
 })
 
-test('退出登录使用明确的二次确认弹窗', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
-  const logoutTrigger = page.getByTitle('退出登录')
+test('头像菜单集中账户操作且退出登录使用明确确认', async ({ page }) => {
+  const accountTrigger = page.getByTitle('用户账户')
   const dialog = page.getByRole('alertdialog', { name: '退出登录？' })
   const cancel = page.getByRole('button', { name: '取消', exact: true })
 
-  await logoutTrigger.click()
+  let menu = await openAccountMenu(page)
+  const settingsItem = menu.getByRole('menuitem', { name: '用户设置', exact: true })
+  const logoutItem = menu.getByRole('menuitem', { name: '退出登录', exact: true })
+  await expect(settingsItem).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(logoutItem).toBeFocused()
+  await expect(logoutItem).toHaveClass(/danger/)
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(accountTrigger).toBeFocused()
+
+  menu = await openAccountMenu(page)
+  await menu.getByRole('menuitem', { name: '退出登录', exact: true }).click()
   await expect(dialog).toBeVisible()
   await expect(cancel).toBeFocused()
   await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
 
-  await logoutTrigger.click()
-  await expect(dialog).toBeHidden()
-  await expect(logoutTrigger).toBeFocused()
-
-  await logoutTrigger.click()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
-  await expect(logoutTrigger).toBeFocused()
+  await expect(accountTrigger).toBeFocused()
 
-  await logoutTrigger.click()
-  await page.locator('.server-title').click({ position: { x: 8, y: 8 } })
-  await expect(dialog).toBeHidden()
-
-  await logoutTrigger.click()
+  menu = await openAccountMenu(page)
+  await menu.getByRole('menuitem', { name: '退出登录', exact: true }).click()
   await cancel.click()
   await expect(dialog).toBeHidden()
-  await expect(logoutTrigger).toBeFocused()
+  await expect(accountTrigger).toBeFocused()
 
   await page.route('**/api/auth/logout', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 300))
     await route.continue()
   })
-  await logoutTrigger.click()
+  menu = await openAccountMenu(page)
+  await menu.getByRole('menuitem', { name: '退出登录', exact: true }).click()
   const confirm = dialog.getByRole('button', { name: '退出', exact: true })
   await confirm.click()
   await expect(dialog.getByRole('button', { name: '正在退出', exact: true })).toBeDisabled()

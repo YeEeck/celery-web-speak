@@ -194,6 +194,11 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .rail-status.connecting { color: var(--yellow); }
 .rail-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .rail-scroll::-webkit-scrollbar { display: none; }
+.rail-account { flex: 0 0 auto; width: 46px; padding-top: 10px; border-top: 2px solid var(--active); display: grid; place-items: center; }
+.account-trigger { position: relative; width: 46px; height: 46px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; background: transparent; cursor: pointer; }
+.account-trigger:hover .avatar { filter: brightness(1.08); }
+.account-trigger[aria-expanded="true"] .avatar { box-shadow: 0 0 0 2px var(--brand); }
+.rail-account .online-dot { border-color: var(--rail); }
 
 .channel-sidebar { min-width: 0; display: flex; flex-direction: column; background: var(--sidebar); }
 .server-title { height: 49px; flex: 0 0 49px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px 0 16px; border-bottom: 1px solid var(--border-soft); box-shadow: 0 1px 0 rgba(0,0,0,.22); }
@@ -340,11 +345,24 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .server-action-menu button.danger { color: var(--danger-fg); }
 .server-action-menu button.danger:hover, .server-action-menu button.danger:focus-visible { color: var(--danger-fg); background: rgba(218,55,60,.14); }
 .server-action-divider { height: 1px; margin: 4px 6px; background: var(--line); }
-.leave-server-panel { width: min(440px, 100%); padding: 22px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); box-shadow: 0 18px 55px rgba(0,0,0,.42); }
-.leave-server-panel h2 { font-size: 19px; overflow-wrap: anywhere; }
-.leave-server-panel > p { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.6; }
-.leave-server-panel > p.form-error { color: var(--danger-fg); }
-.leave-server-panel footer { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
+.account-menu { position: fixed; z-index: 70; width: 240px; padding: 6px; border: 1px solid var(--border-strong); border-radius: 6px; display: grid; gap: 2px; visibility: hidden; background: var(--elevated); box-shadow: 0 12px 32px rgba(0,0,0,.46); }
+.account-menu.positioned { visibility: visible; }
+.account-menu-summary { min-width: 0; padding: 8px; display: flex; align-items: center; gap: 10px; }
+.account-menu-summary > span { min-width: 0; display: grid; gap: 2px; }
+.account-menu-summary strong, .account-menu-summary small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.account-menu-summary strong { font-size: 13px; }
+.account-menu-summary small { color: var(--faint); font-size: 11px; }
+.account-menu-summary .online-dot { border-color: var(--elevated); }
+.account-menu button { width: 100%; min-height: 38px; padding: 0 10px; border: 0; border-radius: 4px; display: flex; align-items: center; gap: 9px; background: transparent; color: var(--muted); text-align: left; cursor: pointer; transition: var(--t-colors); }
+.account-menu button:hover, .account-menu button:focus-visible { outline: none; color: var(--text); background: var(--hover); }
+.account-menu button.danger { color: var(--danger-fg); }
+.account-menu button.danger:hover, .account-menu button.danger:focus-visible { color: var(--danger-fg); background: rgba(218,55,60,.14); }
+.account-menu-divider { height: 1px; margin: 4px 6px; background: var(--line); }
+.leave-server-panel, .logout-panel { width: min(440px, 100%); padding: 22px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); box-shadow: 0 18px 55px rgba(0,0,0,.42); }
+.leave-server-panel h2, .logout-panel h2 { font-size: 19px; overflow-wrap: anywhere; }
+.leave-server-panel > p, .logout-panel > p { margin-top: 10px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.leave-server-panel > p.form-error, .logout-panel > p.form-error { color: var(--danger-fg); }
+.leave-server-panel footer, .logout-panel footer { margin-top: 20px; display: flex; justify-content: flex-end; gap: 8px; }
 .settings-panel, .admin-panel { width: min(720px, 100%); max-height: min(820px, calc(100vh - 48px)); display: grid; grid-template-rows: auto auto minmax(0,1fr) auto; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); box-shadow: 0 18px 55px rgba(0,0,0,.38); }
 .admin-panel { position: relative; width: 980px; height: 820px; max-width: none; max-height: none; grid-template-rows: auto auto minmax(0,1fr) auto; }
 .panel-header { min-height: 66px; padding: 13px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
@@ -516,6 +534,7 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 @media (max-width: 760px) {
   .app-shell { grid-template-columns: 56px minmax(0,1fr); }
   .server-rail { padding-top: max(8px, env(safe-area-inset-top)); gap: 6px; }
+  .rail-account { padding-bottom: max(0px, env(safe-area-inset-bottom)); }
   .app-shell > .channel-sidebar { display: none; }
   .mobile-only { display: inline-grid; }
   .channel-sidebar.mobile-drawer-open { position: fixed; z-index: 42; inset: 0 auto 0 56px; width: min(300px, calc(100vw - 56px)); display: flex; box-shadow: 10px 0 30px rgba(0,0,0,.35); }
