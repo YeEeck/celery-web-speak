@@ -252,6 +252,9 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .voice-connection-summary > span:nth-child(2) { flex: 1; min-width: 0; display: grid; }
 .voice-connection-panel strong { color: var(--success-fg); font-size: 12px; }
 .voice-connection-panel small { color: var(--muted); font-size: 10px; }
+.voice-connection-detail { min-width: 0; display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.voice-connection-location { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.voice-connection-bitrate { flex: 0 0 auto; }
 .voice-control-error { color: var(--danger-fg); font-size: 10px; line-height: 1.35; }
 .user-controls { position: relative; min-height: 54px; padding: 7px 8px; display: flex; align-items: center; gap: 8px; background: var(--surface); }
 .transmission-mode-control { position: relative; flex: 0 0 auto; }

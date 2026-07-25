@@ -399,7 +399,16 @@ function closeChangelog() {
         </button>
       </div>
       <div v-if="voice.joined" class="voice-connection-panel">
-        <div class="voice-connection-summary"><span class="connection-indicator" /><span><strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong><small>{{ voice.connectedServerName }} / {{ voice.connectedChannelName }}</small></span></div>
+        <div class="voice-connection-summary">
+          <span class="connection-indicator" />
+          <span>
+            <strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong>
+            <small class="voice-connection-detail">
+              <span class="voice-connection-location">{{ voice.connectedServerName }} / {{ voice.connectedChannelName }}</span>
+              <span class="voice-connection-bitrate">· {{ voice.connectedAudioBitrateKbps }} kbps</span>
+            </small>
+          </span>
+        </div>
         <p v-if="voice.transmissionModeError" class="voice-control-error" role="alert">{{ voice.transmissionModeError }}</p>
       </div>
       <UserControls />

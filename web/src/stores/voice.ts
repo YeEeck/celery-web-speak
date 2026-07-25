@@ -41,6 +41,7 @@ const TRANSMISSION_MODE_KEY = 'cws.voiceTransmissionMode'
 const APPLICATION_AUDIO_VOLUME_KEY = 'cws.applicationAudioVolume'
 const APPLICATION_AUDIO_DEFAULT_VOLUME = 0.5
 const APPLICATION_AUDIO_PORT_TIMEOUT_MS = 10_000
+const DEFAULT_AUDIO_BITRATE_KBPS = 64
 
 export type VoiceTransmissionMode = 'voice-activity' | 'continuous'
 
@@ -123,6 +124,7 @@ export const useVoiceStore = defineStore('voice', () => {
   } | null = null
 
   const joined = computed(() => status.value !== 'idle' && status.value !== 'error')
+  const connectedAudioBitrateKbps = computed(() => connectedPublishSettings.value.audioBitrateKbps)
   const dtxEnabled = computed(() => transmissionMode.value === 'voice-activity')
   const applicationAudioActive = computed(() => applicationAudioSessionId.value !== null && ['playing', 'paused'].includes(applicationAudioState.value))
   const applicationAudioPlaying = computed(() => applicationAudioState.value === 'playing')
@@ -175,7 +177,7 @@ export const useVoiceStore = defineStore('voice', () => {
           channelCount: 1,
         },
         publishDefaults: {
-          audioPreset: { maxBitrate: (channel.audioBitrateKbps ?? 64) * 1000 },
+          audioPreset: { maxBitrate: (channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS) * 1000 },
           dtx: dtxEnabled.value,
           red: channel.audioRedEnabled ?? true,
           forceStereo: false,
@@ -505,7 +507,7 @@ export const useVoiceStore = defineStore('voice', () => {
     if (channel.id !== connectedChannelId.value) return { microphoneChanged: false, backgroundAudioChanged: false }
     const previous = connectedPublishSettings.value
     const next = {
-      audioBitrateKbps: channel.audioBitrateKbps ?? 64,
+      audioBitrateKbps: channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS,
       backgroundAudioBitrateKbps: channel.backgroundAudioBitrateKbps ?? 128,
       audioRedEnabled: channel.audioRedEnabled ?? true,
       backgroundAudioRedEnabled: channel.backgroundAudioRedEnabled ?? false,
@@ -988,7 +990,7 @@ export const useVoiceStore = defineStore('voice', () => {
 
   function setConnectedChannelSettings(channel: Channel) {
     connectedPublishSettings.value = {
-      audioBitrateKbps: channel.audioBitrateKbps ?? 64,
+      audioBitrateKbps: channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS,
       backgroundAudioBitrateKbps: channel.backgroundAudioBitrateKbps ?? 128,
       audioRedEnabled: channel.audioRedEnabled ?? true,
       backgroundAudioRedEnabled: channel.backgroundAudioRedEnabled ?? false,
@@ -1080,6 +1082,7 @@ export const useVoiceStore = defineStore('voice', () => {
     connectedServerId,
     connectedServerName,
     connectedChannelName,
+    connectedAudioBitrateKbps,
     errorMessage,
     deafenedSyncError,
     muted,
@@ -1139,7 +1142,7 @@ export const useVoiceStore = defineStore('voice', () => {
 
 function defaultConnectedPublishSettings() {
   return {
-    audioBitrateKbps: 64,
+    audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS,
     backgroundAudioBitrateKbps: 128,
     audioRedEnabled: true,
     backgroundAudioRedEnabled: false,
