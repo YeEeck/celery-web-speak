@@ -246,12 +246,18 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .server-muted { position: absolute; left: 46px; bottom: -3px; font-size: 9px; color: var(--danger-fg); }
 .voice-notice, .voice-error { margin: 5px 8px; color: var(--yellow); font-size: 11px; display: flex; align-items: center; gap: 5px; }
 .voice-error { color: var(--danger-fg); }
-.voice-connection-panel { min-height: 54px; padding: 8px; display: flex; align-items: center; gap: 8px; background: var(--surface); border-bottom: 1px solid var(--border-input); }
+.voice-connection-panel { min-height: 54px; padding: 8px; display: grid; align-content: center; gap: 5px; background: var(--surface); border-bottom: 1px solid var(--border-input); }
+.voice-connection-summary { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .connection-indicator { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
-.voice-connection-panel > span:nth-child(2) { flex: 1; min-width: 0; display: grid; }
+.voice-connection-summary > span:nth-child(2) { flex: 1; min-width: 0; display: grid; }
 .voice-connection-panel strong { color: var(--success-fg); font-size: 12px; }
 .voice-connection-panel small { color: var(--muted); font-size: 10px; }
-.user-controls { position: relative; min-height: 54px; padding: 7px 8px; display: flex; align-items: center; justify-content: flex-end; background: var(--surface); }
+.voice-control-error { color: var(--danger-fg); font-size: 10px; line-height: 1.35; }
+.user-controls { position: relative; min-height: 54px; padding: 7px 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--surface); }
+.transmission-mode-button { width: 106px; height: 34px; padding: 0 8px; border: 0; border-radius: 4px; display: inline-flex; align-items: center; justify-content: flex-start; gap: 7px; flex: 0 0 auto; background: transparent; color: var(--muted); font-size: 11px; font-weight: 650; cursor: pointer; transition: var(--t-colors); }
+.transmission-mode-button:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+.transmission-mode-button[aria-pressed="true"] { color: var(--success-fg); }
+.transmission-mode-button span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .control-buttons { display: flex; align-items: center; gap: 2px; }
 .voice-control-divider { width: 1px; height: 22px; margin: 0 4px; flex: 0 0 auto; background: var(--line); }
 .icon-button.active { color: var(--success-fg); background: var(--hover); }

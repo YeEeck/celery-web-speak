@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, PhoneOff, Play, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
+import { AudioLines, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, PhoneOff, Play, RadioTower, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
 
@@ -59,6 +59,19 @@ onBeforeUnmount(() => {
 
 <template>
   <footer v-if="voice.joined" class="user-controls">
+    <button
+      class="transmission-mode-button"
+      type="button"
+      :disabled="voice.transmissionModeChanging || voice.deafenChanging || voice.status !== 'connected'"
+      :title="voice.transmissionModeChanging ? '传输模式切换中' : voice.dtxEnabled ? '语音感应（DTX 已开启）' : '持续传输（DTX 已关闭）'"
+      :aria-pressed="voice.dtxEnabled"
+      @click="voice.toggleTransmissionMode()"
+    >
+      <LoaderCircle v-if="voice.transmissionModeChanging" :size="16" class="spin" />
+      <AudioLines v-else-if="voice.dtxEnabled" :size="16" />
+      <RadioTower v-else :size="16" />
+      <span>{{ voice.dtxEnabled ? '语音感应' : '持续传输' }}</span>
+    </button>
     <div class="control-buttons">
       <button
         class="icon-button"

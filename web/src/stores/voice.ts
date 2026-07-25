@@ -37,9 +37,12 @@ const OUTPUT_VOLUME_KEY = 'cws.outputVolume'
 const DEAFENED_ATTRIBUTE = 'deafened'
 const ECHO_CANCELLATION_KEY = 'cws.echoCancellation'
 const NOISE_SUPPRESSION_KEY = 'cws.noiseSuppression'
+const TRANSMISSION_MODE_KEY = 'cws.voiceTransmissionMode'
 const APPLICATION_AUDIO_VOLUME_KEY = 'cws.applicationAudioVolume'
 const APPLICATION_AUDIO_DEFAULT_VOLUME = 0.5
 const APPLICATION_AUDIO_PORT_TIMEOUT_MS = 10_000
+
+export type VoiceTransmissionMode = 'voice-activity' | 'continuous'
 
 export interface VoiceParticipant {
   identity: string
@@ -81,6 +84,9 @@ export const useVoiceStore = defineStore('voice', () => {
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
   const echoCancellation = ref(getSavedBoolean(ECHO_CANCELLATION_KEY, true))
   const noiseSuppression = ref(getSavedBoolean(NOISE_SUPPRESSION_KEY, true))
+  const transmissionMode = ref<VoiceTransmissionMode>(getSavedTransmissionMode())
+  const transmissionModeChanging = ref(false)
+  const transmissionModeError = ref('')
   const applicationAudioSupported = ref(false)
   const applicationAudioState = ref<ApplicationAudioState | 'unsupported'>('unsupported')
   const applicationAudioError = ref('')
@@ -117,6 +123,7 @@ export const useVoiceStore = defineStore('voice', () => {
   } | null = null
 
   const joined = computed(() => status.value !== 'idle' && status.value !== 'error')
+  const dtxEnabled = computed(() => transmissionMode.value === 'voice-activity')
   const applicationAudioActive = computed(() => applicationAudioSessionId.value !== null && ['playing', 'paused'].includes(applicationAudioState.value))
   const applicationAudioPlaying = computed(() => applicationAudioState.value === 'playing')
   const applicationAudioChanging = computed(() => applicationAudioOperating.value || ['selecting', 'starting', 'stopping'].includes(applicationAudioState.value))
@@ -144,6 +151,7 @@ export const useVoiceStore = defineStore('voice', () => {
     status.value = 'connecting'
     errorMessage.value = ''
     deafenedSyncError.value = ''
+    transmissionModeError.value = ''
     pendingDeafenedSync = null
     microphoneBeforeDeafen = false
     try {
@@ -168,7 +176,7 @@ export const useVoiceStore = defineStore('voice', () => {
         },
         publishDefaults: {
           audioPreset: { maxBitrate: (channel.audioBitrateKbps ?? 64) * 1000 },
-          dtx: true,
+          dtx: dtxEnabled.value,
           red: channel.audioRedEnabled ?? true,
           forceStereo: false,
         },
@@ -230,6 +238,7 @@ export const useVoiceStore = defineStore('voice', () => {
     microphoneBeforeDeafen = false
     pendingDeafenedSync = null
     deafenedSyncError.value = ''
+    transmissionModeError.value = ''
     microphoneActivity.destroy()
     useSoundStore().setSuppressed(false)
     if (wasJoined && serverId !== null && options.notifyServer !== false) {
@@ -430,13 +439,44 @@ export const useVoiceStore = defineStore('voice', () => {
     localStorage.setItem(NOISE_SUPPRESSION_KEY, String(value))
   }
 
+  async function toggleTransmissionMode() {
+    if (transmissionModeChanging.value || deafenChanging.value || status.value !== 'connected') return
+    const previous = transmissionMode.value
+    const next: VoiceTransmissionMode = previous === 'voice-activity' ? 'continuous' : 'voice-activity'
+    transmissionMode.value = next
+    saveTransmissionMode(next)
+    transmissionModeError.value = ''
+
+    const app = useAppStore()
+    if (!room || muted.value || deafened.value || app.user?.voiceMuted) return
+    const target = room
+    const session = voiceSession
+    transmissionModeChanging.value = true
+    try {
+      await republishMicrophone(target)
+      if (session !== voiceSession || room !== target) return
+      syncParticipants()
+    } catch (error) {
+      if (session !== voiceSession || room !== target) return
+      transmissionMode.value = previous
+      saveTransmissionMode(previous)
+      try {
+        await republishMicrophone(target)
+      } catch {
+        muted.value = !target.localParticipant.isMicrophoneEnabled
+      }
+      transmissionModeError.value = error instanceof Error ? `无法切换传输模式：${error.message}` : '无法切换传输模式'
+      syncParticipants()
+    } finally {
+      transmissionModeChanging.value = false
+    }
+  }
+
   async function applyPublishSettingsChange(microphoneChanged: boolean, backgroundAudioChanged: boolean) {
     if (!room) return
     const target = room
     if (microphoneChanged && !muted.value && !useAppStore().user?.voiceMuted) {
-      await target.localParticipant.setMicrophoneEnabled(false)
-      await target.localParticipant.setMicrophoneEnabled(true, undefined, publishOptions())
-      await attachMicrophoneGain(target)
+      await republishMicrophone(target)
     }
     if (backgroundAudioChanged && applicationAudioTrack) {
       const track = applicationAudioTrack
@@ -967,7 +1007,7 @@ export const useVoiceStore = defineStore('voice', () => {
     const settings = connectedPublishSettings.value
     return {
       audioPreset: { maxBitrate: settings.audioBitrateKbps * 1000 },
-      dtx: true,
+      dtx: dtxEnabled.value,
       red: settings.audioRedEnabled,
       forceStereo: false,
     }
@@ -989,6 +1029,12 @@ export const useVoiceStore = defineStore('voice', () => {
     if (track && track.getProcessor() !== microphoneGainProcessor) {
       await track.setProcessor(microphoneGainProcessor)
     }
+  }
+
+  async function republishMicrophone(target: Room) {
+    await target.localParticipant.setMicrophoneEnabled(false)
+    await target.localParticipant.setMicrophoneEnabled(true, undefined, publishOptions())
+    await attachMicrophoneGain(target)
   }
 
   async function restoreMicrophoneState(target: Room, enabled: boolean) {
@@ -1048,6 +1094,10 @@ export const useVoiceStore = defineStore('voice', () => {
     outputVolume,
     echoCancellation,
     noiseSuppression,
+    transmissionMode,
+    transmissionModeChanging,
+    transmissionModeError,
+    dtxEnabled,
     applicationAudioSupported,
     applicationAudioState,
     applicationAudioError,
@@ -1072,6 +1122,7 @@ export const useVoiceStore = defineStore('voice', () => {
     setOutputVolume,
     setEchoCancellation,
     setNoiseSuppression,
+    toggleTransmissionMode,
     initializeApplicationAudio,
     startApplicationAudio,
     pauseApplicationAudio,
@@ -1119,6 +1170,14 @@ function getSavedBoolean(key: string, defaultValue: boolean) {
   const saved = localStorage.getItem(key)
   if (saved === null) return defaultValue
   return saved !== 'false'
+}
+
+function getSavedTransmissionMode(): VoiceTransmissionMode {
+  return localStorage.getItem(TRANSMISSION_MODE_KEY) === 'continuous' ? 'continuous' : 'voice-activity'
+}
+
+function saveTransmissionMode(mode: VoiceTransmissionMode) {
+  localStorage.setItem(TRANSMISSION_MODE_KEY, mode)
 }
 
 function getSavedApplicationAudioVolume() {
