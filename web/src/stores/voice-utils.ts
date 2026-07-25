@@ -150,3 +150,18 @@ export async function setAudioSink(element: HTMLAudioElement, deviceId: string) 
   const sinkElement = element as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> }
   if (sinkElement.setSinkId) await sinkElement.setSinkId(deviceId)
 }
+
+export function participantUserId(participant: Participant): number {
+  const fromAttribute = Number(participant.attributes.user_id)
+  if (Number.isFinite(fromAttribute) && fromAttribute > 0) return fromAttribute
+  const match = participant.identity.match(/^user-(\d+)$/)
+  return match ? Number(match[1]) : 0
+}
+
+export function getSavedVolume(userId: number): number {
+  return getSavedLevel(`cws.volume.${userId}`)
+}
+
+export function getSavedBackgroundAudioVolume(userId: number): number {
+  return getSavedLevel(`cws.backgroundAudioVolume.${userId}`)
+}

@@ -43,20 +43,24 @@ import {
   compareParticipants,
   defaultConnectedPublishSettings,
   getSavedApplicationAudioVolume,
+  getSavedBackgroundAudioVolume,
   getSavedBoolean,
   getSavedLevel,
   getSavedMuted,
   getSavedTransmissionMode,
+  getSavedVolume,
   hasBackgroundAudio,
   isBackgroundAudioPlaying,
   isSourcePickerCancellation,
   participantJoinedAt,
   participantRole,
+  participantUserId,
   saveTransmissionMode,
   setAudioSink,
   type VoiceParticipant,
   type VoiceTransmissionMode,
 } from './voice-utils'
+import { useParticipantVolume } from './voice-participant-volume'
 
 export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils'
 
@@ -129,6 +133,13 @@ export const useVoiceStore = defineStore('voice', () => {
     const app = useAppStore()
     const connectedUsers = app.activeServerId === connectedServerId.value ? app.users : []
     return [...participantStates.value].sort((a, b) => compareParticipants(a, b, connectedUsers))
+  })
+
+  const participantVolume = useParticipantVolume({
+    room: () => room,
+    deafened,
+    outputVolume,
+    participantStates,
   })
 
   // 页面关闭时主动通知后端离开语音频道，避免依赖 LiveKit 的断开检测延迟（关闭标签页/窗口时
@@ -278,7 +289,7 @@ export const useVoiceStore = defineStore('voice', () => {
         if (applicationAudioState.value === 'playing') await pauseApplicationAudio(true)
         deafened.value = true
         useSoundStore().setSuppressed(true)
-        applyAllVolumes()
+        participantVolume.applyAllVolumes()
       } else {
         const shouldRestoreMicrophone = microphoneBeforeDeafen && !app.user?.voiceMuted
         if (shouldRestoreMicrophone) {
@@ -291,7 +302,7 @@ export const useVoiceStore = defineStore('voice', () => {
         microphoneBeforeDeafen = false
         deafened.value = false
         useSoundStore().setSuppressed(false)
-        applyAllVolumes()
+        participantVolume.applyAllVolumes()
         if (applicationAudioAutoPaused && applicationAudioState.value === 'paused') {
           await resumeApplicationAudio(true)
         }
@@ -307,7 +318,7 @@ export const useVoiceStore = defineStore('voice', () => {
       deafened.value = previousDeafened
       microphoneBeforeDeafen = previousMicrophoneBeforeDeafen
       useSoundStore().setSuppressed(previousDeafened)
-      applyAllVolumes()
+      participantVolume.applyAllVolumes()
       syncParticipants()
       queueDeafenedSync(previousDeafened)
     } finally {
@@ -331,88 +342,6 @@ export const useVoiceStore = defineStore('voice', () => {
     })
   }
 
-  function setParticipantMicrophoneVolume(userId: number, volume: number) {
-    const normalized = clampVolume(volume)
-    localStorage.setItem(`cws.volume.${userId}`, String(normalized))
-    localStorage.removeItem(`cws.muted.${userId}`)
-    const participant = participantStates.value.find((item) => item.userId === userId)
-    if (participant) {
-      participant.microphoneVolume = normalized
-      participant.microphoneMuted = false
-    }
-    applyVolume(userId)
-  }
-
-  function setParticipantBackgroundAudioVolume(userId: number, volume: number) {
-    const normalized = clampVolume(volume)
-    localStorage.setItem(`cws.backgroundAudioVolume.${userId}`, String(normalized))
-    localStorage.removeItem(`cws.backgroundAudioMuted.${userId}`)
-    const participant = participantStates.value.find((item) => item.userId === userId)
-    if (participant) {
-      participant.backgroundAudioVolume = normalized
-      participant.backgroundAudioMuted = false
-    }
-    applyVolume(userId)
-  }
-
-  function toggleParticipantMicrophoneMute(userId: number) {
-    const participant = participantStates.value.find((item) => item.userId === userId)
-    if (!participant) return
-    if (participant.microphoneMuted) {
-      const preMute = getSavedPreMuteVolume(`cws.preMuteVolume.${userId}`)
-      localStorage.removeItem(`cws.muted.${userId}`)
-      localStorage.setItem(`cws.volume.${userId}`, String(preMute))
-      participant.microphoneMuted = false
-      participant.microphoneVolume = preMute
-    } else {
-      localStorage.setItem(`cws.preMuteVolume.${userId}`, String(participant.microphoneVolume))
-      localStorage.setItem(`cws.muted.${userId}`, 'true')
-      participant.microphoneMuted = true
-    }
-    applyVolume(userId)
-  }
-
-  function toggleParticipantBackgroundAudioMute(userId: number) {
-    const participant = participantStates.value.find((item) => item.userId === userId)
-    if (!participant) return
-    if (participant.backgroundAudioMuted) {
-      const preMute = getSavedPreMuteVolume(`cws.backgroundAudioPreMuteVolume.${userId}`)
-      localStorage.removeItem(`cws.backgroundAudioMuted.${userId}`)
-      localStorage.setItem(`cws.backgroundAudioVolume.${userId}`, String(preMute))
-      participant.backgroundAudioMuted = false
-      participant.backgroundAudioVolume = preMute
-    } else {
-      localStorage.setItem(`cws.backgroundAudioPreMuteVolume.${userId}`, String(participant.backgroundAudioVolume))
-      localStorage.setItem(`cws.backgroundAudioMuted.${userId}`, 'true')
-      participant.backgroundAudioMuted = true
-    }
-    applyVolume(userId)
-  }
-
-  function resetParticipantMicrophoneVolume(userId: number) {
-    localStorage.removeItem(`cws.muted.${userId}`)
-    localStorage.removeItem(`cws.preMuteVolume.${userId}`)
-    localStorage.setItem(`cws.volume.${userId}`, String(DEFAULT_VOLUME))
-    const participant = participantStates.value.find((item) => item.userId === userId)
-    if (participant) {
-      participant.microphoneVolume = DEFAULT_VOLUME
-      participant.microphoneMuted = false
-    }
-    applyVolume(userId)
-  }
-
-  function resetParticipantBackgroundAudioVolume(userId: number) {
-    localStorage.removeItem(`cws.backgroundAudioMuted.${userId}`)
-    localStorage.removeItem(`cws.backgroundAudioPreMuteVolume.${userId}`)
-    localStorage.setItem(`cws.backgroundAudioVolume.${userId}`, String(DEFAULT_VOLUME))
-    const participant = participantStates.value.find((item) => item.userId === userId)
-    if (participant) {
-      participant.backgroundAudioVolume = DEFAULT_VOLUME
-      participant.backgroundAudioMuted = false
-    }
-    applyVolume(userId)
-  }
-
   function setMicrophoneGain(volume: number) {
     const normalized = clampVolume(volume)
     microphoneGain.value = normalized
@@ -424,7 +353,7 @@ export const useVoiceStore = defineStore('voice', () => {
     const normalized = clampVolume(volume)
     outputVolume.value = normalized
     localStorage.setItem(OUTPUT_VOLUME_KEY, String(normalized))
-    applyAllVolumes()
+    participantVolume.applyAllVolumes()
   }
 
   function setEchoCancellation(value: boolean) {
@@ -603,7 +532,7 @@ export const useVoiceStore = defineStore('voice', () => {
     element.style.display = 'none'
     document.querySelector('#voice-audio-root')?.appendChild(element)
     if (activeOutputId.value) void setAudioSink(element, activeOutputId.value)
-    applyVolume(participantUserId(participant))
+    participantVolume.applyVolume(participantUserId(participant))
     syncParticipants()
   }
 
@@ -977,13 +906,6 @@ export const useVoiceStore = defineStore('voice', () => {
     if (bridge && sessionId) void bridge.stop(sessionId)
   }
 
-  function participantUserId(participant: Participant): number {
-    const fromAttribute = Number(participant.attributes.user_id)
-    if (Number.isFinite(fromAttribute) && fromAttribute > 0) return fromAttribute
-    const match = participant.identity.match(/^user-(\d+)$/)
-    return match ? Number(match[1]) : 0
-  }
-
   function setConnectedChannelSettings(channel: Channel) {
     connectedPublishSettings.value = {
       audioBitrateKbps: channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS,
@@ -1046,32 +968,6 @@ export const useVoiceStore = defineStore('voice', () => {
     }
   }
 
-  function getSavedVolume(userId: number): number {
-    return getSavedLevel(`cws.volume.${userId}`)
-  }
-
-  function getSavedBackgroundAudioVolume(userId: number): number {
-    return getSavedLevel(`cws.backgroundAudioVolume.${userId}`)
-  }
-
-  function applyAllVolumes() {
-    participantStates.value.forEach((participant) => applyVolume(participant.userId))
-  }
-
-  function applyVolume(userId: number) {
-    if (!room) return
-    const micMuted = getSavedMuted(`cws.muted.${userId}`)
-    const bgMuted = getSavedMuted(`cws.backgroundAudioMuted.${userId}`)
-    const microphoneGain = (deafened.value || micMuted) ? 0 : clampVolume(getSavedVolume(userId) * outputVolume.value)
-    const backgroundAudioGain = (deafened.value || bgMuted) ? 0 : clampVolume(getSavedBackgroundAudioVolume(userId) * outputVolume.value)
-    room.remoteParticipants.forEach((participant) => {
-      if (participantUserId(participant) === userId) {
-        participant.setVolume(microphoneGain, Track.Source.Microphone)
-        participant.setVolume(backgroundAudioGain, Track.Source.ScreenShareAudio)
-      }
-    })
-  }
-
   return {
     status,
     connectedChannelId,
@@ -1111,12 +1007,12 @@ export const useVoiceStore = defineStore('voice', () => {
     toggleDeafen,
     switchInput,
     switchOutput,
-    setParticipantMicrophoneVolume,
-    setParticipantBackgroundAudioVolume,
-    toggleParticipantMicrophoneMute,
-    toggleParticipantBackgroundAudioMute,
-    resetParticipantMicrophoneVolume,
-    resetParticipantBackgroundAudioVolume,
+    setParticipantMicrophoneVolume: participantVolume.setParticipantMicrophoneVolume,
+    setParticipantBackgroundAudioVolume: participantVolume.setParticipantBackgroundAudioVolume,
+    toggleParticipantMicrophoneMute: participantVolume.toggleParticipantMicrophoneMute,
+    toggleParticipantBackgroundAudioMute: participantVolume.toggleParticipantBackgroundAudioMute,
+    resetParticipantMicrophoneVolume: participantVolume.resetParticipantMicrophoneVolume,
+    resetParticipantBackgroundAudioVolume: participantVolume.resetParticipantBackgroundAudioVolume,
     setMicrophoneGain,
     setOutputVolume,
     setEchoCancellation,
