@@ -43,6 +43,54 @@ async function openPlatformAccounts(page: Page) {
   }
   await page.getByTitle('平台账号与邀请码').click()
   await expect(page.getByRole('heading', { name: '平台管理' })).toBeVisible()
+  await expect(page.locator('.admin-panel .panel-header p')).toHaveText('平台管理员')
+}
+
+async function mockMemberModerationRoles(
+  page: Page,
+  options: { actorRole: 'owner' | 'admin'; isPlatformAdmin: boolean },
+) {
+  await page.routeWebSocket(/\/api\/ws\?/, () => {})
+  await page.route('**/api/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    await route.fulfill({
+      response,
+      json: {
+        ...payload,
+        user: { ...payload.user, isPlatformAdmin: options.isPlatformAdmin },
+        servers: payload.servers.map((server: { joined: boolean }) => server.joined ? { ...server, role: options.actorRole } : server),
+      },
+    })
+  })
+  await page.route('**/api/servers/*/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    const joinedAt = new Date().toISOString()
+    const memberState = {
+      voiceMuted: false,
+      textMuted: false,
+      permanentlyBanned: false,
+      joinedAt,
+    }
+    await route.fulfill({
+      response,
+      json: {
+        ...payload,
+        membership: { ...payload.membership, role: options.actorRole },
+        members: [
+          ...payload.members,
+          { guildId: payload.membership.guildId, userId: 90_001, username: 'permission-owner', displayName: '权限测试所有者', role: 'owner', ...memberState },
+          { guildId: payload.membership.guildId, userId: 90_002, username: 'permission-admin', displayName: '权限测试管理员', role: 'admin', ...memberState },
+          { guildId: payload.membership.guildId, userId: 90_003, username: 'permission-member', displayName: '权限测试成员', role: 'member', ...memberState },
+        ],
+      },
+    })
+  })
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+  await openServerAdmin(page)
+  await page.getByRole('button', { name: '成员', exact: true }).click()
 }
 
 test.beforeEach(async ({ page }) => {
@@ -465,6 +513,58 @@ test('临时封禁状态在刷新后可见并可提前解除', async ({ page, re
     const response = await deletePlatformUser(request, member.id, account.username)
     expect(response.ok()).toBeTruthy()
   }
+})
+
+test('服务器管理员只能审核普通成员并按目标角色显示原因', async ({ page }) => {
+  await mockMemberModerationRoles(page, { actorRole: 'admin', isPlatformAdmin: false })
+  await expect(page.locator('.admin-panel .panel-header p')).toHaveText('服务器管理员')
+  const list = page.locator('.admin-user-list')
+  const detail = page.locator('.user-admin-detail')
+
+  await list.getByRole('button').filter({ hasText: '权限测试成员' }).click()
+  await expect(detail.getByText('语音禁言', { exact: true })).toBeVisible()
+  await expect(detail.getByRole('button', { name: '移出服务器', exact: true })).toBeVisible()
+  await expect(detail.locator('.permission-note')).toHaveCount(0)
+
+  await list.getByRole('button').filter({ hasText: '权限测试管理员' }).click()
+  await expect(detail.getByText('服务器管理员不能管理其他管理员。', { exact: true })).toBeVisible()
+  await expect(detail.getByText('语音禁言', { exact: true })).toHaveCount(0)
+  await expect(detail.getByRole('button', { name: '移出服务器', exact: true })).toHaveCount(0)
+
+  await list.getByRole('button').filter({ hasText: '权限测试所有者' }).click()
+  await expect(detail.getByText('服务器管理员不能管理服务器所有者。', { exact: true })).toBeVisible()
+  await expect(detail.getByText('语音禁言', { exact: true })).toHaveCount(0)
+  await expect(detail.getByRole('button', { name: '移出服务器', exact: true })).toHaveCount(0)
+})
+
+test('服务器所有者仍可审核管理员', async ({ page }) => {
+  await mockMemberModerationRoles(page, { actorRole: 'owner', isPlatformAdmin: false })
+  await expect(page.locator('.admin-panel .panel-header p')).toHaveText('服务器所有者')
+  const detail = page.locator('.user-admin-detail')
+  await page.locator('.admin-user-list button').filter({ hasText: '权限测试管理员' }).click()
+  await expect(detail.getByText('语音禁言', { exact: true })).toBeVisible()
+  await expect(detail.getByRole('button', { name: '移出服务器', exact: true })).toBeVisible()
+  await expect(detail.locator('.permission-note')).toHaveCount(0)
+})
+
+test('平台管理员可审核管理员但不能审核服务器所有者', async ({ page }) => {
+  await mockMemberModerationRoles(page, { actorRole: 'admin', isPlatformAdmin: true })
+  await expect(page.locator('.admin-panel .panel-header p')).toHaveText('服务器管理员 · 平台管理员')
+  const detail = page.locator('.user-admin-detail')
+
+  await page.locator('.admin-user-list button').filter({ hasText: '权限测试管理员' }).click()
+  await expect(detail.getByText('语音禁言', { exact: true })).toBeVisible()
+  await expect(detail.getByRole('button', { name: '移出服务器', exact: true })).toBeVisible()
+
+  await page.locator('.admin-user-list button').filter({ hasText: '权限测试所有者' }).click()
+  await expect(detail.getByText('服务器所有者不能在成员管理中被审核；如需更换所有者，请使用所有权转让。', { exact: true })).toBeVisible()
+  await expect(detail.getByText('语音禁言', { exact: true })).toHaveCount(0)
+  await expect(detail.getByRole('button', { name: '移出服务器', exact: true })).toHaveCount(0)
+})
+
+test('服务器所有者兼平台管理员显示双重角色副标题', async ({ page }) => {
+  await mockMemberModerationRoles(page, { actorRole: 'owner', isPlatformAdmin: true })
+  await expect(page.locator('.admin-panel .panel-header p')).toHaveText('服务器所有者 · 平台管理员')
 })
 
 test('WebSocket 重同步的旧服务器响应不会覆盖当前服务器', async ({ page, request, isMobile }) => {
