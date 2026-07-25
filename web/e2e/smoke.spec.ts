@@ -116,34 +116,86 @@ test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isM
 
   const connectionPanel = page.locator('.voice-connection-panel')
   const toolbar = page.locator('.user-controls')
-  const modeButton = page.getByRole('button', { name: '语音感应', exact: true })
+  const modeButton = toolbar.locator('.transmission-mode-button')
+  const modeTooltip = toolbar.locator('.transmission-mode-tooltip')
   const controlButtons = toolbar.locator('.control-buttons')
   await expect(connectionPanel).toBeVisible()
   await expect(connectionPanel.locator('button')).toHaveCount(0)
   await expect(toolbar).toBeVisible()
-  await expect(modeButton).toHaveAttribute('aria-pressed', 'true')
-  await expect(modeButton).toHaveAttribute('title', '语音感应（DTX 已开启）')
+  await expect(modeButton).toHaveAccessibleName('当前模式：语音感应；切换为持续传输')
+  await expect(modeButton).not.toHaveAttribute('aria-pressed')
+  await expect(modeButton).not.toHaveAttribute('title')
+  await expect(modeTooltip).toHaveText('切换为持续传输')
+  await expect(modeTooltip).toHaveCSS('visibility', 'hidden')
   await expect(toolbar.getByTitle('断开语音', { exact: true })).toHaveClass(/danger/)
 
   const layout = await toolbar.evaluate((element) => {
     const bounds = element.getBoundingClientRect()
     const mode = element.querySelector('.transmission-mode-button')!.getBoundingClientRect()
     const controls = element.querySelector('.control-buttons')!.getBoundingClientRect()
+    const modeButton = element.querySelector('.transmission-mode-button')!
+    const modeColor = getComputedStyle(modeButton).color
+    const modeBackground = getComputedStyle(modeButton, '::before')
     return {
       modeLeft: mode.left - bounds.left,
+      modeWidth: mode.width,
+      modeHeight: mode.height,
+      modeBackgroundHeight: Number.parseFloat(modeBackground.height),
+      modeBackgroundOpacity: modeBackground.opacity,
       gap: controls.left - mode.right,
+      controlsLeft: controls.left,
       controlsRight: bounds.right - controls.right,
+      modeUsesTextColor: modeColor === getComputedStyle(document.body).color,
     }
   })
   expect(layout.modeLeft).toBeGreaterThanOrEqual(7)
+  expect(layout.modeWidth).toBeLessThan(100)
+  expect(layout.modeHeight).toBe(44)
+  expect(layout.modeBackgroundHeight).toBe(34)
+  expect(layout.modeBackgroundOpacity).toBe('0')
   expect(layout.gap).toBeGreaterThanOrEqual(0)
   expect(layout.controlsRight).toBeGreaterThanOrEqual(7)
+  expect(layout.modeUsesTextColor).toBe(true)
   await expect(controlButtons).toBeVisible()
 
-  await modeButton.click()
-  const continuousButton = page.getByRole('button', { name: '持续传输', exact: true })
-  await expect(continuousButton).toHaveAttribute('aria-pressed', 'false')
-  await expect(continuousButton).toHaveAttribute('title', '持续传输（DTX 已关闭）')
+  await page.keyboard.press('Tab')
+  await modeButton.focus()
+  await expect(modeTooltip).toHaveCSS('visibility', 'visible')
+  await expect.poll(() => modeButton.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('1')
+  if (!isMobile) {
+    await modeButton.evaluate((element: HTMLButtonElement) => element.blur())
+    await page.locator('.voice-connection-panel').hover()
+    await expect(modeTooltip).toHaveCSS('visibility', 'hidden')
+    await expect.poll(() => modeButton.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('0')
+    await modeButton.hover()
+    await expect(modeTooltip).toHaveCSS('visibility', 'visible')
+    await expect.poll(() => modeButton.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('1')
+  }
+
+  if (isMobile) {
+    await modeButton.evaluate((element: HTMLButtonElement) => element.blur())
+    await modeButton.tap()
+  } else {
+    await modeButton.click()
+  }
+  const continuousButton = toolbar.locator('.transmission-mode-button')
+  await expect(continuousButton).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
+  await expect(modeTooltip).toHaveText('切换为语音感应')
+  const continuousLayout = await toolbar.evaluate((element) => {
+    const mode = element.querySelector('.transmission-mode-button')!.getBoundingClientRect()
+    const controls = element.querySelector('.control-buttons')!.getBoundingClientRect()
+    return {
+      modeColor: getComputedStyle(element.querySelector('.transmission-mode-button')!).color,
+      modeWidth: mode.width,
+      controlsLeft: controls.left,
+    }
+  })
+  expect(continuousLayout.modeColor).toBe(await page.evaluate(() => getComputedStyle(document.body).color))
+  expect(continuousLayout.modeWidth).toBeLessThan(100)
+  expect(continuousLayout.controlsLeft).toBeCloseTo(layout.controlsLeft, 1)
+  if (isMobile) {
+    await expect.poll(() => continuousButton.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('0')
+  }
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.voiceTransmissionMode'))).toBe('continuous')
 
   await page.reload()
@@ -151,7 +203,7 @@ test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isM
   if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
   if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   await setSyntheticVoiceConnection(page)
-  await expect(page.getByRole('button', { name: '持续传输', exact: true })).toBeVisible()
+  await expect(page.locator('.transmission-mode-button')).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
 
   await page.getByTitle('断开语音', { exact: true }).click()
   await expect(page.locator('.user-controls')).toHaveCount(0)
