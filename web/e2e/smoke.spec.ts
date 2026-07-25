@@ -47,15 +47,24 @@ test('浏览器图标与服务器切换栏可用', async ({ page, isMobile }) =>
   await expect(favicon).toHaveAttribute('href', '/favicon.svg')
   await expect(favicon).toHaveAttribute('sizes', 'any')
 
-  if (!isMobile) {
-    const serverButton = page.locator('.server-button').filter({ has: page.locator('.server-initial') }).first()
-    await expect(serverButton).toBeVisible()
-    const bounds = await serverButton.boundingBox()
-    expect(bounds?.width).toBe(46)
-    expect(bounds?.height).toBe(46)
-  } else {
+  const serverButton = page.locator('.server-button').filter({ has: page.locator('.server-initial') }).first()
+  await expect(serverButton).toBeVisible()
+  const bounds = await serverButton.boundingBox()
+  expect(bounds?.width).toBe(46)
+  expect(bounds?.height).toBe(46)
+
+  if (isMobile) {
+    await expect(page.getByLabel('切换服务器')).toHaveCount(0)
+    await expect.poll(() => page.locator('.server-rail').evaluate((element) => element.getBoundingClientRect().width)).toBe(56)
+    await serverButton.click()
+    const drawer = page.locator('.channel-sidebar.mobile-drawer-open')
+    await expect(drawer).toBeVisible()
+    await expect.poll(() => drawer.evaluate((element) => element.getBoundingClientRect().left)).toBe(56)
+    await serverButton.click()
+    await expect(drawer).toHaveCount(0)
     await page.getByTitle('频道', { exact: true }).click()
-    await expect(page.getByLabel('切换服务器')).toBeVisible()
+    await expect(drawer).toBeVisible()
+    await expect.poll(() => page.locator('.drawer-scrim').evaluate((element) => element.getBoundingClientRect().left)).toBe(56)
   }
 })
 
@@ -85,7 +94,7 @@ test('服务器操作菜单集中展示当前角色可用操作', async ({ page,
     await expect(menu).toBeVisible()
   } else {
     await expect(page.locator('button[title="平台服务器管理"]:visible')).toHaveCount(0)
-    await expect.poll(() => page.getByLabel('切换服务器').evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(250)
+    await expect(page.getByLabel('切换服务器')).toHaveCount(0)
     const titleLayout = await page.locator('.server-title').evaluate((element) => {
       const children = Array.from(element.children).filter((child) => getComputedStyle(child).display !== 'none')
       return children.map((child) => {

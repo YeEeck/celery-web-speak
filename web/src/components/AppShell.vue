@@ -114,11 +114,6 @@ function selectTextChannel(channelId: number) {
   channelsOpen.value = false
 }
 
-function selectMobileServer(event: Event) {
-  const serverId = Number((event.target as HTMLSelectElement).value)
-  if (serverId > 0) void app.selectServer(serverId)
-}
-
 function openPlatformServers(serverId: number | null = null, create = false) {
   platformInitialServerId.value = serverId
   platformCreateOnOpen.value = create
@@ -126,8 +121,24 @@ function openPlatformServers(serverId: number | null = null, create = false) {
 }
 
 function openServer(server: ServerSummary) {
-  if (server.joined) void app.selectServer(server.id)
-  else openPlatformServers(server.id)
+  if (!server.joined) {
+    openPlatformServers(server.id)
+    return
+  }
+  if (!mobileQuery?.matches) {
+    void app.selectServer(server.id)
+    return
+  }
+  if (server.id === app.activeServerId) {
+    channelsOpen.value = !channelsOpen.value
+    return
+  }
+  void selectMobileRailServer(server.id)
+}
+
+async function selectMobileRailServer(serverId: number) {
+  await app.selectServer(serverId)
+  channelsOpen.value = true
 }
 
 function openServerActionMenu(server: ServerSummary, trigger: HTMLElement, x: number, y: number, align: 'start' | 'end') {
@@ -294,9 +305,6 @@ function closeChangelog() {
       <header class="server-title">
         <span><strong>{{ app.activeServer?.name ?? '尚未加入服务器' }}</strong><small>{{ app.activeServer ? '服务器频道' : '请联系服务器管理员' }}</small></span>
         <button v-if="app.activeServer" ref="serverActionTrigger" class="icon-button server-actions-trigger" type="button" title="服务器操作" aria-label="服务器操作" :aria-expanded="serverActionMenu?.trigger === serverActionTrigger" @click="openHeaderServerActions"><EllipsisVertical :size="20" /></button>
-        <select v-if="app.activeServer" class="mobile-server-select mobile-only" :value="app.activeServerId ?? ''" aria-label="切换服务器" @change="selectMobileServer">
-          <option v-for="server in app.servers.filter((item) => item.joined)" :key="server.id" :value="server.id">{{ server.name }}</option>
-        </select>
         <button v-if="app.isPlatformAdmin && !app.activeServer" class="icon-button mobile-only" title="平台服务器管理" @click="openPlatformServers(); channelsOpen = false"><ServerCog :size="19" /></button>
         <button class="icon-button mobile-only" title="关闭" @click="channelsOpen = false"><X :size="19" /></button>
       </header>
