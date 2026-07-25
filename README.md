@@ -2,7 +2,7 @@
 
 Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线语音与文字聊天工具。平台内的逻辑服务器隔离成员、频道、消息、在线和语音状态；前端使用 Vue 3，业务服务使用 Go 与 SQLite，语音通过 LiveKit SFU 集中转发。
 
-当前稳定版本为 `v0.4.3`，生产部署建议固定使用明确版本的预构建镜像。
+当前稳定版本为 `v0.4.4`，生产部署建议固定使用明确版本的预构建镜像。
 
 ## 功能
 
@@ -31,6 +31,7 @@ Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线
 - `v0.4.1` 至 `v0.4.2` 重构服务器栏及移动端频道抽屉布局，使服务器列表独立滚动并保持品牌、管理入口和账户入口稳定可见；在线成员列表同时增加网页端、桌面端和安卓端类型徽章。
 - `v0.4.3` 将管理控制台与离开服务器整合进服务器操作菜单，将用户设置与退出登录迁移到服务器栏底部的头像菜单，并让移动端持续显示服务器栏。
 - `v0.4.3` 同时将频道栏底部收敛为语音控制区，支持在“语音感应”和“持续传输”间切换 DTX 模式，并显示当前连接频道的配置码率。
+- `v0.4.4` 修正服务器成员管理权限提示，服务器管理员不再显示可管理其他管理员或所有者，并为兼具平台管理员身份的服务器角色显示双重身份。
 
 从 `v0.3.x` 升级时，应用会在启动阶段自动将原有单服务器数据迁移到默认服务器，并保留账号、频道、消息和设置。升级前仍应先备份 SQLite 数据，具体步骤见[更新与回滚](docs/deployment.md#更新与回滚)。
 
@@ -78,7 +79,7 @@ Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线
 部署文件与应用镜像必须使用同一版本：
 
 ```bash
-git clone --branch v0.4.3 --depth 1 https://github.com/YeEeck/celery-web-speak.git
+git clone --branch v0.4.4 --depth 1 https://github.com/YeEeck/celery-web-speak.git
 cd celery-web-speak
 ```
 
@@ -108,7 +109,7 @@ BOOTSTRAP_ADMIN_PASSWORD=一段足够长的随机密码
 LIVEKIT_API_KEY=生成的Key
 LIVEKIT_API_SECRET=生成的Secret
 
-APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.3
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.4
 COMPOSE_PROFILES=gateway
 HTTPS_PORT=443
 ```

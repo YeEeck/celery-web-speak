@@ -12,7 +12,7 @@
 
 ## 发版步骤
 
-以下示例以 `v0.4.3` 为目标版本。执行实际发版时，将示例版本和日期替换为目标值。
+以下示例以 `v0.4.4` 为目标版本。执行实际发版时，将示例版本和日期替换为目标值。
 
 ### 1. 更新前端包版本
 
@@ -20,7 +20,7 @@
 
 ```json
 {
-  "version": "0.4.3"
+  "version": "0.4.4"
 }
 ```
 
@@ -29,7 +29,7 @@
 编辑 `internal/httpapi/changelog.go`，更新 `appVersion` 常量：
 
 ```go
-const appVersion = "0.4.3"
+const appVersion = "0.4.4"
 ```
 
 > **注意**：`web/package.json`、`web/package-lock.json` 的根包版本与后端 `appVersion` 常量必须保持一致。
@@ -41,11 +41,11 @@ const appVersion = "0.4.3"
 ```json
 [
   {
-    "version": "0.4.3",
+    "version": "0.4.4",
     "date": "2026-07-25",
     "changes": [
-      "feat: 将账户操作迁移到服务器栏头像菜单",
-      "feat: 增加语音 DTX 模式切换"
+      "fix: 修正服务器成员管理权限提示",
+      "fix: 显示服务器角色与平台管理员双重身份"
     ]
   }
 ]
@@ -73,14 +73,14 @@ npm run build
 
 ```bash
 git add -A
-git commit -m "chore: 更新版本号到 v0.4.3"
-git tag v0.4.3
+git commit -m "chore: 更新版本号到 v0.4.4"
+git tag v0.4.4
 ```
 
 ### 6. 推送发布
 
 ```bash
-git push --atomic origin dev v0.4.3
+git push --atomic origin dev v0.4.4
 ```
 
 原子推送确保 `dev` 和 tag 同时成功或同时失败。推送 tag 后，GitHub Actions 会自动构建并推送 Docker 镜像到 GHCR。
