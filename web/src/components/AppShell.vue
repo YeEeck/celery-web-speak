@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EllipsisVertical, Hash, Plus, Radio, ServerCog, X } from '@lucide/vue'
+import AccountMenu from './AccountMenu.vue'
 import AdminPanel from './AdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
 import ChatPane from './ChatPane.vue'
 import LeaveServerDialog from './LeaveServerDialog.vue'
+import LogoutDialog from './LogoutDialog.vue'
 import MemberList from './MemberList.vue'
 import PlatformServersPanel from './PlatformServersPanel.vue'
 import ProfilePanel from './ProfilePanel.vue'
 import ServerActionMenu from './ServerActionMenu.vue'
 import UserControls from './UserControls.vue'
+import UserAvatar from './UserAvatar.vue'
 import VoiceChannel from './VoiceChannel.vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
@@ -44,6 +47,11 @@ const serverActionMenu = ref<{
   trigger: HTMLElement | null
 } | null>(null)
 const serverActionTrigger = ref<HTMLButtonElement | null>(null)
+const accountTrigger = ref<HTMLButtonElement | null>(null)
+const accountMenuOpen = ref(false)
+const logoutOpen = ref(false)
+const loggingOut = ref(false)
+const logoutError = ref('')
 const currentVersion = ref('')
 let wideMemberQuery: MediaQueryList | null = null
 let mobileQuery: MediaQueryList | null = null
@@ -107,16 +115,12 @@ function handleWideMemberLayout(event: MediaQueryListEvent) {
 function closeTemporaryDrawers() {
   channelsOpen.value = false
   membersOpen.value = false
+  closeAccountMenu()
 }
 
 function selectTextChannel(channelId: number) {
   void app.selectTextChannel(channelId)
   channelsOpen.value = false
-}
-
-function selectMobileServer(event: Event) {
-  const serverId = Number((event.target as HTMLSelectElement).value)
-  if (serverId > 0) void app.selectServer(serverId)
 }
 
 function openPlatformServers(serverId: number | null = null, create = false) {
@@ -126,8 +130,77 @@ function openPlatformServers(serverId: number | null = null, create = false) {
 }
 
 function openServer(server: ServerSummary) {
-  if (server.joined) void app.selectServer(server.id)
-  else openPlatformServers(server.id)
+  closeAccountMenu()
+  if (!server.joined) {
+    openPlatformServers(server.id)
+    return
+  }
+  if (!mobileQuery?.matches) {
+    void app.selectServer(server.id)
+    return
+  }
+  if (server.id === app.activeServerId) {
+    channelsOpen.value = !channelsOpen.value
+    return
+  }
+  void selectMobileRailServer(server.id)
+}
+
+async function selectMobileRailServer(serverId: number) {
+  await app.selectServer(serverId)
+  channelsOpen.value = true
+}
+
+function toggleAccountMenu() {
+  if (accountMenuOpen.value) {
+    closeAccountMenu(true)
+    return
+  }
+  closeServerActionMenu()
+  channelsOpen.value = false
+  accountMenuOpen.value = true
+}
+
+function closeAccountMenu(restoreFocus = false) {
+  accountMenuOpen.value = false
+  if (restoreFocus) void nextTick(() => accountTrigger.value?.focus())
+}
+
+function openProfile() {
+  closeAccountMenu()
+  profileOpen.value = true
+}
+
+function closeProfile() {
+  profileOpen.value = false
+  void nextTick(() => accountTrigger.value?.focus())
+}
+
+function openLogoutDialog() {
+  closeAccountMenu()
+  logoutError.value = ''
+  logoutOpen.value = true
+}
+
+function closeLogoutDialog() {
+  if (loggingOut.value) return
+  logoutOpen.value = false
+  logoutError.value = ''
+  void nextTick(() => accountTrigger.value?.focus())
+}
+
+async function logout() {
+  if (loggingOut.value) return
+  loggingOut.value = true
+  logoutError.value = ''
+  try {
+    await voice.leave()
+    await app.logout()
+  } catch (error) {
+    logoutError.value = error instanceof Error ? error.message : '退出登录失败'
+  } finally {
+    loggingOut.value = false
+  }
 }
 
 function openServerActionMenu(server: ServerSummary, trigger: HTMLElement, x: number, y: number, align: 'start' | 'end') {
@@ -288,15 +361,24 @@ function closeChangelog() {
         </button>
         <button v-if="app.isPlatformAdmin" class="server-button add-server" type="button" title="创建服务器" @click="openPlatformServers(null, true)"><Plus :size="22" /></button>
       </div>
+      <div class="rail-account">
+        <button
+          ref="accountTrigger"
+          class="account-trigger"
+          type="button"
+          title="用户账户"
+          :aria-label="`${app.user!.displayName}的用户账户`"
+          :aria-expanded="accountMenuOpen"
+          aria-controls="account-menu"
+          @click="toggleAccountMenu"
+        ><UserAvatar :name="app.user!.displayName" :size="42" :online="true" /></button>
+      </div>
     </nav>
 
     <aside :class="['channel-sidebar', { 'mobile-drawer-open': channelsOpen }]">
       <header class="server-title">
         <span><strong>{{ app.activeServer?.name ?? '尚未加入服务器' }}</strong><small>{{ app.activeServer ? '服务器频道' : '请联系服务器管理员' }}</small></span>
         <button v-if="app.activeServer" ref="serverActionTrigger" class="icon-button server-actions-trigger" type="button" title="服务器操作" aria-label="服务器操作" :aria-expanded="serverActionMenu?.trigger === serverActionTrigger" @click="openHeaderServerActions"><EllipsisVertical :size="20" /></button>
-        <select v-if="app.activeServer" class="mobile-server-select mobile-only" :value="app.activeServerId ?? ''" aria-label="切换服务器" @change="selectMobileServer">
-          <option v-for="server in app.servers.filter((item) => item.joined)" :key="server.id" :value="server.id">{{ server.name }}</option>
-        </select>
         <button v-if="app.isPlatformAdmin && !app.activeServer" class="icon-button mobile-only" title="平台服务器管理" @click="openPlatformServers(); channelsOpen = false"><ServerCog :size="19" /></button>
         <button class="icon-button mobile-only" title="关闭" @click="channelsOpen = false"><X :size="19" /></button>
       </header>
@@ -317,10 +399,19 @@ function closeChangelog() {
         </button>
       </div>
       <div v-if="voice.joined" class="voice-connection-panel">
-        <span class="connection-indicator" /><span><strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong><small>{{ voice.connectedServerName }} / {{ voice.connectedChannelName }}</small></span>
-        <button class="icon-button" title="断开语音" @click="voice.leave()"><X :size="17" /></button>
+        <div class="voice-connection-summary">
+          <span class="connection-indicator" />
+          <span>
+            <strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong>
+            <small class="voice-connection-detail">
+              <span class="voice-connection-location">{{ voice.connectedServerName }} / {{ voice.connectedChannelName }}</span>
+              <span class="voice-connection-bitrate">· {{ voice.connectedAudioBitrateKbps }} kbps</span>
+            </small>
+          </span>
+        </div>
+        <p v-if="voice.transmissionModeError" class="voice-control-error" role="alert">{{ voice.transmissionModeError }}</p>
       </div>
-      <UserControls @settings="profileOpen = true" />
+      <UserControls />
     </aside>
 
     <ChatPane :members-visible="membersVisible" @channels="channelsOpen = true" @members="toggleMembers" />
@@ -345,8 +436,10 @@ function closeChangelog() {
       @platform="openServerPlatformManagement"
       @leave="confirmLeaveServer"
     />
+    <AccountMenu v-if="accountMenuOpen" :trigger="accountTrigger" @close="closeAccountMenu" @settings="openProfile" @logout="openLogoutDialog" />
     <LeaveServerDialog v-if="leaveTarget" :server="leaveTarget" :busy="leavingServer" :error="leaveServerError" @cancel="closeLeaveServerDialog" @confirm="leaveServer" />
-    <ProfilePanel v-if="profileOpen" @close="profileOpen = false" @changelog="changelogOpen = true" />
+    <LogoutDialog v-if="logoutOpen" :busy="loggingOut" :error="logoutError" :voice-joined="voice.joined" @cancel="closeLogoutDialog" @confirm="logout" />
+    <ProfilePanel v-if="profileOpen" @close="closeProfile" @changelog="changelogOpen = true" />
     <AdminPanel v-if="adminOpen" :initial-tab="adminInitialTab" :platform-mode="adminPlatformMode" @close="adminOpen = false" />
     <PlatformServersPanel v-if="platformOpen" :initial-server-id="platformInitialServerId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
     <ChangelogModal v-if="changelogOpen" @close="closeChangelog" />

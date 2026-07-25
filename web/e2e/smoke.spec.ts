@@ -5,6 +5,19 @@ const username = process.env.E2E_USERNAME ?? 'admin'
 const password = process.env.E2E_PASSWORD ?? 'admin-password-123'
 const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080'
 
+async function openAccountMenu(page: Page) {
+  await page.getByTitle('用户账户').click()
+  const menu = page.getByRole('menu', { name: '用户账户操作' })
+  await expect(menu).toBeVisible()
+  return menu
+}
+
+async function openUserSettings(page: Page) {
+  const menu = await openAccountMenu(page)
+  await menu.getByRole('menuitem', { name: '用户设置', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '用户设置' })).toBeVisible()
+}
+
 async function openCurrentServerActions(page: Page) {
   const trigger = page.getByTitle('服务器操作')
   if (!(await trigger.isVisible())) await page.getByTitle('频道', { exact: true }).click()
@@ -47,16 +60,188 @@ test('浏览器图标与服务器切换栏可用', async ({ page, isMobile }) =>
   await expect(favicon).toHaveAttribute('href', '/favicon.svg')
   await expect(favicon).toHaveAttribute('sizes', 'any')
 
-  if (!isMobile) {
-    const serverButton = page.locator('.server-button').filter({ has: page.locator('.server-initial') }).first()
-    await expect(serverButton).toBeVisible()
-    const bounds = await serverButton.boundingBox()
-    expect(bounds?.width).toBe(46)
-    expect(bounds?.height).toBe(46)
-  } else {
+  const serverButton = page.locator('.server-button').filter({ has: page.locator('.server-initial') }).first()
+  await expect(serverButton).toBeVisible()
+  const bounds = await serverButton.boundingBox()
+  expect(bounds?.width).toBe(46)
+  expect(bounds?.height).toBe(46)
+
+  if (isMobile) {
+    await expect(page.getByLabel('切换服务器')).toHaveCount(0)
+    await expect.poll(() => page.locator('.server-rail').evaluate((element) => element.getBoundingClientRect().width)).toBe(56)
+    await serverButton.click()
+    const drawer = page.locator('.channel-sidebar.mobile-drawer-open')
+    await expect(drawer).toBeVisible()
+    await expect.poll(() => drawer.evaluate((element) => element.getBoundingClientRect().left)).toBe(56)
+    await serverButton.click()
+    await expect(drawer).toHaveCount(0)
     await page.getByTitle('频道', { exact: true }).click()
-    await expect(page.getByLabel('切换服务器')).toBeVisible()
+    await expect(drawer).toBeVisible()
+    await expect.poll(() => page.locator('.drawer-scrim').evaluate((element) => element.getBoundingClientRect().left)).toBe(56)
   }
+})
+
+test('移动端切换其他服务器后自动打开频道抽屉', async ({ page, request, isMobile }) => {
+  test.skip(!isMobile, '仅在移动端项目运行')
+  await request.post('/api/auth/login', { data: { username, password } })
+  const serverName = `移动切换${Date.now().toString(36).slice(-5)}`
+  const createResponse = await request.post('/api/platform/servers', { data: { name: serverName, ownerUsername: username } })
+  expect(createResponse.ok()).toBeTruthy()
+  const server = (await createResponse.json() as { server: { id: number } }).server
+
+  try {
+    await page.reload()
+    await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+    const changelog = page.getByRole('dialog', { name: '更新日志' })
+    if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
+    const serverButton = page.getByTitle(serverName, { exact: true })
+    await expect(serverButton).toBeVisible()
+    await serverButton.click()
+    const drawer = page.locator('.channel-sidebar.mobile-drawer-open')
+    await expect(drawer).toBeVisible()
+    await expect(drawer.locator('.server-title strong')).toHaveText(serverName)
+    await expect.poll(() => drawer.evaluate((element) => element.getBoundingClientRect().left)).toBe(56)
+    await serverButton.click()
+    await expect(drawer).toHaveCount(0)
+  } finally {
+    const response = await request.delete(`/api/platform/servers/${server.id}`)
+    expect(response.ok()).toBeTruthy()
+  }
+})
+
+test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isMobile }) => {
+  await expect(page.locator('.user-controls')).toHaveCount(0)
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+  await setSyntheticVoiceConnection(page)
+
+  const connectionPanel = page.locator('.voice-connection-panel')
+  const toolbar = page.locator('.user-controls')
+  const modeButton = toolbar.locator('.transmission-mode-button')
+  const modeTooltip = toolbar.locator('.transmission-mode-tooltip')
+  const controlButtons = toolbar.locator('.control-buttons')
+  const connectionLocation = connectionPanel.locator('.voice-connection-location')
+  const connectionBitrate = connectionPanel.locator('.voice-connection-bitrate')
+  await expect(connectionPanel).toBeVisible()
+  await expect(connectionPanel.locator('button')).toHaveCount(0)
+  await expect(connectionLocation).toHaveText('测试服务器 / 测试语音频道')
+  await expect(connectionBitrate).toHaveText('· 64 kbps')
+  await expect(connectionBitrate).not.toHaveAttribute('title')
+  await expect(toolbar).toBeVisible()
+  await expect(modeButton).toHaveAccessibleName('当前模式：语音感应；切换为持续传输')
+  await expect(modeButton).not.toHaveAttribute('aria-pressed')
+  await expect(modeButton).not.toHaveAttribute('title')
+  await expect(modeTooltip).toHaveText('切换为持续传输')
+  await expect(modeTooltip).toHaveCSS('visibility', 'hidden')
+  await expect(toolbar.getByTitle('断开语音', { exact: true })).toHaveClass(/danger/)
+
+  const layout = await toolbar.evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
+    const mode = element.querySelector('.transmission-mode-button')!.getBoundingClientRect()
+    const controls = element.querySelector('.control-buttons')!.getBoundingClientRect()
+    const modeButton = element.querySelector('.transmission-mode-button')!
+    const modeColor = getComputedStyle(modeButton).color
+    const modeBackground = getComputedStyle(modeButton, '::before')
+    return {
+      modeLeft: mode.left - bounds.left,
+      modeWidth: mode.width,
+      modeHeight: mode.height,
+      modeBackgroundHeight: Number.parseFloat(modeBackground.height),
+      modeBackgroundOpacity: modeBackground.opacity,
+      gap: controls.left - mode.right,
+      controlsLeft: controls.left,
+      controlsRight: bounds.right - controls.right,
+      modeUsesTextColor: modeColor === getComputedStyle(document.body).color,
+    }
+  })
+  expect(layout.modeLeft).toBeGreaterThanOrEqual(7)
+  expect(layout.modeWidth).toBeLessThan(100)
+  expect(layout.modeHeight).toBe(44)
+  expect(layout.modeBackgroundHeight).toBe(34)
+  expect(layout.modeBackgroundOpacity).toBe('0')
+  expect(layout.gap).toBeGreaterThanOrEqual(0)
+  expect(layout.controlsRight).toBeGreaterThanOrEqual(7)
+  expect(layout.modeUsesTextColor).toBe(true)
+  await expect(controlButtons).toBeVisible()
+
+  const initialConnectionHeight = await connectionPanel.evaluate((element) => element.getBoundingClientRect().height)
+  await setSyntheticVoiceConnection(page, {
+    status: 'reconnecting',
+    serverName: '很长的测试服务器名称'.repeat(8),
+    channelName: '很长的测试语音频道名称'.repeat(8),
+    audioBitrateKbps: 96,
+  })
+  await expect(connectionPanel.getByText('正在恢复连接', { exact: true })).toBeVisible()
+  await expect(connectionBitrate).toHaveText('· 96 kbps')
+  const connectionLayout = await connectionPanel.evaluate((element) => {
+    const detail = element.querySelector('.voice-connection-detail')!.getBoundingClientRect()
+    const locationElement = element.querySelector('.voice-connection-location') as HTMLElement
+    const location = locationElement.getBoundingClientRect()
+    const bitrate = element.querySelector('.voice-connection-bitrate')!.getBoundingClientRect()
+    return {
+      panelHeight: element.getBoundingClientRect().height,
+      locationTruncated: locationElement.scrollWidth > locationElement.clientWidth,
+      locationBeforeBitrate: location.right <= bitrate.left,
+      bitrateInsideDetail: bitrate.right <= detail.right + 0.5,
+      sameColor: getComputedStyle(locationElement).color === getComputedStyle(element.querySelector('.voice-connection-bitrate')!).color,
+    }
+  })
+  expect(connectionLayout.panelHeight).toBe(initialConnectionHeight)
+  expect(connectionLayout.locationTruncated).toBe(true)
+  expect(connectionLayout.locationBeforeBitrate).toBe(true)
+  expect(connectionLayout.bitrateInsideDetail).toBe(true)
+  expect(connectionLayout.sameColor).toBe(true)
+  await setSyntheticVoiceConnection(page, { audioBitrateKbps: 96 })
+
+  await page.keyboard.press('Tab')
+  await modeButton.focus()
+  await expect(modeTooltip).toHaveCSS('visibility', 'visible')
+  await expect.poll(() => modeButton.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('1')
+  if (!isMobile) {
+    await modeButton.evaluate((element: HTMLButtonElement) => element.blur())
+    await page.locator('.voice-connection-panel').hover()
+    await expect(modeTooltip).toHaveCSS('visibility', 'hidden')
+    await expect.poll(() => modeButton.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('0')
+    await modeButton.hover()
+    await expect(modeTooltip).toHaveCSS('visibility', 'visible')
+    await expect.poll(() => modeButton.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('1')
+  }
+
+  if (isMobile) {
+    await modeButton.evaluate((element: HTMLButtonElement) => element.blur())
+    await modeButton.tap()
+  } else {
+    await modeButton.click()
+  }
+  const continuousButton = toolbar.locator('.transmission-mode-button')
+  await expect(continuousButton).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
+  await expect(modeTooltip).toHaveText('切换为语音感应')
+  const continuousLayout = await toolbar.evaluate((element) => {
+    const mode = element.querySelector('.transmission-mode-button')!.getBoundingClientRect()
+    const controls = element.querySelector('.control-buttons')!.getBoundingClientRect()
+    return {
+      modeColor: getComputedStyle(element.querySelector('.transmission-mode-button')!).color,
+      modeWidth: mode.width,
+      controlsLeft: controls.left,
+    }
+  })
+  expect(continuousLayout.modeColor).toBe(await page.evaluate(() => getComputedStyle(document.body).color))
+  expect(continuousLayout.modeWidth).toBeLessThan(100)
+  expect(continuousLayout.controlsLeft).toBeCloseTo(layout.controlsLeft, 1)
+  if (isMobile) {
+    await expect.poll(() => continuousButton.evaluate((element) => getComputedStyle(element, '::before').opacity)).toBe('0')
+  }
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.voiceTransmissionMode'))).toBe('continuous')
+
+  await page.reload()
+  const changelog = page.getByRole('dialog', { name: '更新日志' })
+  if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+  await setSyntheticVoiceConnection(page)
+  await expect(page.locator('.transmission-mode-button')).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
+
+  await page.getByTitle('断开语音', { exact: true }).click()
+  await expect(page.locator('.user-controls')).toHaveCount(0)
+  await expect(page.locator('.voice-connection-panel')).toHaveCount(0)
 })
 
 test('服务器操作菜单集中展示当前角色可用操作', async ({ page, isMobile }) => {
@@ -84,8 +269,8 @@ test('服务器操作菜单集中展示当前角色可用操作', async ({ page,
     await page.keyboard.press('Shift+F10')
     await expect(menu).toBeVisible()
   } else {
-    await expect(page.locator('button[title="平台服务器管理"]:visible')).toHaveCount(0)
-    await expect.poll(() => page.getByLabel('切换服务器').evaluate((element) => element.getBoundingClientRect().width)).toBeGreaterThan(250)
+    await expect(page.locator('.server-rail button[title="平台服务器管理"]')).toBeVisible()
+    await expect(page.getByLabel('切换服务器')).toHaveCount(0)
     const titleLayout = await page.locator('.server-title').evaluate((element) => {
       const children = Array.from(element.children).filter((child) => getComputedStyle(child).display !== 'none')
       return children.map((child) => {
@@ -353,7 +538,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   await expect(page.getByLabel('选择频道')).toHaveValue(/\d+/)
   await page.getByTitle('关闭').last().click()
 
-  if (isMobile) await page.getByTitle('频道').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   const newChannel = page.getByRole('button', { name: new RegExp(channelName) })
   await expect(newChannel).toBeVisible()
   await newChannel.click()
@@ -362,7 +547,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   await page.getByTitle('发送消息').click()
   await expect(page.getByText(channelMessage, { exact: true })).toBeVisible()
 
-  if (isMobile) await page.getByTitle('频道').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   await page.getByRole('button', { name: /文字聊天.*最近/ }).click()
   await expect(page.getByText(channelMessage, { exact: true })).toHaveCount(0)
 
@@ -372,7 +557,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   await page.getByRole('button', { name: '永久删除', exact: true }).click()
   await expect(page.getByText('频道已永久删除')).toBeVisible()
   await page.getByTitle('关闭').last().click()
-  if (isMobile) await page.getByTitle('频道').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   await expect(page.getByRole('button', { name: new RegExp(channelName) })).toHaveCount(0)
 })
 
@@ -391,8 +576,7 @@ test('最新消息与文字输入框保持间距', async ({ page }) => {
 })
 
 test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '音频', exact: true }).click()
   await page.getByRole('button', { name: '输入', exact: true }).click()
 
@@ -416,8 +600,7 @@ test('本地音量增益默认 100% 并持久化到浏览器', async ({ page, is
 test('紧凑视口下用户设置页签与内容不重叠', async ({ page, isMobile }) => {
   test.skip(isMobile, '桌面项目覆盖可调整高度的紧凑视口')
   await page.setViewportSize({ width: 720, height: 600 })
-  await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '音效', exact: true }).click()
 
   const layout = await page.locator('.settings-panel').evaluate((panel) => {
@@ -440,8 +623,7 @@ test('紧凑视口下用户设置页签与内容不重叠', async ({ page, isMob
 })
 
 test('操作提示音默认开启并持久化到浏览器', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '音效', exact: true }).click()
 
   const masterSwitch = page.getByLabel('启用提示音')
@@ -472,8 +654,7 @@ test('操作提示音默认开启并持久化到浏览器', async ({ page, isMob
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.enabled'))).toBe('false')
 
   await page.reload()
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '音效', exact: true }).click()
   await expect(page.getByLabel('启用提示音')).not.toBeChecked()
   await expect(page.getByLabel('提示音音量')).toHaveValue('0.35')
@@ -482,8 +663,7 @@ test('操作提示音默认开启并持久化到浏览器', async ({ page, isMob
 })
 
 test('主题模式与强调色持久化到浏览器', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '主题', exact: true }).click()
 
   await page.getByRole('button', { name: '亮色', exact: true }).click()
@@ -499,8 +679,7 @@ test('主题模式与强调色持久化到浏览器', async ({ page, isMobile })
 })
 
 test('音频处理开关持久化到浏览器', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
-  await page.getByTitle('用户设置').click()
+  await openUserSettings(page)
   await page.getByRole('button', { name: '音频', exact: true }).click()
 
   const echoToggle = page.getByLabel('回声抑制')
@@ -543,7 +722,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
     const loginResponse = await other.post('/api/auth/login', { data: { username: account.username, password: account.password } })
     expect(loginResponse.ok()).toBeTruthy()
     if (isMobile) await page.waitForTimeout(700)
-    if (isMobile) await page.getByTitle('频道').click()
+    if (isMobile) await page.getByTitle('频道', { exact: true }).click()
     await expect(page.getByRole('button', { name: new RegExp(extraChannelName) })).toBeAttached()
     const beforeInactiveMessage = await toneCount(page)
     const inactiveMessage = `非当前频道静默检查 ${Date.now()}`
@@ -575,40 +754,50 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
   }
 })
 
-test('退出登录使用明确的二次确认弹窗', async ({ page, isMobile }) => {
-  if (isMobile) await page.getByTitle('频道').click()
-  const logoutTrigger = page.getByTitle('退出登录')
+test('头像菜单集中账户操作且退出登录使用明确确认', async ({ page, isMobile }) => {
+  const accountTrigger = page.getByTitle('用户账户')
   const dialog = page.getByRole('alertdialog', { name: '退出登录？' })
   const cancel = page.getByRole('button', { name: '取消', exact: true })
 
-  await logoutTrigger.click()
+  await expect(accountTrigger.locator('.online-dot')).toHaveCount(1)
+  if (isMobile) {
+    await page.getByTitle('频道', { exact: true }).click()
+    await expect(page.locator('.channel-sidebar.mobile-drawer-open')).toBeVisible()
+  }
+  let menu = await openAccountMenu(page)
+  if (isMobile) await expect(page.locator('.channel-sidebar.mobile-drawer-open')).toHaveCount(0)
+  const settingsItem = menu.getByRole('menuitem', { name: '用户设置', exact: true })
+  const logoutItem = menu.getByRole('menuitem', { name: '退出登录', exact: true })
+  await expect(settingsItem).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(logoutItem).toBeFocused()
+  await expect(logoutItem).toHaveClass(/danger/)
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(accountTrigger).toBeFocused()
+
+  menu = await openAccountMenu(page)
+  await menu.getByRole('menuitem', { name: '退出登录', exact: true }).click()
   await expect(dialog).toBeVisible()
   await expect(cancel).toBeFocused()
   await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
 
-  await logoutTrigger.click()
-  await expect(dialog).toBeHidden()
-  await expect(logoutTrigger).toBeFocused()
-
-  await logoutTrigger.click()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
-  await expect(logoutTrigger).toBeFocused()
+  await expect(accountTrigger).toBeFocused()
 
-  await logoutTrigger.click()
-  await page.locator('.server-title').click({ position: { x: 8, y: 8 } })
-  await expect(dialog).toBeHidden()
-
-  await logoutTrigger.click()
+  menu = await openAccountMenu(page)
+  await menu.getByRole('menuitem', { name: '退出登录', exact: true }).click()
   await cancel.click()
   await expect(dialog).toBeHidden()
-  await expect(logoutTrigger).toBeFocused()
+  await expect(accountTrigger).toBeFocused()
 
   await page.route('**/api/auth/logout', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 300))
     await route.continue()
   })
-  await logoutTrigger.click()
+  menu = await openAccountMenu(page)
+  await menu.getByRole('menuitem', { name: '退出登录', exact: true }).click()
   const confirm = dialog.getByRole('button', { name: '退出', exact: true })
   await confirm.click()
   await expect(dialog.getByRole('button', { name: '正在退出', exact: true })).toBeDisabled()
@@ -696,8 +885,9 @@ test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ pa
 
   await expect(permanentList).toBeVisible()
   await expect(channelSidebar).toHaveCSS('width', '300px')
-  await expect(channelSidebar.locator('.current-user small')).toHaveText('未连接语音')
-  await expect.poll(() => channelSidebar.locator('.current-user small').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await expect(channelSidebar.locator('.current-user')).toHaveCount(0)
+  await expect(channelSidebar.locator('.user-controls')).toHaveCount(0)
+  await expect(page.locator('.server-rail .account-trigger')).toBeVisible()
   await expect(memberButton).toHaveAttribute('aria-pressed', 'true')
   await memberButton.click()
   await expect(permanentList).toBeHidden()
@@ -843,6 +1033,35 @@ async function installToneCounter(page: import('@playwright/test').Page) {
 
 async function toneCount(page: import('@playwright/test').Page) {
   return page.evaluate(() => (window as typeof window & { __cwsToneCount?: number }).__cwsToneCount ?? 0)
+}
+
+async function setSyntheticVoiceConnection(page: Page, options: {
+  status?: 'connected' | 'reconnecting'
+  serverName?: string
+  channelName?: string
+  audioBitrateKbps?: number
+} = {}) {
+  await page.evaluate((summary) => {
+    type VoiceStoreTestState = {
+      status: 'connected' | 'reconnecting'
+      connectedChannelId: number | null
+      connectedServerName: string
+      connectedChannelName: string
+      updateConnectedChannelSettings: (channel: { id: number; audioBitrateKbps?: number }) => unknown
+    }
+    type PiniaTestState = { _s: Map<string, VoiceStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const voice = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('voice')
+    if (!voice) throw new Error('未找到语音 store')
+    voice.status = summary.status ?? 'connected'
+    voice.connectedServerName = summary.serverName ?? '测试服务器'
+    voice.connectedChannelName = summary.channelName ?? '测试语音频道'
+    if (summary.audioBitrateKbps !== undefined) {
+      voice.connectedChannelId = 99_999
+      voice.updateConnectedChannelSettings({ id: 99_999, audioBitrateKbps: summary.audioBitrateKbps })
+    }
+  }, options)
 }
 
 test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile }) => {
@@ -1011,7 +1230,7 @@ test('空邀请码列表兼容 null 响应', async ({ page }) => {
 
 test('窄屏频道与成员抽屉不溢出', async ({ page, isMobile }) => {
   test.skip(!isMobile, '仅在移动端项目运行')
-  await page.getByTitle('频道').click()
+  await page.getByTitle('频道', { exact: true }).click()
   await expect(page.locator('.server-title strong')).toHaveText('Celery Web Speak')
   await page.getByTitle('关闭').click()
   await page.getByRole('button', { name: /成员列表/ }).click()

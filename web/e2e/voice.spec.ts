@@ -34,6 +34,7 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
       const tonesBeforeJoin = await toneCount(page)
       await page.getByRole('button', { name: /语音频道/ }).click()
       await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
+      await expect(page.locator('.voice-connection-bitrate')).toHaveText(/· \d+ kbps/)
       await expect(page.getByTitle('共享应用背景音', { exact: true })).toHaveCount(0)
       await expect.poll(() => toneCount(page)).toBeGreaterThanOrEqual(tonesBeforeJoin + 2)
     }
@@ -100,6 +101,60 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
       const accountID = accountIds.get(account.username)
       if (accountID) await deletePlatformUser(request, accountID, account.username)
     }
+  }
+})
+
+test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser, request }, testInfo) => {
+  test.skip(!runVoiceTest, '需要已运行的 LiveKit Compose 环境')
+
+  await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
+  const serverID = await firstJoinedServerID(request)
+  const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
+  const account = {
+    username: `dtx_${suffix}`,
+    displayName: `DTX测试${suffix.slice(-5)}`,
+    password: 'dtx-member-password',
+  }
+  const accountID = (await createServerMember(request, serverID, account)).id
+  const context = await browser.newContext({ permissions: ['microphone'] })
+  await context.grantPermissions(['microphone'], { origin: baseURL })
+  const page = await context.newPage()
+
+  try {
+    await loginVoicePage(page, account, testInfo.project.name.startsWith('android'))
+    await expect(page.locator('.user-controls')).toHaveCount(0)
+    await page.getByRole('button', { name: /^语音频道/ }).click()
+    await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
+
+    let modeButton = page.locator('.transmission-mode-button')
+    await expect(modeButton).toHaveAccessibleName('当前模式：语音感应；切换为持续传输')
+    await modeButton.click()
+    modeButton = page.locator('.transmission-mode-button')
+    await expect(modeButton).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
+    await expect(modeButton).toBeEnabled()
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.voiceTransmissionMode'))).toBe('continuous')
+
+    await modeButton.click()
+    modeButton = page.locator('.transmission-mode-button')
+    await expect(modeButton).toHaveAccessibleName('当前模式：语音感应；切换为持续传输')
+    await expect(modeButton).toBeEnabled()
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.voiceTransmissionMode'))).toBe('voice-activity')
+
+    await page.getByTitle('麦克风静音', { exact: true }).click()
+    await expect(page.getByTitle('取消静音', { exact: true })).toBeVisible()
+    await modeButton.click()
+    modeButton = page.locator('.transmission-mode-button')
+    await expect(modeButton).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
+    await expect(modeButton).toBeEnabled()
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.voiceTransmissionMode'))).toBe('continuous')
+    await page.getByTitle('取消静音', { exact: true }).click()
+    await expect(page.getByTitle('麦克风静音', { exact: true })).toBeVisible()
+
+    await page.getByTitle('断开语音', { exact: true }).click()
+    await expect(page.locator('.user-controls')).toHaveCount(0)
+  } finally {
+    await context.close()
+    await deletePlatformUser(request, accountID, account.username)
   }
 })
 
@@ -211,7 +266,7 @@ async function loginVoicePage(page: Page, account: { username: string; password:
   await page.getByRole('heading', { name: '文字聊天', exact: true }).waitFor()
   const changelog = page.getByRole('dialog', { name: '更新日志' })
   if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
-  if (mobile) await page.getByTitle('频道').click()
+  if (mobile) await page.getByTitle('频道', { exact: true }).click()
 }
 
 async function expectVoiceOrder(pages: Page[], expected: string[]) {
