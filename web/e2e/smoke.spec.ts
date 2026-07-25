@@ -81,6 +81,83 @@ test('浏览器图标与服务器切换栏可用', async ({ page, isMobile }) =>
   }
 })
 
+test('移动端切换其他服务器后自动打开频道抽屉', async ({ page, request, isMobile }) => {
+  test.skip(!isMobile, '仅在移动端项目运行')
+  await request.post('/api/auth/login', { data: { username, password } })
+  const serverName = `移动切换${Date.now().toString(36).slice(-5)}`
+  const createResponse = await request.post('/api/platform/servers', { data: { name: serverName, ownerUsername: username } })
+  expect(createResponse.ok()).toBeTruthy()
+  const server = (await createResponse.json() as { server: { id: number } }).server
+
+  try {
+    await page.reload()
+    await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+    const changelog = page.getByRole('dialog', { name: '更新日志' })
+    if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
+    const serverButton = page.getByTitle(serverName, { exact: true })
+    await expect(serverButton).toBeVisible()
+    await serverButton.click()
+    const drawer = page.locator('.channel-sidebar.mobile-drawer-open')
+    await expect(drawer).toBeVisible()
+    await expect(drawer.locator('.server-title strong')).toHaveText(serverName)
+    await expect.poll(() => drawer.evaluate((element) => element.getBoundingClientRect().left)).toBe(56)
+    await serverButton.click()
+    await expect(drawer).toHaveCount(0)
+  } finally {
+    const response = await request.delete(`/api/platform/servers/${server.id}`)
+    expect(response.ok()).toBeTruthy()
+  }
+})
+
+test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isMobile }) => {
+  await expect(page.locator('.user-controls')).toHaveCount(0)
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+  await setSyntheticVoiceConnection(page)
+
+  const connectionPanel = page.locator('.voice-connection-panel')
+  const toolbar = page.locator('.user-controls')
+  const modeButton = page.getByRole('button', { name: '语音感应', exact: true })
+  const controlButtons = toolbar.locator('.control-buttons')
+  await expect(connectionPanel).toBeVisible()
+  await expect(connectionPanel.locator('button')).toHaveCount(0)
+  await expect(toolbar).toBeVisible()
+  await expect(modeButton).toHaveAttribute('aria-pressed', 'true')
+  await expect(modeButton).toHaveAttribute('title', '语音感应（DTX 已开启）')
+  await expect(toolbar.getByTitle('断开语音', { exact: true })).toHaveClass(/danger/)
+
+  const layout = await toolbar.evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
+    const mode = element.querySelector('.transmission-mode-button')!.getBoundingClientRect()
+    const controls = element.querySelector('.control-buttons')!.getBoundingClientRect()
+    return {
+      modeLeft: mode.left - bounds.left,
+      gap: controls.left - mode.right,
+      controlsRight: bounds.right - controls.right,
+    }
+  })
+  expect(layout.modeLeft).toBeGreaterThanOrEqual(7)
+  expect(layout.gap).toBeGreaterThanOrEqual(0)
+  expect(layout.controlsRight).toBeGreaterThanOrEqual(7)
+  await expect(controlButtons).toBeVisible()
+
+  await modeButton.click()
+  const continuousButton = page.getByRole('button', { name: '持续传输', exact: true })
+  await expect(continuousButton).toHaveAttribute('aria-pressed', 'false')
+  await expect(continuousButton).toHaveAttribute('title', '持续传输（DTX 已关闭）')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.voiceTransmissionMode'))).toBe('continuous')
+
+  await page.reload()
+  const changelog = page.getByRole('dialog', { name: '更新日志' })
+  if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+  await setSyntheticVoiceConnection(page)
+  await expect(page.getByRole('button', { name: '持续传输', exact: true })).toBeVisible()
+
+  await page.getByTitle('断开语音', { exact: true }).click()
+  await expect(page.locator('.user-controls')).toHaveCount(0)
+  await expect(page.locator('.voice-connection-panel')).toHaveCount(0)
+})
+
 test('服务器操作菜单集中展示当前角色可用操作', async ({ page, isMobile }) => {
   if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   await expect(page.locator('.channel-scroll').getByText('管理控制台', { exact: true })).toHaveCount(0)
@@ -375,7 +452,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   await expect(page.getByLabel('选择频道')).toHaveValue(/\d+/)
   await page.getByTitle('关闭').last().click()
 
-  if (isMobile) await page.getByTitle('频道').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   const newChannel = page.getByRole('button', { name: new RegExp(channelName) })
   await expect(newChannel).toBeVisible()
   await newChannel.click()
@@ -384,7 +461,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   await page.getByTitle('发送消息').click()
   await expect(page.getByText(channelMessage, { exact: true })).toBeVisible()
 
-  if (isMobile) await page.getByTitle('频道').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   await page.getByRole('button', { name: /文字聊天.*最近/ }).click()
   await expect(page.getByText(channelMessage, { exact: true })).toHaveCount(0)
 
@@ -394,7 +471,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   await page.getByRole('button', { name: '永久删除', exact: true }).click()
   await expect(page.getByText('频道已永久删除')).toBeVisible()
   await page.getByTitle('关闭').last().click()
-  if (isMobile) await page.getByTitle('频道').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   await expect(page.getByRole('button', { name: new RegExp(channelName) })).toHaveCount(0)
 })
 
@@ -559,7 +636,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
     const loginResponse = await other.post('/api/auth/login', { data: { username: account.username, password: account.password } })
     expect(loginResponse.ok()).toBeTruthy()
     if (isMobile) await page.waitForTimeout(700)
-    if (isMobile) await page.getByTitle('频道').click()
+    if (isMobile) await page.getByTitle('频道', { exact: true }).click()
     await expect(page.getByRole('button', { name: new RegExp(extraChannelName) })).toBeAttached()
     const beforeInactiveMessage = await toneCount(page)
     const inactiveMessage = `非当前频道静默检查 ${Date.now()}`
@@ -591,12 +668,18 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
   }
 })
 
-test('头像菜单集中账户操作且退出登录使用明确确认', async ({ page }) => {
+test('头像菜单集中账户操作且退出登录使用明确确认', async ({ page, isMobile }) => {
   const accountTrigger = page.getByTitle('用户账户')
   const dialog = page.getByRole('alertdialog', { name: '退出登录？' })
   const cancel = page.getByRole('button', { name: '取消', exact: true })
 
+  await expect(accountTrigger.locator('.online-dot')).toHaveCount(1)
+  if (isMobile) {
+    await page.getByTitle('频道', { exact: true }).click()
+    await expect(page.locator('.channel-sidebar.mobile-drawer-open')).toBeVisible()
+  }
   let menu = await openAccountMenu(page)
+  if (isMobile) await expect(page.locator('.channel-sidebar.mobile-drawer-open')).toHaveCount(0)
   const settingsItem = menu.getByRole('menuitem', { name: '用户设置', exact: true })
   const logoutItem = menu.getByRole('menuitem', { name: '退出登录', exact: true })
   await expect(settingsItem).toBeFocused()
@@ -865,6 +948,24 @@ async function toneCount(page: import('@playwright/test').Page) {
   return page.evaluate(() => (window as typeof window & { __cwsToneCount?: number }).__cwsToneCount ?? 0)
 }
 
+async function setSyntheticVoiceConnection(page: Page) {
+  await page.evaluate(() => {
+    type VoiceStoreTestState = {
+      status: 'connected'
+      connectedServerName: string
+      connectedChannelName: string
+    }
+    type PiniaTestState = { _s: Map<string, VoiceStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const voice = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('voice')
+    if (!voice) throw new Error('未找到语音 store')
+    voice.status = 'connected'
+    voice.connectedServerName = '测试服务器'
+    voice.connectedChannelName = '测试语音频道'
+  })
+}
+
 test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile }) => {
   await page.route('**/api/servers/*/bootstrap', async (route) => {
     const response = await route.fetch()
@@ -1031,7 +1132,7 @@ test('空邀请码列表兼容 null 响应', async ({ page }) => {
 
 test('窄屏频道与成员抽屉不溢出', async ({ page, isMobile }) => {
   test.skip(!isMobile, '仅在移动端项目运行')
-  await page.getByTitle('频道').click()
+  await page.getByTitle('频道', { exact: true }).click()
   await expect(page.locator('.server-title strong')).toHaveText('Celery Web Speak')
   await page.getByTitle('关闭').click()
   await page.getByRole('button', { name: /成员列表/ }).click()
