@@ -30,6 +30,7 @@ async function mockMemberModerationRoles(
   page: Page,
   options: { actorRole: 'owner' | 'admin'; isPlatformAdmin: boolean },
 ) {
+  await page.routeWebSocket(/\/api\/ws\?/, () => {})
   await page.route('**/api/bootstrap', async (route) => {
     const response = await route.fetch()
     const payload = await response.json()
@@ -38,6 +39,7 @@ async function mockMemberModerationRoles(
       json: {
         ...payload,
         user: { ...payload.user, isPlatformAdmin: options.isPlatformAdmin },
+        servers: payload.servers.map((server: { joined: boolean }) => server.joined ? { ...server, role: options.actorRole } : server),
       },
     })
   })
@@ -133,7 +135,7 @@ cd web
 npx playwright test e2e/smoke.spec.ts --project=desktop-chromium --grep '服务器管理员只能审核普通成员|服务器所有者仍可审核管理员|平台管理员可审核管理员'
 ```
 
-Expected: 服务器所有者审核管理员用例通过；服务器管理员选择管理员时因仍显示审核控件而失败；所有者提示和平台管理员提示因仍显示旧文案而失败。
+Expected: 服务器所有者审核管理员用例通过；服务器管理员对普通成员和其他管理员的现有断言通过，但选择所有者时因仍显示旧文案而失败；平台管理员选择所有者时也因仍显示旧文案而失败。
 
 - [ ] **Step 5: 提交失败测试**
 
