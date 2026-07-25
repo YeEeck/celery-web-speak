@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Hash, LogOut, Plus, Radio, ServerCog, X } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { EllipsisVertical, Hash, Plus, Radio, ServerCog, X } from '@lucide/vue'
 import AdminPanel from './AdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
 import ChatPane from './ChatPane.vue'
+import LeaveServerDialog from './LeaveServerDialog.vue'
 import MemberList from './MemberList.vue'
 import PlatformServersPanel from './PlatformServersPanel.vue'
 import ProfilePanel from './ProfilePanel.vue'
+import ServerActionMenu from './ServerActionMenu.vue'
 import UserControls from './UserControls.vue'
 import VoiceChannel from './VoiceChannel.vue'
 import { request } from '../api'
@@ -31,6 +33,17 @@ const platformCreateOnOpen = ref(false)
 const adminInitialTab = ref<'channel' | 'users' | 'invites'>('channel')
 const adminPlatformMode = ref(false)
 const leavingServer = ref(false)
+const leaveServerError = ref('')
+const leaveTarget = ref<ServerSummary | null>(null)
+const leaveDialogTrigger = ref<HTMLElement | null>(null)
+const serverActionMenu = ref<{
+  server: ServerSummary
+  x: number
+  y: number
+  align: 'start' | 'end'
+  trigger: HTMLElement | null
+} | null>(null)
+const serverActionTrigger = ref<HTMLButtonElement | null>(null)
 const currentVersion = ref('')
 let wideMemberQuery: MediaQueryList | null = null
 let mobileQuery: MediaQueryList | null = null
@@ -53,13 +66,17 @@ watch(() => app.activeServerId === voice.connectedServerId && app.voiceChannels.
   if (!exists && voice.joined && app.activeServerId === voice.connectedServerId) void voice.leave()
 })
 watch(() => voice.connectedServerId === null || app.servers.some((server) => server.id === voice.connectedServerId && server.joined), (hasMembership) => {
-  if (!hasMembership && voice.joined) void voice.leave()
+  if (!hasMembership && voice.joined) void voice.leave({ notifyServer: false })
 })
 watch(() => app.activeServerId === voice.connectedServerId ? app.user?.voiceMuted : false, (value) => {
   if (value) void voice.syncServerMute(true)
 })
 watch(() => app.socketStatus, (value) => {
   if (value === 'online') voice.retryDeafenedSync()
+})
+watch(() => app.activeServerId, () => closeServerActionMenu())
+watch(() => leaveTarget.value === null || app.servers.some((server) => server.id === leaveTarget.value?.id && server.joined), (hasMembership) => {
+  if (!hasMembership && !leavingServer.value) closeLeaveServerDialog()
 })
 onMounted(() => {
   wideMemberQuery = window.matchMedia('(min-width: 1141px)')
@@ -113,6 +130,85 @@ function openServer(server: ServerSummary) {
   else openPlatformServers(server.id)
 }
 
+function openServerActionMenu(server: ServerSummary, trigger: HTMLElement, x: number, y: number, align: 'start' | 'end') {
+  serverActionMenu.value = { server, trigger, x, y, align }
+}
+
+function openHeaderServerActions(event: MouseEvent) {
+  const server = app.activeServer
+  const trigger = event.currentTarget as HTMLElement
+  if (!server) return
+  if (serverActionMenu.value?.trigger === trigger) {
+    closeServerActionMenu(true)
+    return
+  }
+  const bounds = trigger.getBoundingClientRect()
+  openServerActionMenu(server, trigger, bounds.right, bounds.bottom + 4, 'end')
+}
+
+function openServerContextMenu(server: ServerSummary, event: MouseEvent) {
+  openServerActionMenu(server, event.currentTarget as HTMLElement, event.clientX, event.clientY, 'start')
+}
+
+function openServerKeyboardMenu(server: ServerSummary, event: KeyboardEvent) {
+  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+  event.preventDefault()
+  const trigger = event.currentTarget as HTMLElement
+  const bounds = trigger.getBoundingClientRect()
+  openServerActionMenu(server, trigger, bounds.right + 4, bounds.top, 'start')
+}
+
+function closeServerActionMenu(restoreFocus = false) {
+  const trigger = serverActionMenu.value?.trigger
+  serverActionMenu.value = null
+  if (restoreFocus) void nextTick(() => trigger?.focus())
+}
+
+async function openServerAdmin(server: ServerSummary) {
+  const trigger = serverActionMenu.value?.trigger ?? null
+  closeServerActionMenu()
+  const previousServerId = app.activeServerId
+  try {
+    if (server.id !== previousServerId) await app.selectServer(server.id)
+  } catch (error) {
+    try {
+      if (previousServerId !== null && app.servers.some((item) => item.id === previousServerId && item.joined)) await app.selectServer(previousServerId)
+      else await app.bootstrap()
+    } catch {
+      // 保留原始切换错误。
+    }
+    window.alert(error instanceof Error ? error.message : '服务器加载失败')
+    void nextTick(() => trigger?.focus())
+    return
+  }
+  adminInitialTab.value = 'channel'
+  adminPlatformMode.value = false
+  adminOpen.value = true
+  channelsOpen.value = false
+}
+
+function openServerPlatformManagement(server: ServerSummary) {
+  closeServerActionMenu()
+  openPlatformServers(server.id)
+  channelsOpen.value = false
+}
+
+function confirmLeaveServer(server: ServerSummary) {
+  leaveDialogTrigger.value = serverActionMenu.value?.trigger ?? null
+  closeServerActionMenu()
+  leaveServerError.value = ''
+  leaveTarget.value = server
+}
+
+function closeLeaveServerDialog() {
+  if (leavingServer.value) return
+  const trigger = leaveDialogTrigger.value
+  leaveTarget.value = null
+  leaveServerError.value = ''
+  leaveDialogTrigger.value = null
+  void nextTick(() => trigger?.focus())
+}
+
 function openPlatformAccounts() {
   platformOpen.value = false
   adminInitialTab.value = 'users'
@@ -121,16 +217,25 @@ function openPlatformAccounts() {
 }
 
 async function leaveServer() {
-  const server = app.activeServer
-  if (!server || server.role === 'owner' || leavingServer.value || !window.confirm(`离开服务器“${server.name}”？之后需要由服务器管理员重新添加。`)) return
+  const server = leaveTarget.value
+  if (!server || server.role === 'owner' || leavingServer.value) return
   leavingServer.value = true
+  leaveServerError.value = ''
   try {
     await request(`/api/servers/${server.id}/leave`, { method: 'POST' })
-    if (voice.connectedServerId === server.id) await voice.leave()
+    if (voice.connectedServerId === server.id) {
+      try {
+        await voice.leave({ notifyServer: false })
+      } catch {
+        // 后端已经清理目标服务器的语音参与者，继续刷新成员状态。
+      }
+    }
     await app.bootstrap()
+    leaveTarget.value = null
+    leaveDialogTrigger.value = null
     channelsOpen.value = false
   } catch (error) {
-    window.alert(error instanceof Error ? error.message : '离开服务器失败')
+    leaveServerError.value = error instanceof Error ? error.message : '离开服务器失败'
   } finally {
     leavingServer.value = false
   }
@@ -172,7 +277,10 @@ function closeChangelog() {
           :class="['server-button', { active: server.id === app.activeServerId, 'metadata-only': !server.joined }]"
           type="button"
           :title="server.joined ? server.name : `${server.name}（仅管理信息）`"
+          :aria-label="server.joined ? server.name : `${server.name}（仅管理信息）`"
           @click="openServer(server)"
+          @contextmenu.prevent="openServerContextMenu(server, $event)"
+          @keydown="openServerKeyboardMenu(server, $event)"
         >
           <span class="server-initial">{{ server.name.trim().slice(0, 1).toUpperCase() }}</span>
           <span v-if="server.unreadCount" class="server-unread" />
@@ -184,10 +292,11 @@ function closeChangelog() {
     <aside :class="['channel-sidebar', { 'mobile-drawer-open': channelsOpen }]">
       <header class="server-title">
         <span><strong>{{ app.activeServer?.name ?? '尚未加入服务器' }}</strong><small>{{ app.activeServer ? '服务器频道' : '请联系服务器管理员' }}</small></span>
+        <button v-if="app.activeServer" ref="serverActionTrigger" class="icon-button server-actions-trigger" type="button" title="服务器操作" aria-label="服务器操作" :aria-expanded="serverActionMenu?.trigger === serverActionTrigger" @click="openHeaderServerActions"><EllipsisVertical :size="20" /></button>
         <select class="mobile-server-select mobile-only" :value="app.activeServerId ?? ''" aria-label="切换服务器" @change="selectMobileServer">
           <option v-for="server in app.servers.filter((item) => item.joined)" :key="server.id" :value="server.id">{{ server.name }}</option>
         </select>
-        <button v-if="app.isPlatformAdmin" class="icon-button mobile-only" title="平台服务器管理" @click="openPlatformServers(); channelsOpen = false"><ServerCog :size="19" /></button>
+        <button v-if="app.isPlatformAdmin && !app.activeServer" class="icon-button mobile-only" title="平台服务器管理" @click="openPlatformServers(); channelsOpen = false"><ServerCog :size="19" /></button>
         <button class="icon-button mobile-only" title="关闭" @click="channelsOpen = false"><X :size="19" /></button>
       </header>
       <div class="channel-scroll">
@@ -205,12 +314,6 @@ function closeChangelog() {
           <span class="channel-label"><strong>{{ channel.name }}</strong><small>最近 {{ channel.messageRetention }} 条</small></span>
           <span v-if="app.channelReadStates[channel.id]?.unreadCount" class="channel-unread">{{ app.channelReadStates[channel.id].unreadCount }}</span>
         </button>
-        <div v-if="app.isAdmin" class="admin-entry">
-          <button class="channel-row" @click="adminInitialTab = 'channel'; adminPlatformMode = false; adminOpen = true; channelsOpen = false"><ServerCog :size="18" /><span class="channel-label"><strong>管理控制台</strong><small>{{ app.isServerAdmin ? '服务器与频道' : '频道管理' }}</small></span></button>
-        </div>
-        <div v-if="app.activeServer && app.activeServer.role !== 'owner'" class="admin-entry server-leave-entry">
-          <button class="channel-row danger-text" :disabled="leavingServer" @click="leaveServer"><LogOut :size="18" /><span class="channel-label"><strong>{{ leavingServer ? '正在离开' : '离开服务器' }}</strong><small>退出当前服务器</small></span></button>
-        </div>
       </div>
       <div v-if="voice.joined" class="voice-connection-panel">
         <span class="connection-indicator" /><span><strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong><small>{{ voice.connectedServerName }} / {{ voice.connectedChannelName }}</small></span>
@@ -228,6 +331,20 @@ function closeChangelog() {
     </div>
 
     <div id="voice-audio-root" aria-hidden="true" />
+    <ServerActionMenu
+      v-if="serverActionMenu"
+      :server="serverActionMenu.server"
+      :is-platform-admin="app.isPlatformAdmin"
+      :x="serverActionMenu.x"
+      :y="serverActionMenu.y"
+      :align="serverActionMenu.align"
+      :trigger="serverActionMenu.trigger"
+      @close="closeServerActionMenu"
+      @manage="openServerAdmin"
+      @platform="openServerPlatformManagement"
+      @leave="confirmLeaveServer"
+    />
+    <LeaveServerDialog v-if="leaveTarget" :server="leaveTarget" :busy="leavingServer" :error="leaveServerError" @cancel="closeLeaveServerDialog" @confirm="leaveServer" />
     <ProfilePanel v-if="profileOpen" @close="profileOpen = false" @changelog="changelogOpen = true" />
     <AdminPanel v-if="adminOpen" :initial-tab="adminInitialTab" :platform-mode="adminPlatformMode" @close="adminOpen = false" />
     <PlatformServersPanel v-if="platformOpen" :initial-server-id="platformInitialServerId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />

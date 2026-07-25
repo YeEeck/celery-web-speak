@@ -210,7 +210,7 @@ export const useVoiceStore = defineStore('voice', () => {
     }
   }
 
-  async function leave() {
+  async function leave(options: { notifyServer?: boolean } = {}) {
     const app = useAppStore()
     const wasJoined = room !== null
     const serverId = connectedServerId.value
@@ -232,7 +232,7 @@ export const useVoiceStore = defineStore('voice', () => {
     deafenedSyncError.value = ''
     microphoneActivity.destroy()
     useSoundStore().setSuppressed(false)
-    if (wasJoined && serverId !== null) {
+    if (wasJoined && serverId !== null && options.notifyServer !== false) {
       await request(`/api/servers/${serverId}/voice/leave`, { method: 'POST' })
       app.requestVoiceRoomsRefresh()
     }
