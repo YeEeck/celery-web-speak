@@ -1,8 +1,6 @@
 import { computed, markRaw, ref } from 'vue'
 import { defineStore } from 'pinia'
 import {
-  LocalAudioTrack,
-  type LocalTrackPublication,
   Participant,
   RemoteAudioTrack,
   Room,
@@ -13,36 +11,21 @@ import {
   type RemoteTrackPublication,
 } from 'livekit-client'
 import { request } from '../api'
-import { ApplicationAudioPipeline } from '../audio/ApplicationAudioPipeline'
 import { MicrophoneActivityMonitor } from '../audio/MicrophoneActivityMonitor'
 import { MicrophoneGainProcessor } from '../audio/MicrophoneGainProcessor'
-import {
-  connectApplicationAudioBridge,
-  isApplicationAudioSnapshot,
-  onApplicationAudioPcmPort,
-  type ApplicationAudioSnapshot,
-  type ApplicationAudioState,
-  type DesktopApplicationAudioBridge,
-} from '../audio/applicationAudioBridge'
 import type { Channel, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
 import { useSoundStore } from './sounds'
 import {
-  APPLICATION_AUDIO_PORT_TIMEOUT_MS,
-  APPLICATION_AUDIO_VOLUME_KEY,
   DEFAULT_AUDIO_BITRATE_KBPS,
   DEAFENED_ATTRIBUTE,
   ECHO_CANCELLATION_KEY,
   MICROPHONE_GAIN_KEY,
   NOISE_SUPPRESSION_KEY,
   OUTPUT_VOLUME_KEY,
-  applicationAudioErrorMessage,
-  applicationAudioSnapshotError,
-  clampApplicationAudioVolume,
   clampVolume,
   compareParticipants,
   defaultConnectedPublishSettings,
-  getSavedApplicationAudioVolume,
   getSavedBackgroundAudioVolume,
   getSavedBoolean,
   getSavedLevel,
@@ -51,7 +34,6 @@ import {
   getSavedVolume,
   hasBackgroundAudio,
   isBackgroundAudioPlaying,
-  isSourcePickerCancellation,
   participantJoinedAt,
   participantRole,
   participantUserId,
@@ -61,6 +43,7 @@ import {
   type VoiceTransmissionMode,
 } from './voice-utils'
 import { useParticipantVolume } from './voice-participant-volume'
+import { useApplicationAudio } from './voice-application-audio'
 
 export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils'
 
@@ -88,11 +71,6 @@ export const useVoiceStore = defineStore('voice', () => {
   const transmissionMode = ref<VoiceTransmissionMode>(getSavedTransmissionMode())
   const transmissionModeChanging = ref(false)
   const transmissionModeError = ref('')
-  const applicationAudioSupported = ref(false)
-  const applicationAudioState = ref<ApplicationAudioState | 'unsupported'>('unsupported')
-  const applicationAudioError = ref('')
-  const applicationAudioVolume = ref(getSavedApplicationAudioVolume())
-  const applicationAudioOperating = ref(false)
   const microphoneGainProcessor = new MicrophoneGainProcessor(microphoneGain.value)
   const microphoneActivity = new MicrophoneActivityMonitor((identity, speaking) => {
     const participant = participantStates.value.find((item) => item.identity === identity)
@@ -104,31 +82,20 @@ export const useVoiceStore = defineStore('voice', () => {
   let pendingDeafenedSync: boolean | null = null
   let deafenedSyncSession: number | null = null
   let voiceSession = 0
-  let applicationAudioBridge: DesktopApplicationAudioBridge | null = null
-  const applicationAudioSessionId = ref<string | null>(null)
-  let applicationAudioRevision = -1
-  let applicationAudioGeneration = 0
-  let applicationAudioPipeline: ApplicationAudioPipeline | null = null
-  let applicationAudioTrack: LocalAudioTrack | null = null
-  let applicationAudioPublication: LocalTrackPublication | null = null
-  let applicationAudioAutoPaused = false
-  let applicationAudioInitialized = false
-  let removeApplicationAudioSnapshotListener: (() => void) | null = null
-  let removeApplicationAudioPcmListener: (() => void) | null = null
-  let pendingApplicationAudioPort: { sessionId: string; port: MessagePort } | null = null
-  let pendingApplicationAudioPortWaiter: {
-    sessionId: string
-    resolve: (port: MessagePort) => void
-    reject: (error: Error) => void
-    timer: number
-  } | null = null
 
   const joined = computed(() => status.value !== 'idle' && status.value !== 'error')
   const connectedAudioBitrateKbps = computed(() => connectedPublishSettings.value.audioBitrateKbps)
   const dtxEnabled = computed(() => transmissionMode.value === 'voice-activity')
-  const applicationAudioActive = computed(() => applicationAudioSessionId.value !== null && ['playing', 'paused'].includes(applicationAudioState.value))
-  const applicationAudioPlaying = computed(() => applicationAudioState.value === 'playing')
-  const applicationAudioChanging = computed(() => applicationAudioOperating.value || ['selecting', 'starting', 'stopping'].includes(applicationAudioState.value))
+
+  const appAudio = useApplicationAudio({
+    room: () => room,
+    voiceSession: () => voiceSession,
+    deafened: () => deafened.value,
+    status: () => status.value,
+    connectedPublishSettings: () => connectedPublishSettings.value,
+    syncParticipants,
+  })
+
   const participants = computed(() => {
     const app = useAppStore()
     const connectedUsers = app.activeServerId === connectedServerId.value ? app.users : []
@@ -231,7 +198,7 @@ export const useVoiceStore = defineStore('voice', () => {
     const app = useAppStore()
     const wasJoined = room !== null
     const serverId = connectedServerId.value
-    await stopApplicationAudio()
+    await appAudio.stopApplicationAudio()
     voiceSession += 1
     participantSoundsReady = false
     if (room) {
@@ -286,7 +253,7 @@ export const useVoiceStore = defineStore('voice', () => {
           if (session !== voiceSession || room !== target) return
           muted.value = true
         }
-        if (applicationAudioState.value === 'playing') await pauseApplicationAudio(true)
+        if (appAudio.applicationAudioState.value === 'playing') await appAudio.pauseApplicationAudio(true)
         deafened.value = true
         useSoundStore().setSuppressed(true)
         participantVolume.applyAllVolumes()
@@ -303,8 +270,8 @@ export const useVoiceStore = defineStore('voice', () => {
         deafened.value = false
         useSoundStore().setSuppressed(false)
         participantVolume.applyAllVolumes()
-        if (applicationAudioAutoPaused && applicationAudioState.value === 'paused') {
-          await resumeApplicationAudio(true)
+        if (appAudio.isAutoPaused() && appAudio.applicationAudioState.value === 'paused') {
+          await appAudio.resumeApplicationAudio(true)
         }
       }
       syncParticipants()
@@ -405,25 +372,8 @@ export const useVoiceStore = defineStore('voice', () => {
     if (microphoneChanged && !muted.value && !useAppStore().user?.voiceMuted) {
       await republishMicrophone(target)
     }
-    if (backgroundAudioChanged && applicationAudioTrack) {
-      const track = applicationAudioTrack
-      const generation = applicationAudioGeneration
-      const wasPaused = applicationAudioState.value === 'paused'
-      try {
-        await target.localParticipant.unpublishTrack(track, false)
-        if (generation !== applicationAudioGeneration || room !== target) return
-        const publication = await target.localParticipant.publishTrack(track, applicationAudioPublishOptions())
-        if (generation !== applicationAudioGeneration || room !== target) {
-          await target.localParticipant.unpublishTrack(publication.track!, false).catch(() => undefined)
-          return
-        }
-        applicationAudioPublication = publication
-        applicationAudioTrack = publication.audioTrack ?? null
-        if (wasPaused) await applicationAudioTrack?.mute()
-      } catch (error) {
-        applicationAudioError.value = applicationAudioErrorMessage(error)
-        await stopApplicationAudio()
-      }
+    if (backgroundAudioChanged && appAudio.hasActiveTrack()) {
+      await appAudio.republishBackgroundAudio()
     }
     syncParticipants()
   }
@@ -447,7 +397,7 @@ export const useVoiceStore = defineStore('voice', () => {
   async function syncServerMute(serverMuted: boolean) {
     if (!room || !serverMuted) return
     const target = room
-    const stoppingBackgroundAudio = stopApplicationAudio()
+    const stoppingBackgroundAudio = appAudio.stopApplicationAudio()
     await target.localParticipant.setMicrophoneEnabled(false)
     await stoppingBackgroundAudio
     microphoneBeforeDeafen = false
@@ -497,7 +447,7 @@ export const useVoiceStore = defineStore('voice', () => {
       })
       .on(RoomEvent.Disconnected, () => {
         if (room === target) {
-          void stopApplicationAudio()
+          void appAudio.stopApplicationAudio()
           voiceSession += 1
           participantSoundsReady = false
           room = null
@@ -623,289 +573,6 @@ export const useVoiceStore = defineStore('voice', () => {
     }
   }
 
-  async function initializeApplicationAudio() {
-    if (applicationAudioInitialized) return
-    applicationAudioInitialized = true
-    const connected = await connectApplicationAudioBridge()
-    if (!connected) return
-    applicationAudioBridge = connected.bridge
-    removeApplicationAudioSnapshotListener = connected.bridge.onSnapshot((snapshot) => {
-      if (isApplicationAudioSnapshot(snapshot)) applyApplicationAudioSnapshot(snapshot)
-    })
-    removeApplicationAudioPcmListener = onApplicationAudioPcmPort(handleApplicationAudioPcmPort)
-    applicationAudioSupported.value = connected.snapshot.supported
-    applicationAudioState.value = connected.snapshot.supported ? 'idle' : 'unsupported'
-    applicationAudioRevision = connected.snapshot.revision
-    const latest = await connected.bridge.getSnapshot().catch(() => null)
-    if (!latest || !isApplicationAudioSnapshot(latest) || !latest.supported) {
-      disableApplicationAudio()
-      return
-    }
-    if (latest.sessionId) {
-      await connected.bridge.stop(latest.sessionId).catch(() => undefined)
-      applicationAudioState.value = 'idle'
-      applicationAudioSessionId.value = null
-    } else {
-      applyApplicationAudioSnapshot(latest)
-    }
-    window.addEventListener('pagehide', handleApplicationAudioPageHide)
-  }
-
-  async function startApplicationAudio() {
-    const app = useAppStore()
-    if (!applicationAudioInitialized) await initializeApplicationAudio()
-    if (!applicationAudioBridge || !applicationAudioSupported.value || applicationAudioOperating.value) return false
-    if (!room || status.value !== 'connected' || app.user?.voiceMuted || deafened.value) {
-      applicationAudioError.value = '请先连接语音频道并取消耳机静音'
-      return false
-    }
-    if (applicationAudioSessionId.value) return true
-    const target = room
-    const session = voiceSession
-    const generation = ++applicationAudioGeneration
-    let startedSessionId: string | null = null
-    applicationAudioOperating.value = true
-    applicationAudioState.value = 'selecting'
-    applicationAudioError.value = ''
-    const pipeline = new ApplicationAudioPipeline()
-    applicationAudioPipeline = pipeline
-    try {
-      const mediaTrack = await pipeline.initialize(applicationAudioVolume.value)
-      if (generation !== applicationAudioGeneration) throw new Error('背景音启动已取消')
-      const snapshot = await applicationAudioBridge.start()
-      if (!isApplicationAudioSnapshot(snapshot)) throw new Error('桌面客户端返回了无效的背景音状态')
-      startedSessionId = snapshot.sessionId
-      if (generation !== applicationAudioGeneration || app.user?.voiceMuted) throw new Error('背景音启动已取消')
-      applyApplicationAudioSnapshot(snapshot)
-      if (isSourcePickerCancellation(snapshot)) {
-        await cleanupApplicationAudioMedia(target)
-        applicationAudioState.value = 'idle'
-        return false
-      }
-      const sessionId = snapshot.sessionId ?? applicationAudioSessionId.value
-      if (!sessionId || !['starting', 'playing', 'paused'].includes(snapshot.state)) {
-        throw applicationAudioSnapshotError(snapshot, '无法启动应用背景音')
-      }
-      applicationAudioSessionId.value = sessionId
-      applicationAudioState.value = snapshot.state
-      const port = await waitForApplicationAudioPort(sessionId)
-      if (generation !== applicationAudioGeneration) {
-        port.close()
-        throw new Error('背景音启动已取消')
-      }
-      if (!pipeline.attachPort(sessionId, port)) throw new Error('背景音 PCM 端口无效')
-      if (room !== target || session !== voiceSession || app.user?.voiceMuted) throw new Error('语音频道已切换')
-      const publication = await target.localParticipant.publishTrack(mediaTrack, applicationAudioPublishOptions())
-      if (room !== target || session !== voiceSession || applicationAudioSessionId.value !== sessionId) {
-        await target.localParticipant.unpublishTrack(publication.track!, false).catch(() => undefined)
-        throw new Error('背景音会话已经失效')
-      }
-      applicationAudioPublication = publication
-      applicationAudioTrack = publication.audioTrack ?? null
-      if (snapshot.state === 'paused') await publication.mute()
-      syncParticipants()
-      return true
-    } catch (error) {
-      if (!applicationAudioError.value) applicationAudioError.value = applicationAudioErrorMessage(error)
-      const sessionId = startedSessionId ?? applicationAudioSessionId.value
-      if (sessionId) await applicationAudioBridge.stop(sessionId).catch(() => undefined)
-      await cleanupApplicationAudioMedia(target)
-      applicationAudioState.value = 'idle'
-      return false
-    } finally {
-      applicationAudioOperating.value = false
-    }
-  }
-
-  async function pauseApplicationAudio(autoPaused = false) {
-    if (!applicationAudioBridge || !applicationAudioSessionId.value || applicationAudioState.value !== 'playing') return false
-    if (applicationAudioOperating.value) return false
-    applicationAudioOperating.value = true
-    applicationAudioError.value = ''
-    const sessionId = applicationAudioSessionId.value
-    const generation = applicationAudioGeneration
-    try {
-      const snapshot = await applicationAudioBridge.pause(sessionId)
-      if (!isApplicationAudioSnapshot(snapshot)) throw new Error('桌面客户端返回了无效的背景音状态')
-      if (applicationAudioSessionId.value !== sessionId || generation !== applicationAudioGeneration) return false
-      applyApplicationAudioSnapshot(snapshot)
-      await applicationAudioPublication?.mute()
-      applicationAudioPipeline?.reset(sessionId)
-      applicationAudioState.value = 'paused'
-      applicationAudioAutoPaused = autoPaused
-      syncParticipants()
-      return true
-    } catch (error) {
-      applicationAudioError.value = applicationAudioErrorMessage(error)
-      if (autoPaused) await stopApplicationAudio()
-      return false
-    } finally {
-      applicationAudioOperating.value = false
-    }
-  }
-
-  async function resumeApplicationAudio(autoResume = false) {
-    if (!applicationAudioBridge || !applicationAudioSessionId.value || applicationAudioState.value !== 'paused') return false
-    if (applicationAudioOperating.value) return false
-    applicationAudioOperating.value = true
-    applicationAudioError.value = ''
-    const sessionId = applicationAudioSessionId.value
-    const generation = applicationAudioGeneration
-    try {
-      const snapshot = await applicationAudioBridge.resume(sessionId)
-      if (!isApplicationAudioSnapshot(snapshot)) throw new Error('桌面客户端返回了无效的背景音状态')
-      if (applicationAudioSessionId.value !== sessionId || generation !== applicationAudioGeneration) return false
-      applyApplicationAudioSnapshot(snapshot)
-      await applicationAudioPublication?.unmute()
-      applicationAudioState.value = 'playing'
-      applicationAudioAutoPaused = false
-      syncParticipants()
-      return true
-    } catch (error) {
-      applicationAudioError.value = applicationAudioErrorMessage(error)
-      if (autoResume) applicationAudioAutoPaused = false
-      return false
-    } finally {
-      applicationAudioOperating.value = false
-    }
-  }
-
-  async function stopApplicationAudio() {
-    applicationAudioGeneration += 1
-    const bridge = applicationAudioBridge
-    const sessionId = applicationAudioSessionId.value
-    if (!sessionId && !applicationAudioPipeline && !applicationAudioTrack) return
-    applicationAudioState.value = 'stopping'
-    applicationAudioAutoPaused = false
-    const target = room
-    await cleanupApplicationAudioMedia(target)
-    if (bridge && sessionId) await bridge.stop(sessionId).catch(() => undefined)
-    applicationAudioState.value = applicationAudioSupported.value ? 'idle' : 'unsupported'
-    syncParticipants()
-  }
-
-  function setApplicationAudioVolume(value: number) {
-    const normalized = clampApplicationAudioVolume(value)
-    applicationAudioVolume.value = normalized
-    localStorage.setItem(APPLICATION_AUDIO_VOLUME_KEY, String(normalized))
-    applicationAudioPipeline?.setVolume(normalized)
-  }
-
-  function applyApplicationAudioSnapshot(snapshot: ApplicationAudioSnapshot) {
-    if (snapshot.revision < applicationAudioRevision) return
-    if (applicationAudioSessionId.value && snapshot.sessionId && snapshot.sessionId !== applicationAudioSessionId.value) return
-    if (!applicationAudioSessionId.value && snapshot.sessionId && !['selecting', 'starting'].includes(applicationAudioState.value)) return
-    applicationAudioRevision = snapshot.revision
-    if (!snapshot.supported) {
-      disableApplicationAudio()
-      return
-    }
-    applicationAudioSupported.value = true
-    if (snapshot.sessionId) applicationAudioSessionId.value = snapshot.sessionId
-    applicationAudioState.value = snapshot.state
-    if (snapshot.error && snapshot.error.code !== 'source_picker_cancelled') {
-      applicationAudioError.value = applicationAudioErrorMessage(snapshot.error)
-    }
-    if (snapshot.state === 'playing') void synchronizeApplicationAudioPublication(false)
-    if (snapshot.state === 'paused') void synchronizeApplicationAudioPublication(true)
-    if (snapshot.state === 'error' || (snapshot.state === 'idle' && applicationAudioSessionId.value)) {
-      void cleanupApplicationAudioMedia(room)
-      applicationAudioState.value = 'idle'
-    }
-  }
-
-  function handleApplicationAudioPcmPort(event: { sessionId: string; port: MessagePort }) {
-    if (pendingApplicationAudioPortWaiter?.sessionId === event.sessionId) {
-      const waiter = pendingApplicationAudioPortWaiter
-      pendingApplicationAudioPortWaiter = null
-      window.clearTimeout(waiter.timer)
-      waiter.resolve(event.port)
-      return
-    }
-    if (applicationAudioPipeline?.hasAttachedPort(event.sessionId)) {
-      event.port.close()
-      return
-    }
-    if ((!applicationAudioSessionId.value && ['selecting', 'starting'].includes(applicationAudioState.value)) || applicationAudioSessionId.value === event.sessionId) {
-      pendingApplicationAudioPort?.port.close()
-      pendingApplicationAudioPort = event
-      return
-    }
-    event.port.close()
-  }
-
-  function waitForApplicationAudioPort(sessionId: string) {
-    if (pendingApplicationAudioPort?.sessionId === sessionId) {
-      const port = pendingApplicationAudioPort.port
-      pendingApplicationAudioPort = null
-      return Promise.resolve(port)
-    }
-    pendingApplicationAudioPort?.port.close()
-    pendingApplicationAudioPort = null
-    return new Promise<MessagePort>((resolve, reject) => {
-      const timer = window.setTimeout(() => {
-        if (pendingApplicationAudioPortWaiter?.sessionId === sessionId) pendingApplicationAudioPortWaiter = null
-        reject(new Error('等待背景音 PCM 端口超时'))
-      }, APPLICATION_AUDIO_PORT_TIMEOUT_MS)
-      pendingApplicationAudioPortWaiter = { sessionId, resolve, reject, timer }
-    })
-  }
-
-  async function cleanupApplicationAudioMedia(target: Room | null) {
-    rejectPendingApplicationAudioPort()
-    pendingApplicationAudioPort?.port.close()
-    pendingApplicationAudioPort = null
-    const publication = applicationAudioPublication
-    applicationAudioPublication = null
-    applicationAudioTrack = null
-    if (target && publication?.track) {
-      await target.localParticipant.unpublishTrack(publication.track, false).catch(() => undefined)
-    }
-    const pipeline = applicationAudioPipeline
-    applicationAudioPipeline = null
-    await pipeline?.destroy()
-    applicationAudioSessionId.value = null
-    applicationAudioAutoPaused = false
-  }
-
-  async function synchronizeApplicationAudioPublication(muted: boolean) {
-    const publication = applicationAudioPublication
-    if (!publication || publication.isMuted === muted) return
-    try {
-      if (muted) await publication.mute()
-      else await publication.unmute()
-      syncParticipants()
-    } catch {
-      applicationAudioError.value = '无法同步背景音播放状态'
-    }
-  }
-
-  function rejectPendingApplicationAudioPort() {
-    const waiter = pendingApplicationAudioPortWaiter
-    if (!waiter) return
-    pendingApplicationAudioPortWaiter = null
-    window.clearTimeout(waiter.timer)
-    waiter.reject(new Error('背景音会话已经停止'))
-  }
-
-  function disableApplicationAudio() {
-    applicationAudioSupported.value = false
-    applicationAudioState.value = 'unsupported'
-    removeApplicationAudioSnapshotListener?.()
-    removeApplicationAudioPcmListener?.()
-    removeApplicationAudioSnapshotListener = null
-    removeApplicationAudioPcmListener = null
-    applicationAudioBridge = null
-    window.removeEventListener('pagehide', handleApplicationAudioPageHide)
-    void cleanupApplicationAudioMedia(room)
-  }
-
-  function handleApplicationAudioPageHide() {
-    const bridge = applicationAudioBridge
-    const sessionId = applicationAudioSessionId.value
-    if (bridge && sessionId) void bridge.stop(sessionId)
-  }
-
   function setConnectedChannelSettings(channel: Channel) {
     connectedPublishSettings.value = {
       audioBitrateKbps: channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS,
@@ -993,13 +660,13 @@ export const useVoiceStore = defineStore('voice', () => {
     transmissionModeChanging,
     transmissionModeError,
     dtxEnabled,
-    applicationAudioSupported,
-    applicationAudioState,
-    applicationAudioError,
-    applicationAudioVolume,
-    applicationAudioActive,
-    applicationAudioPlaying,
-    applicationAudioChanging,
+    applicationAudioSupported: appAudio.applicationAudioSupported,
+    applicationAudioState: appAudio.applicationAudioState,
+    applicationAudioError: appAudio.applicationAudioError,
+    applicationAudioVolume: appAudio.applicationAudioVolume,
+    applicationAudioActive: appAudio.applicationAudioActive,
+    applicationAudioPlaying: appAudio.applicationAudioPlaying,
+    applicationAudioChanging: appAudio.applicationAudioChanging,
     joined,
     join,
     leave,
@@ -1018,12 +685,12 @@ export const useVoiceStore = defineStore('voice', () => {
     setEchoCancellation,
     setNoiseSuppression,
     toggleTransmissionMode,
-    initializeApplicationAudio,
-    startApplicationAudio,
-    pauseApplicationAudio,
-    resumeApplicationAudio,
-    stopApplicationAudio,
-    setApplicationAudioVolume,
+    initializeApplicationAudio: appAudio.initializeApplicationAudio,
+    startApplicationAudio: appAudio.startApplicationAudio,
+    pauseApplicationAudio: appAudio.pauseApplicationAudio,
+    resumeApplicationAudio: appAudio.resumeApplicationAudio,
+    stopApplicationAudio: appAudio.stopApplicationAudio,
+    setApplicationAudioVolume: appAudio.setApplicationAudioVolume,
     applyPublishSettingsChange,
     updateConnectedChannelSettings,
     syncServerMute,
