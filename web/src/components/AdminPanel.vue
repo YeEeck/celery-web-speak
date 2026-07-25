@@ -160,10 +160,22 @@ async function deleteChannel() {
   }, '频道已永久删除')
 }
 
-function canModerate(user: User) {
-  if (user.role === 'owner') return false
-  return app.isPlatformAdmin || serverContext.value?.role === 'owner' || user.role === 'member'
-}
+const moderationPermission = computed(() => {
+  const target = selectedUser.value
+  if (!serverContext.value || !target) return { allowed: false, reason: '' }
+  if (target.role === 'owner') {
+    return {
+      allowed: false,
+      reason: app.isPlatformAdmin
+        ? '服务器所有者不能在成员管理中被审核；如需更换所有者，请使用所有权转让。'
+        : '服务器管理员不能管理服务器所有者。',
+    }
+  }
+  if (target.role === 'admin' && !app.isPlatformAdmin && serverContext.value.role !== 'owner') {
+    return { allowed: false, reason: '服务器管理员不能管理其他管理员。' }
+  }
+  return { allowed: true, reason: '' }
+})
 
 async function setMute(kind: 'voice' | 'text', value: boolean) {
   const target = selectedUser.value
@@ -464,7 +476,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
           </aside>
           <div v-if="selectedUser" ref="userDetail" class="user-admin-detail">
             <header><UserAvatar :name="selectedUser.displayName" :size="48" /><div><h3>{{ selectedUser.displayName }}</h3><p>@{{ selectedUser.username }}</p></div></header>
-            <template v-if="serverContext && canModerate(selectedUser)">
+            <template v-if="serverContext && moderationPermission.allowed">
               <div class="toggle-list">
                 <label><span>语音禁言</span><input type="checkbox" :checked="selectedUser.voiceMuted" @change="setMute('voice', ($event.target as HTMLInputElement).checked)" /></label>
                 <label><span>文字禁言</span><input type="checkbox" :checked="selectedUser.textMuted" @change="setMute('text', ($event.target as HTMLInputElement).checked)" /></label>
@@ -474,7 +486,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
               <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '解除服务器永久封禁' : '服务器永久封禁' }}</button>
               <button class="secondary-button danger-text" @click="removeMember"><UserMinus :size="16" />移出服务器</button>
             </template>
-            <p v-else-if="serverContext" class="permission-note"><ShieldCheck :size="17" />服务器管理员不能管理其他管理员。</p>
+            <p v-else-if="serverContext && moderationPermission.reason" class="permission-note"><ShieldCheck :size="17" />{{ moderationPermission.reason }}</p>
 
             <template v-if="serverContext && canManageRoles && selectedUser.role !== 'owner'">
               <label><span>服务器角色</span><select :value="selectedUser.role" @change="setRole(($event.target as HTMLSelectElement).value as GuildRole)"><option value="member">普通成员</option><option value="admin">服务器管理员</option></select></label>
