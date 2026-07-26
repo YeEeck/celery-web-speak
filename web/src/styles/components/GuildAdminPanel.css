@@ -1,4 +1,5 @@
 .channel-settings { max-width: 620px; border: 0; }
+.guild-settings { max-width: 620px; border: 0; }
 .guild-rename-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .channel-create-row { display: grid; grid-template-columns: 132px minmax(0,1fr) auto; gap: 8px; align-items: end; }
 .channel-create-row .primary-button { min-width: 92px; }

@@ -646,6 +646,7 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
   await expect(page.getByText(message)).toBeVisible()
 
   await openGuildAdmin(page)
+  await page.locator('.admin-tabs').getByRole('button', { name: '频道', exact: true }).click()
   await page.getByLabel('选择频道').selectOption({ label: '语音 语音频道' })
   await expect(page.getByText('Opus 发送码率')).toBeVisible()
   await expect(page.getByLabel('语音 RED 丢包冗余')).toBeChecked()
@@ -746,6 +747,36 @@ test('服务器所有者兼平台管理员显示双重角色副标题', async ({
   await expect(page.locator('.admin-panel .panel-header p')).toHaveText('服务器所有者 · 平台管理员')
 })
 
+test('服务器 Tab 仅所有者可见且为默认页签', async ({ page, isMobile }) => {
+  test.skip(isMobile, '桌面项目覆盖 Tab 可见性逻辑')
+  await openGuildAdmin(page)
+  await expect(page.getByRole('button', { name: '服务器', exact: true })).toHaveClass(/active/)
+  await expect(page.getByRole('button', { name: '频道', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '成员', exact: true })).toBeVisible()
+  await expect(page.getByLabel('服务器名称')).toBeVisible()
+  await page.getByTitle('关闭').last().click()
+
+  await page.routeWebSocket(/\/api\/ws\?/, () => {})
+  await page.route('**/api/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    await route.fulfill({
+      response,
+      json: {
+        ...payload,
+        user: { ...payload.user, isPlatformAdmin: false },
+        guilds: payload.guilds.map((guild: { joined: boolean }) => guild.joined ? { ...guild, role: 'admin' } : guild),
+      },
+    })
+  })
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+  await openGuildAdmin(page)
+  await expect(page.getByRole('button', { name: '服务器', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '频道', exact: true })).toHaveClass(/active/)
+  await expect(page.getByLabel('选择频道')).toBeVisible()
+})
+
 test('WebSocket 重同步的旧响应不会覆盖同一服务器的新状态', async ({ page, request, isMobile }) => {
   test.skip(isMobile, '桌面项目覆盖服务器切换的可控乱序响应')
   await request.post('/api/auth/login', { data: { username, password } })
@@ -818,6 +849,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   const channelName = `项目频道${Date.now().toString(36).slice(-5)}`
   const channelMessage = `频道隔离检查 ${Date.now()}`
   await openGuildAdmin(page)
+  await page.locator('.admin-tabs').getByRole('button', { name: '频道', exact: true }).click()
   await page.getByLabel('新频道名称').fill(channelName)
   await page.getByRole('button', { name: '创建', exact: true }).click()
   await expect(page.getByLabel('选择频道')).toHaveValue(/\d+/)
@@ -837,6 +869,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   await expect(page.getByText(channelMessage, { exact: true })).toHaveCount(0)
 
   await openGuildAdmin(page)
+  await page.locator('.admin-tabs').getByRole('button', { name: '频道', exact: true }).click()
   await page.getByLabel('选择频道').selectOption({ label: `# ${channelName}` })
   page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: '永久删除', exact: true }).click()
