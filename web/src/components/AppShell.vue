@@ -420,7 +420,7 @@ function closeChangelog() {
           <span>
             <strong>{{ voice.status === 'connecting' ? '正在连接' : voice.status === 'connected' ? '语音已连接' : '正在重连' }}</strong>
             <small class="voice-connection-detail">
-              <span class="voice-connection-location">{{ voice.connectedServerName }} / {{ voice.connectedChannelName }}</span>
+              <span class="voice-connection-location">{{ voice.connectedGuildName }} / {{ voice.connectedChannelName }}</span>
               <span class="voice-connection-bitrate">· {{ voice.connectedAudioBitrateKbps }} kbps</span>
             </small>
           </span>
