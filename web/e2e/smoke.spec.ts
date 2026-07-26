@@ -316,6 +316,7 @@ test('离线语音快捷控制可调音量、选择设备并直达设置', async
   await microphone.hover()
   const microphoneVolume = toolbar.getByRole('slider', { name: '麦克风增益', exact: true })
   await expect(microphoneVolume).toBeVisible()
+  await expect(toolbar.locator('#microphone-volume-popover > svg')).toHaveCount(0)
   await microphoneVolume.fill('2.25')
   await expect(toolbar.getByText('225%', { exact: true })).toBeVisible()
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.microphoneGain'))).toBe('2.25')
@@ -341,6 +342,11 @@ test('离线语音快捷控制可调音量、选择设备并直达设置', async
   await page.keyboard.press('Escape')
   await expect(inputMenu).toBeHidden()
   await expect(microphone).toBeFocused()
+
+  await headphones.hover()
+  const outputVolume = toolbar.getByRole('slider', { name: '扬声器音量', exact: true })
+  await expect(outputVolume).toBeVisible()
+  await expect(toolbar.locator('#output-volume-popover > svg')).toHaveCount(0)
 
   await headphones.click({ button: 'right' })
   const outputMenu = page.getByRole('menu', { name: '输出设备', exact: true })

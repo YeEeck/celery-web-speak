@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { AudioLines, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RadioTower, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
+import { AudioLines, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RadioTower, RefreshCw, Square, VolumeX } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
 import VoiceDeviceMenu from './VoiceDeviceMenu.vue'
@@ -221,7 +221,6 @@ onBeforeUnmount(() => {
         >
           <output>{{ Math.round(voice.microphoneGain * 100) }}%</output>
           <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" aria-label="麦克风增益" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
-          <Mic :size="14" aria-hidden="true" />
         </section>
       </div>
       <div
@@ -256,7 +255,6 @@ onBeforeUnmount(() => {
         >
           <output>{{ Math.round(voice.outputVolume * 100) }}%</output>
           <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" aria-label="扬声器音量" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
-          <Volume2 :size="14" aria-hidden="true" />
         </section>
       </div>
       <button
