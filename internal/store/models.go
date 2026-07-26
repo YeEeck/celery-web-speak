@@ -82,7 +82,7 @@ type User struct {
 
 type Channel struct {
 	ID                         int64       `json:"id"`
-	GuildID                    int64       `json:"serverId"`
+	GuildID                    int64       `json:"guildId"`
 	Type                       ChannelType `json:"type"`
 	Name                       string      `json:"name"`
 	AudioBitrateKbps           int         `json:"audioBitrateKbps,omitempty"`

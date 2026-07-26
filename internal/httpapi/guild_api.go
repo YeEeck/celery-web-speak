@@ -15,9 +15,9 @@ type guildContextKey int
 const guildMembershipContextKey guildContextKey = iota
 
 func guildIDFromRequest(r *http.Request) (int64, error) {
-	id, err := strconv.ParseInt(r.PathValue("serverID"), 10, 64)
+	id, err := strconv.ParseInt(r.PathValue("guildID"), 10, 64)
 	if err != nil || id < 1 {
-		return 0, errors.New("invalid server id")
+		return 0, errors.New("invalid guild id")
 	}
 	return id, nil
 }
@@ -36,14 +36,14 @@ func (s *Server) requireGuildMember(next http.Handler) http.Handler {
 		member, err := s.store.GuildMembership(r.Context(), guildID, currentUser(r).ID)
 		if err != nil {
 			if currentUser(r).IsPlatformAdmin {
-				writeError(w, http.StatusForbidden, "server_membership_required", "请先加入该服务器")
+				writeError(w, http.StatusForbidden, "guild_membership_required", "请先加入该服务器")
 				return
 			}
 			writeError(w, http.StatusNotFound, "not_found", "服务器不存在")
 			return
 		}
 		if member.PermanentlyBanned || (member.TemporaryBanUntil != nil && member.TemporaryBanUntil.After(time.Now())) {
-			writeError(w, http.StatusForbidden, "server_banned", "你当前无法访问该服务器")
+			writeError(w, http.StatusForbidden, "guild_banned", "你当前无法访问该服务器")
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(withGuildMembership(r.Context(), member)))
@@ -74,16 +74,16 @@ func (s *Server) requirePlatformAdmin(next http.Handler) http.Handler {
 	}))
 }
 
-func (s *Server) handlePlatformServers(w http.ResponseWriter, r *http.Request) {
-	servers, err := s.store.ListGuildsForUser(r.Context(), currentUser(r).ID, true)
+func (s *Server) handlePlatformGuilds(w http.ResponseWriter, r *http.Request) {
+	guilds, err := s.store.ListGuildsForUser(r.Context(), currentUser(r).ID, true)
 	if err != nil {
-		s.internalError(w, "list platform servers", err)
+		s.internalError(w, "list platform guilds", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"servers": servers})
+	writeJSON(w, http.StatusOK, map[string]any{"guilds": guilds})
 }
 
-func (s *Server) handlePlatformCreateServer(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePlatformCreateGuild(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Name          string `json:"name"`
 		OwnerUsername string `json:"ownerUsername"`
@@ -97,18 +97,18 @@ func (s *Server) handlePlatformCreateServer(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	s.hub.AddUserGuild(guild.OwnerUserID, guild.ID)
-	writeJSON(w, http.StatusCreated, map[string]any{"server": guild})
+	writeJSON(w, http.StatusCreated, map[string]any{"guild": guild})
 }
 
-func (s *Server) handlePlatformRenameServer(w http.ResponseWriter, r *http.Request) {
-	guildID, ok := parsePathID(w, r, "serverID")
+func (s *Server) handlePlatformRenameGuild(w http.ResponseWriter, r *http.Request) {
+	guildID, ok := parsePathID(w, r, "guildID")
 	if !ok {
 		return
 	}
-	s.renameServer(w, r, guildID)
+	s.renameGuild(w, r, guildID)
 }
 
-func (s *Server) handlePlatformJoinServer(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePlatformJoinGuild(w http.ResponseWriter, r *http.Request) {
 	guildID, err := guildIDFromRequest(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_id", "服务器编号无效")
@@ -127,7 +127,7 @@ func (s *Server) handlePlatformJoinServer(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
 
-func (s *Server) handlePlatformServerOwner(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePlatformGuildOwner(w http.ResponseWriter, r *http.Request) {
 	guildID, err := guildIDFromRequest(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_id", "服务器编号无效")
@@ -144,15 +144,15 @@ func (s *Server) handlePlatformServerOwner(w http.ResponseWriter, r *http.Reques
 		s.writeStoreError(w, err)
 		return
 	}
-	s.hub.BroadcastGuild(guildID, "server_updated", transfer.Guild)
+	s.hub.BroadcastGuild(guildID, "guild_updated", transfer.Guild)
 	s.hub.BroadcastGuild(guildID, "member_updated", transfer.PreviousOwner)
 	if transfer.NewOwner.UserID != transfer.PreviousOwner.UserID {
 		s.hub.BroadcastGuild(guildID, "member_updated", transfer.NewOwner)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"server": transfer.Guild})
+	writeJSON(w, http.StatusOK, map[string]any{"guild": transfer.Guild})
 }
 
-func (s *Server) handlePlatformDeleteServer(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePlatformDeleteGuild(w http.ResponseWriter, r *http.Request) {
 	guildID, err := guildIDFromRequest(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_id", "服务器编号无效")
@@ -169,12 +169,12 @@ func (s *Server) handlePlatformDeleteServer(w http.ResponseWriter, r *http.Reque
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	if err := s.media.RemoveGuildParticipants(ctx, guildID); err != nil {
-		s.logger.Warn("remove deleted server voice participants", "guild_id", guildID, "error", err)
+		s.logger.Warn("remove deleted guild voice participants", "guild_id", guildID, "error", err)
 	}
 	for _, channel := range channels {
 		if channel.Type == store.ChannelTypeVoice {
 			if err := s.media.DeleteGuildRoom(ctx, guildID, channel.ID); err != nil {
-				s.logger.Warn("delete deleted server voice room", "guild_id", guildID, "channel_id", channel.ID, "error", err)
+				s.logger.Warn("delete deleted guild voice room", "guild_id", guildID, "channel_id", channel.ID, "error", err)
 			}
 		}
 	}
@@ -183,21 +183,21 @@ func (s *Server) handlePlatformDeleteServer(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleServerBootstrap(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildBootstrap(w http.ResponseWriter, r *http.Request) {
 	guildID := guildMembership(r).GuildID
 	channels, err := s.store.ListGuildChannels(r.Context(), guildID)
 	if err != nil {
-		s.internalError(w, "list server channels", err)
+		s.internalError(w, "list guild channels", err)
 		return
 	}
 	members, err := s.store.ListGuildMembers(r.Context(), guildID)
 	if err != nil {
-		s.internalError(w, "list server members", err)
+		s.internalError(w, "list guild members", err)
 		return
 	}
 	readStates, err := s.store.ListChannelReadStates(r.Context(), currentUser(r).ID)
 	if err != nil {
-		s.internalError(w, "list server read states", err)
+		s.internalError(w, "list guild read states", err)
 		return
 	}
 	filteredRead := make([]store.ChannelReadState, 0, len(readStates))
@@ -214,7 +214,7 @@ func (s *Server) handleServerBootstrap(w http.ResponseWriter, r *http.Request) {
 			filteredVoice = append(filteredVoice, room)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"server": s.mustGuild(r, guildID), "membership": guildMembership(r), "members": members, "channels": channels, "channelReadStates": filteredRead, "online": s.hub.OnlineGuildClients(guildID), "voiceRooms": filteredVoice})
+	writeJSON(w, http.StatusOK, map[string]any{"guild": s.mustGuild(r, guildID), "membership": guildMembership(r), "members": members, "channels": channels, "channelReadStates": filteredRead, "online": s.hub.OnlineGuildClients(guildID), "voiceRooms": filteredVoice})
 }
 
 func (s *Server) mustGuild(r *http.Request, id int64) store.Guild {
@@ -222,16 +222,16 @@ func (s *Server) mustGuild(r *http.Request, id int64) store.Guild {
 	return guild
 }
 
-func (s *Server) handleServerRename(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildRename(w http.ResponseWriter, r *http.Request) {
 	guildID := guildMembership(r).GuildID
 	if guildMembership(r).Role != store.GuildRoleOwner && !currentUser(r).IsPlatformAdmin {
 		writeError(w, http.StatusForbidden, "forbidden", "只有服务器所有者可以重命名")
 		return
 	}
-	s.renameServer(w, r, guildID)
+	s.renameGuild(w, r, guildID)
 }
 
-func (s *Server) renameServer(w http.ResponseWriter, r *http.Request, guildID int64) {
+func (s *Server) renameGuild(w http.ResponseWriter, r *http.Request, guildID int64) {
 	var input struct {
 		Name string `json:"name"`
 	}
@@ -243,20 +243,20 @@ func (s *Server) renameServer(w http.ResponseWriter, r *http.Request, guildID in
 		s.writeStoreError(w, err)
 		return
 	}
-	s.hub.BroadcastGuild(guildID, "server_updated", guild)
-	writeJSON(w, http.StatusOK, map[string]any{"server": guild})
+	s.hub.BroadcastGuild(guildID, "guild_updated", guild)
+	writeJSON(w, http.StatusOK, map[string]any{"guild": guild})
 }
 
-func (s *Server) handleServerMembers(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildMembers(w http.ResponseWriter, r *http.Request) {
 	members, err := s.store.ListGuildMembers(r.Context(), guildMembership(r).GuildID)
 	if err != nil {
-		s.internalError(w, "list server members", err)
+		s.internalError(w, "list guild members", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"members": members})
 }
 
-func (s *Server) handleServerAddMember(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildAddMember(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Username string `json:"username"`
 	}
@@ -273,7 +273,7 @@ func (s *Server) handleServerAddMember(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"member": member})
 }
 
-func (s *Server) handleServerRemoveMember(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildRemoveMember(w http.ResponseWriter, r *http.Request) {
 	userID, ok := parsePathID(w, r, "userID")
 	if !ok {
 		return
@@ -296,7 +296,7 @@ func (s *Server) handleServerRemoveMember(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleServerMemberRole(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildMemberRole(w http.ResponseWriter, r *http.Request) {
 	if guildMembership(r).Role != store.GuildRoleOwner && !currentUser(r).IsPlatformAdmin {
 		writeError(w, http.StatusForbidden, "forbidden", "只有所有者可以管理服务器管理员")
 		return
@@ -333,7 +333,7 @@ func (s *Server) guildCanManageTarget(w http.ResponseWriter, r *http.Request, ta
 	return true
 }
 
-func (s *Server) handleServerMemberMute(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildMemberMute(w http.ResponseWriter, r *http.Request) {
 	targetID, ok := parsePathID(w, r, "userID")
 	if !ok {
 		return
@@ -355,13 +355,13 @@ func (s *Server) handleServerMemberMute(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.media.SetGuildCanPublish(r.Context(), targetID, guildID, !input.VoiceMuted); err != nil {
-		s.logger.Warn("sync server voice mute", "guild_id", guildID, "user_id", targetID, "error", err)
+		s.logger.Warn("sync guild voice mute", "guild_id", guildID, "user_id", targetID, "error", err)
 	}
 	s.hub.BroadcastGuild(guildID, "member_updated", member)
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
 
-func (s *Server) handleServerMemberBan(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildMemberBan(w http.ResponseWriter, r *http.Request) {
 	targetID, ok := parsePathID(w, r, "userID")
 	if !ok {
 		return
@@ -393,7 +393,7 @@ func (s *Server) handleServerMemberBan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
 
-func (s *Server) handleServerClearTemporaryBan(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildClearTemporaryBan(w http.ResponseWriter, r *http.Request) {
 	targetID, ok := parsePathID(w, r, "userID")
 	if !ok {
 		return
@@ -414,7 +414,7 @@ func (s *Server) handleServerClearTemporaryBan(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
 }
 
-func (s *Server) handleServerLeave(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildLeave(w http.ResponseWriter, r *http.Request) {
 	member := guildMembership(r)
 	if err := s.store.RemoveGuildMember(r.Context(), member.GuildID, currentUser(r).ID, currentUser(r).ID); err != nil {
 		s.writeStoreError(w, err)
@@ -426,7 +426,7 @@ func (s *Server) handleServerLeave(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleServerChannels(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildChannels(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Type store.ChannelType `json:"type"`
 		Name string            `json:"name"`
@@ -443,7 +443,7 @@ func (s *Server) handleServerChannels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"channel": channel})
 }
 
-func (s *Server) handleServerUpdateChannel(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildUpdateChannel(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "channelID")
 	if !ok {
 		return
@@ -479,7 +479,7 @@ func (s *Server) handleServerUpdateChannel(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"channel": channel})
 }
 
-func (s *Server) handleServerDeleteChannel(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildDeleteChannel(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "channelID")
 	if !ok {
 		return
@@ -496,7 +496,7 @@ func (s *Server) handleServerDeleteChannel(w http.ResponseWriter, r *http.Reques
 	if channel.Type == store.ChannelTypeVoice {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		if err := s.media.DeleteGuildRoom(ctx, channel.GuildID, channel.ID); err != nil {
-			s.logger.Warn("delete server voice room", "guild_id", channel.GuildID, "channel_id", channel.ID, "error", err)
+			s.logger.Warn("delete guild voice room", "guild_id", channel.GuildID, "channel_id", channel.ID, "error", err)
 		}
 		cancel()
 	}
@@ -504,7 +504,7 @@ func (s *Server) handleServerDeleteChannel(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]any{"channel": channel})
 }
 
-func (s *Server) handleServerMessages(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildMessages(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "channelID")
 	if !ok {
 		return
@@ -519,7 +519,7 @@ func (s *Server) handleServerMessages(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"messages": messages, "hasMore": more})
 }
 
-func (s *Server) handleServerCreateMessage(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildCreateMessage(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "channelID")
 	if !ok {
 		return
@@ -547,7 +547,7 @@ func (s *Server) handleServerCreateMessage(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, map[string]any{"message": message})
 }
 
-func (s *Server) handleServerDeleteMessage(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "channelID")
 	if !ok {
 		return
@@ -568,7 +568,7 @@ func (s *Server) handleServerDeleteMessage(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleServerRead(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildRead(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "channelID")
 	if !ok {
 		return
@@ -586,7 +586,7 @@ func (s *Server) handleServerRead(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"readState": state})
 }
 
-func (s *Server) handleServerVoiceToken(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildVoiceToken(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "channelID")
 	if !ok {
 		return
@@ -608,13 +608,13 @@ func (s *Server) handleServerVoiceToken(w http.ResponseWriter, r *http.Request) 
 	}
 	credentials, err := s.media.JoinGuildCredentials(r.Context(), currentUser(r), guildMembership(r), channelID, input.Deafened)
 	if err != nil {
-		s.internalError(w, "create server voice token", err)
+		s.internalError(w, "create guild voice token", err)
 		return
 	}
 	writeJSON(w, http.StatusOK, credentials)
 }
 
-func (s *Server) handleServerVoiceState(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildVoiceState(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "channelID")
 	if !ok {
 		return
@@ -636,14 +636,14 @@ func (s *Server) handleServerVoiceState(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleServerVoiceLeave(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGuildVoiceLeave(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	guildID := guildMembership(r).GuildID
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	err := s.media.RemoveParticipantFromGuild(ctx, user.ID, guildID)
 	cancel()
 	if err != nil {
-		s.logger.Warn("remove server voice participant on leave", "guild_id", guildID, "user_id", user.ID, "error", err)
+		s.logger.Warn("remove guild voice participant on leave", "guild_id", guildID, "user_id", user.ID, "error", err)
 	}
 	s.broadcastVoiceRooms(r.Context())
 	w.WriteHeader(http.StatusNoContent)
@@ -653,7 +653,7 @@ func (s *Server) removeFromGuildVoice(r *http.Request, guildID, userID int64) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	if err := s.media.RemoveParticipantFromGuild(ctx, userID, guildID); err != nil {
-		s.logger.Warn("remove server voice participant", "guild_id", guildID, "user_id", userID, "error", err)
+		s.logger.Warn("remove guild voice participant", "guild_id", guildID, "user_id", userID, "error", err)
 	}
 	s.broadcastVoiceRooms(ctx)
 }

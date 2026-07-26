@@ -46,12 +46,12 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	c := newClient(currentUser(r))
 	c.clientType = parseClientKind(r)
-	servers, err := s.store.ListGuildsForUser(r.Context(), c.user.ID, false)
+	guilds, err := s.store.ListGuildsForUser(r.Context(), c.user.ID, false)
 	if err == nil {
-		ids := make([]int64, 0, len(servers))
-		for _, server := range servers {
-			if server.Joined {
-				ids = append(ids, server.ID)
+		ids := make([]int64, 0, len(guilds))
+		for _, guild := range guilds {
+			if guild.Joined {
+				ids = append(ids, guild.ID)
 			}
 		}
 		c.guilds = make(map[int64]struct{}, len(ids))

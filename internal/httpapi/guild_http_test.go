@@ -138,7 +138,7 @@ func TestPlatformAdminCannotSuspendSelf(t *testing.T) {
 	}
 }
 
-func TestServerVoiceLeaveRequiresMembership(t *testing.T) {
+func TestGuildVoiceLeaveRequiresMembership(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()
 	serverID, err := db.DefaultGuildID(ctx)
@@ -157,9 +157,9 @@ func TestServerVoiceLeaveRequiresMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	recorder := serveGuildHTTPRequest(server, token, http.MethodPost, "/api/servers/"+formatID(serverID)+"/voice/leave", "")
+	recorder := serveGuildHTTPRequest(server, token, http.MethodPost, "/api/guilds/"+formatID(serverID)+"/voice/leave", "")
 	if recorder.Code != http.StatusNoContent {
-		t.Fatalf("server voice leave = %d %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("guild voice leave = %d %s", recorder.Code, recorder.Body.String())
 	}
 	owner, err := db.CreateUser(ctx, "voice_leave_owner", "其他服务器所有者", "another-secure-password", store.RoleMember)
 	if err != nil {
@@ -173,9 +173,9 @@ func TestServerVoiceLeaveRequiresMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPost, "/api/servers/"+formatID(other.ID)+"/voice/leave", "")
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "server_membership_required") {
-		t.Fatalf("unjoined server voice leave = %d %s", recorder.Code, recorder.Body.String())
+	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPost, "/api/guilds/"+formatID(other.ID)+"/voice/leave", "")
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "guild_membership_required") {
+		t.Fatalf("unjoined guild voice leave = %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -210,7 +210,7 @@ func TestPlatformResetPasswordRevokesSessions(t *testing.T) {
 	}
 }
 
-func TestServerRenamePermissions(t *testing.T) {
+func TestGuildRenamePermissions(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()
 	owner, err := db.CreateUser(ctx, "rename_owner", "重命名所有者", "another-secure-password", store.RoleMember)
@@ -230,7 +230,7 @@ func TestServerRenamePermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	recorder := serveGuildHTTPRequest(server, adminToken, http.MethodPatch, "/api/platform/servers/"+formatID(guild.ID), `{"name":"平台重命名"}`)
+	recorder := serveGuildHTTPRequest(server, adminToken, http.MethodPatch, "/api/platform/guilds/"+formatID(guild.ID), `{"name":"平台重命名"}`)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("platform rename = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -239,12 +239,12 @@ func TestServerRenamePermissions(t *testing.T) {
 		t.Fatalf("platform renamed guild = %#v, err = %v", updated, err)
 	}
 
-	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/platform/servers/"+formatID(guild.ID), `{"name":"越权重命名"}`)
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/platform/guilds/"+formatID(guild.ID), `{"name":"越权重命名"}`)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("non-platform rename = %d, want 403", recorder.Code)
 	}
 
-	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/servers/"+formatID(guild.ID), `{"name":"所有者重命名"}`)
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/guilds/"+formatID(guild.ID), `{"name":"所有者重命名"}`)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("owner rename = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -283,7 +283,7 @@ func TestTemporarilyBannedPlatformAdminCannotRestoreGuildSubscription(t *testing
 
 	until := time.Now().UTC().Add(time.Hour)
 	banBody := `{"banned":false,"temporaryBanUntil":` + strconv.Quote(until.Format(time.RFC3339)) + `}`
-	recorder := serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/servers/"+formatID(guildID)+"/members/"+formatID(target.ID)+"/ban", banBody)
+	recorder := serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/guilds/"+formatID(guildID)+"/members/"+formatID(target.ID)+"/ban", banBody)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("temporary ban = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -293,7 +293,7 @@ func TestTemporarilyBannedPlatformAdminCannotRestoreGuildSubscription(t *testing
 		t.Fatal("temporarily banned client did not receive server removal")
 	}
 
-	recorder = serveGuildHTTPRequest(server, targetToken, http.MethodPost, "/api/platform/servers/"+formatID(guildID)+"/join", "")
+	recorder = serveGuildHTTPRequest(server, targetToken, http.MethodPost, "/api/platform/guilds/"+formatID(guildID)+"/join", "")
 	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "guild_member_banned") {
 		t.Fatalf("join during temporary ban = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -305,7 +305,7 @@ func TestTemporarilyBannedPlatformAdminCannotRestoreGuildSubscription(t *testing
 	}
 
 	bothBansBody := `{"banned":true,"temporaryBanUntil":` + strconv.Quote(until.Format(time.RFC3339)) + `}`
-	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/servers/"+formatID(guildID)+"/members/"+formatID(target.ID)+"/ban", bothBansBody)
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, "/api/guilds/"+formatID(guildID)+"/members/"+formatID(target.ID)+"/ban", bothBansBody)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("combined ban = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -314,7 +314,7 @@ func TestTemporarilyBannedPlatformAdminCannotRestoreGuildSubscription(t *testing
 	case <-time.After(time.Second):
 		t.Fatal("combined ban did not emit server removal")
 	}
-	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodDelete, "/api/servers/"+formatID(guildID)+"/members/"+formatID(target.ID)+"/temporary-ban", "")
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodDelete, "/api/guilds/"+formatID(guildID)+"/members/"+formatID(target.ID)+"/temporary-ban", "")
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("clear temporary ban = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -326,7 +326,7 @@ func TestTemporarilyBannedPlatformAdminCannotRestoreGuildSubscription(t *testing
 	}
 }
 
-func TestServerLifecycleEventsSynchronizeConnectedMembers(t *testing.T) {
+func TestGuildLifecycleEventsSynchronizeConnectedMembers(t *testing.T) {
 	db, platformAdmin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()
 	previousOwner, err := db.CreateUser(ctx, "lifecycle_previous_owner", "原所有者", "another-secure-password", store.RoleMember)
@@ -350,42 +350,42 @@ func TestServerLifecycleEventsSynchronizeConnectedMembers(t *testing.T) {
 	t.Cleanup(func() { server.hub.unregister(previousConnection, true) })
 
 	createBody := `{"name":"生命周期服务器","ownerUsername":` + strconv.Quote(previousOwner.Username) + `}`
-	recorder := serveGuildHTTPRequest(server, platformToken, http.MethodPost, "/api/platform/servers", createBody)
+	recorder := serveGuildHTTPRequest(server, platformToken, http.MethodPost, "/api/platform/guilds", createBody)
 	if recorder.Code != http.StatusCreated {
-		t.Fatalf("create server = %d %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("create guild = %d %s", recorder.Code, recorder.Body.String())
 	}
 	var created struct {
-		Server store.Guild `json:"server"`
+		Guild store.Guild `json:"guild"`
 	}
 	if err := json.NewDecoder(recorder.Body).Decode(&created); err != nil {
 		t.Fatal(err)
 	}
 	added := readClientEvents(t, previousConnection, 1)[0]
-	if added.Type != "server_added" || added.ServerID != created.Server.ID {
-		t.Fatalf("create event = %+v, want server_added for %d", added, created.Server.ID)
+	if added.Type != "guild_added" || added.GuildID != created.Guild.ID {
+		t.Fatalf("create event = %+v, want guild_added for %d", added, created.Guild.ID)
 	}
 	for _, member := range []store.User{newOwner, observer} {
-		if _, err := db.AddGuildMember(ctx, created.Server.ID, previousOwner.ID, member.Username); err != nil {
+		if _, err := db.AddGuildMember(ctx, created.Guild.ID, previousOwner.ID, member.Username); err != nil {
 			t.Fatal(err)
 		}
 	}
 	newConnection := newClient(newOwner)
-	newConnection.guilds[created.Server.ID] = struct{}{}
+	newConnection.guilds[created.Guild.ID] = struct{}{}
 	server.hub.register(newConnection)
 	t.Cleanup(func() { server.hub.unregister(newConnection, true) })
 	observerConnection := newClient(observer)
-	observerConnection.guilds[created.Server.ID] = struct{}{}
+	observerConnection.guilds[created.Guild.ID] = struct{}{}
 	server.hub.register(observerConnection)
 	t.Cleanup(func() { server.hub.unregister(observerConnection, true) })
 
 	transferBody := `{"userId":` + formatID(newOwner.ID) + `}`
-	recorder = serveGuildHTTPRequest(server, platformToken, http.MethodPatch, "/api/platform/servers/"+formatID(created.Server.ID)+"/owner", transferBody)
+	recorder = serveGuildHTTPRequest(server, platformToken, http.MethodPatch, "/api/platform/guilds/"+formatID(created.Guild.ID)+"/owner", transferBody)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("transfer owner = %d %s", recorder.Code, recorder.Body.String())
 	}
 	for _, connection := range []*client{previousConnection, newConnection, observerConnection} {
 		events := readClientEvents(t, connection, 3)
-		if events[0].Type != "server_updated" || events[1].Type != "member_updated" || events[2].Type != "member_updated" {
+		if events[0].Type != "guild_updated" || events[1].Type != "member_updated" || events[2].Type != "member_updated" {
 			t.Fatalf("transfer event types = %q/%q/%q", events[0].Type, events[1].Type, events[2].Type)
 		}
 		var updatedGuild store.Guild
@@ -431,7 +431,7 @@ func TestGuildMembershipReconcilerRestoresPendingBanAfterRestart(t *testing.T) {
 	go server.RunGuildMembershipReconciler(reconcileContext)
 
 	events := readClientEvents(t, connection, 2)
-	if events[0].Type != "server_added" || events[0].ServerID != guildID || events[1].Type != "member_updated" {
+	if events[0].Type != "guild_added" || events[0].GuildID != guildID || events[1].Type != "member_updated" {
 		t.Fatalf("restore events = %+v", events)
 	}
 	member, err := db.GuildMembership(ctx, guildID, target.ID)
@@ -477,12 +477,12 @@ func TestStaleGuildMembershipRestoreTimerDoesNotOverrideExtendedBan(t *testing.T
 	case <-time.After(200 * time.Millisecond):
 	}
 	events := readClientEvents(t, connection, 2)
-	if events[0].Type != "server_added" || events[1].Type != "member_updated" {
+	if events[0].Type != "guild_added" || events[1].Type != "member_updated" {
 		t.Fatalf("extended restore events = %+v", events)
 	}
 }
 
-func TestServerMemberLeaveAndRemoval(t *testing.T) {
+func TestGuildMemberLeaveAndRemoval(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()
 	guildID, err := db.DefaultGuildID(ctx)
@@ -511,7 +511,7 @@ func TestServerMemberLeaveAndRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	recorder := serveGuildHTTPRequest(server, leavingToken, http.MethodPost, "/api/servers/"+formatID(guildID)+"/leave", "")
+	recorder := serveGuildHTTPRequest(server, leavingToken, http.MethodPost, "/api/guilds/"+formatID(guildID)+"/leave", "")
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("member leave = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -519,12 +519,12 @@ func TestServerMemberLeaveAndRemoval(t *testing.T) {
 		t.Fatalf("leaving membership error = %v, want ErrNotFound", err)
 	}
 
-	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPost, "/api/servers/"+formatID(guildID)+"/leave", "")
+	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPost, "/api/guilds/"+formatID(guildID)+"/leave", "")
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("owner leave = %d, want 400", recorder.Code)
 	}
 
-	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPost, "/api/servers/"+formatID(guildID)+"/members/"+formatID(removed.ID)+"/kick", "")
+	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodPost, "/api/guilds/"+formatID(guildID)+"/members/"+formatID(removed.ID)+"/kick", "")
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("remove member = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -533,7 +533,7 @@ func TestServerMemberLeaveAndRemoval(t *testing.T) {
 	}
 }
 
-func TestGuildAuthorizationDoesNotCrossServerThroughLegacyOrScopedRoutes(t *testing.T) {
+func TestGuildAuthorizationDoesNotCrossGuildThroughLegacyOrScopedRoutes(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()
 	owner, err := db.CreateUser(ctx, "other_owner", "另一个所有者", "another-secure-password", store.RoleMember)
@@ -586,7 +586,7 @@ func TestGuildAuthorizationDoesNotCrossServerThroughLegacyOrScopedRoutes(t *test
 
 	for _, path := range []string{
 		"/api/channels/" + formatID(textChannel.ID) + "/messages",
-		"/api/servers/" + formatID(second.ID) + "/channels/" + formatID(textChannel.ID) + "/messages",
+		"/api/guilds/" + formatID(second.ID) + "/channels/" + formatID(textChannel.ID) + "/messages",
 	} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.AddCookie(&http.Cookie{Name: "test_session", Value: memberToken})
@@ -601,11 +601,11 @@ func TestGuildAuthorizationDoesNotCrossServerThroughLegacyOrScopedRoutes(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/api/servers/"+formatID(second.ID)+"/bootstrap", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/guilds/"+formatID(second.ID)+"/bootstrap", nil)
 	req.AddCookie(&http.Cookie{Name: "test_session", Value: adminToken})
 	recorder := httptest.NewRecorder()
 	server.Handler().ServeHTTP(recorder, req)
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "server_membership_required") {
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "guild_membership_required") {
 		t.Fatalf("unjoined platform admin response = %d %s", recorder.Code, recorder.Body.String())
 	}
 }

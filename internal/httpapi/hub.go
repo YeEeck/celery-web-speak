@@ -12,9 +12,9 @@ import (
 )
 
 type event struct {
-	Type     string `json:"type"`
-	ServerID int64  `json:"serverId,omitempty"`
-	Data     any    `json:"data"`
+	Type    string `json:"type"`
+	GuildID int64  `json:"guildId,omitempty"`
+	Data    any    `json:"data"`
 }
 
 // ClientKind identifies the kind of client a WebSocket connection originates
@@ -280,7 +280,7 @@ func (h *Hub) Broadcast(eventType string, data any) {
 }
 
 func (h *Hub) BroadcastGuild(guildID int64, eventType string, data any) {
-	payload, err := json.Marshal(event{Type: eventType, ServerID: guildID, Data: data})
+	payload, err := json.Marshal(event{Type: eventType, GuildID: guildID, Data: data})
 	if err != nil {
 		return
 	}
@@ -299,7 +299,7 @@ func (h *Hub) BroadcastGuild(guildID int64, eventType string, data any) {
 }
 
 // BroadcastUser sends account changes only to the account's own connections
-// and connections that share at least one subscribed server with it.
+// and connections that share at least one subscribed guild with it.
 func (h *Hub) BroadcastUser(userID int64, eventType string, data any) {
 	payload, err := json.Marshal(event{Type: eventType, Data: data})
 	if err != nil {
@@ -346,7 +346,7 @@ func (h *Hub) AddUserGuild(userID, guildID int64) {
 			continue
 		}
 		c.guilds[guildID] = struct{}{}
-		payload, _ := json.Marshal(event{Type: "server_added", ServerID: guildID, Data: map[string]any{"serverId": guildID}})
+		payload, _ := json.Marshal(event{Type: "guild_added", GuildID: guildID, Data: map[string]any{"guildId": guildID}})
 		select {
 		case c.send <- payload:
 		default:
@@ -367,7 +367,7 @@ func (h *Hub) RemoveUserGuild(userID, guildID int64) {
 			continue
 		}
 		delete(c.guilds, guildID)
-		payload, _ := json.Marshal(event{Type: "server_removed", ServerID: guildID, Data: map[string]any{"serverId": guildID}})
+		payload, _ := json.Marshal(event{Type: "guild_removed", GuildID: guildID, Data: map[string]any{"guildId": guildID}})
 		select {
 		case c.send <- payload:
 		default:
@@ -378,8 +378,8 @@ func (h *Hub) RemoveUserGuild(userID, guildID int64) {
 	h.BroadcastPresence()
 }
 
-// RemoveGuild removes a server subscription from every connected member and
-// sends a targeted server_removed event. It is used when a server is deleted.
+// RemoveGuild removes a guild subscription from every connected member and
+// sends a targeted guild_removed event. It is used when a guild is deleted.
 func (h *Hub) RemoveGuild(guildID int64) {
 	h.mu.Lock()
 	for userID, guilds := range h.memberships {
@@ -393,7 +393,7 @@ func (h *Hub) RemoveGuild(guildID int64) {
 			continue
 		}
 		delete(c.guilds, guildID)
-		payload, _ := json.Marshal(event{Type: "server_removed", ServerID: guildID, Data: map[string]any{"serverId": guildID}})
+		payload, _ := json.Marshal(event{Type: "guild_removed", GuildID: guildID, Data: map[string]any{"guildId": guildID}})
 		select {
 		case c.send <- payload:
 		default:
