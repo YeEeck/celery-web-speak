@@ -221,7 +221,7 @@ test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isM
   const initialConnectionHeight = await connectionPanel.evaluate((element) => element.getBoundingClientRect().height)
   await setSyntheticVoiceConnection(page, {
     status: 'reconnecting',
-    serverName: '很长的测试服务器名称'.repeat(8),
+    guildName: '很长的测试服务器名称'.repeat(8),
     channelName: '很长的测试语音频道名称'.repeat(8),
     audioBitrateKbps: 96,
   })
@@ -474,11 +474,11 @@ test('服务器操作菜单集中展示当前角色可用操作', async ({ page,
   await expect(trigger).toBeFocused()
 
   if (!isMobile) {
-    const serverButton = page.locator('.guild-button').filter({ has: page.locator('.guild-initial') }).first()
-    await serverButton.click({ button: 'right' })
+    const guildButton = page.locator('.guild-button').filter({ has: page.locator('.guild-initial') }).first()
+    await guildButton.click({ button: 'right' })
     await expect(menu).toBeVisible()
     await page.keyboard.press('Escape')
-    await serverButton.focus()
+    await guildButton.focus()
     await page.keyboard.press('Shift+F10')
     await expect(menu).toBeVisible()
   } else {
@@ -502,14 +502,14 @@ test('服务器操作菜单集中展示当前角色可用操作', async ({ page,
 
 test('普通成员离开服务器前看到明确后果且失败时保留对话框', async ({ page, request, browser, isMobile }, testInfo) => {
   await request.post('/api/auth/login', { data: { username, password } })
-  const serverID = await firstJoinedGuildID(request)
+  const guildID = await firstJoinedGuildID(request)
   const suffix = `${Date.now().toString(36)}_${isMobile ? 'm' : 'd'}_${testInfo.workerIndex}`
   const account = {
     username: `leave_${suffix}`,
     displayName: `离开菜单成员${suffix.slice(-3)}`,
     password: 'leave-member-password',
   }
-  const member = await createGuildMember(request, serverID, account)
+  const member = await createGuildMember(request, guildID, account)
   const target = await browser.newContext({ baseURL })
   const targetPage = await target.newPage()
   try {
@@ -547,7 +547,7 @@ test('普通成员离开服务器前看到明确后果且失败时保留对话�
     expect(buttonLayout).not.toBeNull()
     expect(buttonLayout?.alignItems).toBe('center')
     expect(buttonLayout?.iconCenterOffset).toBeLessThanOrEqual(1)
-    await targetPage.route(`**/api/guilds/${serverID}/leave`, (route) => route.fulfill({
+    await targetPage.route(`**/api/guilds/${guildID}/leave`, (route) => route.fulfill({
       status: 500,
       json: { error: 'test_failure', message: '测试离开失败' },
     }))
@@ -557,12 +557,12 @@ test('普通成员离开服务器前看到明确后果且失败时保留对话�
     await expect.poll(async () => {
       const response = await target.request.get('/api/bootstrap')
       const payload = await response.json() as { guilds: Array<{ id: number; joined: boolean }> }
-      return payload.guilds.some((server) => server.id === serverID && server.joined)
+      return payload.guilds.some((guild) => guild.id === guildID && guild.joined)
     }).toBe(true)
 
     await dialog.getByRole('button', { name: '取消', exact: true }).click()
     await expect(dialog).toBeHidden()
-    await targetPage.unroute(`**/api/guilds/${serverID}/leave`)
+    await targetPage.unroute(`**/api/guilds/${guildID}/leave`)
     const reopenedMenu = await openCurrentGuildActions(targetPage)
     await reopenedMenu.getByRole('menuitem', { name: '离开服务器', exact: true }).click()
     await targetPage.getByRole('alertdialog').getByRole('button', { name: '离开服务器', exact: true }).click()
@@ -570,7 +570,7 @@ test('普通成员离开服务器前看到明确后果且失败时保留对话�
     await expect(targetPage.getByTitle('服务器操作')).toHaveCount(0)
     const bootstrapResponse = await target.request.get('/api/bootstrap')
     const bootstrap = await bootstrapResponse.json() as { guilds: Array<{ joined: boolean }> }
-    expect(bootstrap.guilds.some((server) => server.joined)).toBe(false)
+    expect(bootstrap.guilds.some((guild) => guild.joined)).toBe(false)
   } finally {
     await target.close()
     const response = await deletePlatformUser(request, member.id, account.username)
@@ -581,19 +581,19 @@ test('普通成员离开服务器前看到明确后果且失败时保留对话�
 test('右键离开非当前服务器后保持当前服务器', async ({ request, browser }, testInfo) => {
   test.skip(testInfo.project.name.startsWith('android'), '服务器栏右键菜单仅在桌面布局显示')
   await request.post('/api/auth/login', { data: { username, password } })
-  const firstServerID = await firstJoinedGuildID(request)
+  const firstGuildID = await firstJoinedGuildID(request)
   const suffix = `${Date.now().toString(36)}_${testInfo.workerIndex}`
   const account = {
     username: `leave_other_${suffix}`,
     displayName: `非当前离开成员${suffix.slice(-3)}`,
     password: 'leave-other-password',
   }
-  const member = await createGuildMember(request, firstServerID, account)
-  const serverName = `非当前服务器${suffix.slice(-5)}`
-  const createResponse = await request.post('/api/platform/guilds', { data: { name: serverName, ownerUsername: username } })
+  const member = await createGuildMember(request, firstGuildID, account)
+  const guildName = `非当前服务器${suffix.slice(-5)}`
+  const createResponse = await request.post('/api/platform/guilds', { data: { name: guildName, ownerUsername: username } })
   expect(createResponse.ok()).toBeTruthy()
-  const secondServer = (await createResponse.json() as { guild: { id: number } }).guild
-  const addResponse = await request.post(`/api/guilds/${secondServer.id}/members`, { data: { username: account.username } })
+  const secondGuild = (await createResponse.json() as { guild: { id: number } }).guild
+  const addResponse = await request.post(`/api/guilds/${secondGuild.id}/members`, { data: { username: account.username } })
   expect(addResponse.ok()).toBeTruthy()
 
   const target = await browser.newContext({ baseURL })
@@ -606,20 +606,20 @@ test('右键离开非当前服务器后保持当前服务器', async ({ request,
     await expect(targetPage.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
     const changelog = targetPage.getByRole('dialog', { name: '更新日志' })
     if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
-    const originalServerName = await targetPage.locator('.guild-title strong').textContent()
+    const originalGuildName = await targetPage.locator('.guild-title strong').textContent()
 
-    await targetPage.getByTitle(serverName).click({ button: 'right' })
-    const menu = targetPage.getByRole('menu', { name: `${serverName}的服务器操作` })
+    await targetPage.getByTitle(guildName).click({ button: 'right' })
+    const menu = targetPage.getByRole('menu', { name: `${guildName}的服务器操作` })
     await menu.getByRole('menuitem', { name: '离开服务器', exact: true }).click()
-    const dialog = targetPage.getByRole('alertdialog', { name: `离开“${serverName}”？` })
+    const dialog = targetPage.getByRole('alertdialog', { name: `离开“${guildName}”？` })
     await dialog.getByRole('button', { name: '离开服务器', exact: true }).click()
     await expect(dialog).toBeHidden()
-    await expect(targetPage.locator('.guild-title strong')).toHaveText(originalServerName ?? '')
-    await expect(targetPage.getByTitle(serverName)).toHaveCount(0)
+    await expect(targetPage.locator('.guild-title strong')).toHaveText(originalGuildName ?? '')
+    await expect(targetPage.getByTitle(guildName)).toHaveCount(0)
   } finally {
     await target.close()
-    const deleteServerResponse = await request.delete(`/api/platform/guilds/${secondServer.id}`)
-    expect(deleteServerResponse.ok()).toBeTruthy()
+    const deleteGuildResponse = await request.delete(`/api/platform/guilds/${secondGuild.id}`)
+    expect(deleteGuildResponse.ok()).toBeTruthy()
     const deleteUserResponse = await deletePlatformUser(request, member.id, account.username)
     expect(deleteUserResponse.ok()).toBeTruthy()
   }
@@ -651,16 +651,16 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
 
 test('临时封禁状态在刷新后可见并可提前解除', async ({ page, request }, testInfo) => {
   await request.post('/api/auth/login', { data: { username, password } })
-  const serverID = await firstJoinedGuildID(request)
+  const guildID = await firstJoinedGuildID(request)
   const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
   const account = {
     username: `temporary_ban_${suffix}`,
     displayName: `临时封禁成员${suffix.slice(-3)}`,
     password: 'member-password-123',
   }
-  const member = await createGuildMember(request, serverID, account)
+  const member = await createGuildMember(request, guildID, account)
   try {
-    const banResponse = await request.patch(`/api/guilds/${serverID}/members/${member.id}/ban`, {
+    const banResponse = await request.patch(`/api/guilds/${guildID}/members/${member.id}/ban`, {
       data: { banned: false, temporaryBanUntil: new Date(Date.now() + 30 * 60_000).toISOString() },
     })
     expect(banResponse.ok()).toBeTruthy()
@@ -735,14 +735,14 @@ test('服务器所有者兼平台管理员显示双重角色副标题', async ({
 test('WebSocket 重同步的旧响应不会覆盖同一服务器的新状态', async ({ page, request, isMobile }) => {
   test.skip(isMobile, '桌面项目覆盖服务器切换的可控乱序响应')
   await request.post('/api/auth/login', { data: { username, password } })
-  const firstServerID = await firstJoinedGuildID(request)
-  const secondServerName = `重同步服务器${Date.now().toString(36).slice(-5)}`
-  const createResponse = await request.post('/api/platform/guilds', { data: { name: secondServerName, ownerUsername: username } })
+  const firstGuildID = await firstJoinedGuildID(request)
+  const secondGuildName = `重同步服务器${Date.now().toString(36).slice(-5)}`
+  const createResponse = await request.post('/api/platform/guilds', { data: { name: secondGuildName, ownerUsername: username } })
   expect(createResponse.ok()).toBeTruthy()
-  const secondServer = (await createResponse.json() as { guild: { id: number } }).guild
+  const secondGuild = (await createResponse.json() as { guild: { id: number } }).guild
   let releaseDelayedResponse = () => {}
   try {
-    await expect(page.getByTitle(secondServerName)).toBeVisible()
+    await expect(page.getByTitle(secondGuildName)).toBeVisible()
     await page.addInitScript(() => {
       const NativeWebSocket = window.WebSocket
       const sockets: WebSocket[] = []
@@ -757,7 +757,7 @@ test('WebSocket 重同步的旧响应不会覆盖同一服务器的新状态', a
     })
     await page.reload()
     await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
-    const firstServerName = await page.locator('.guild-title strong').innerText()
+    const firstGuildName = await page.locator('.guild-title strong').innerText()
 
     let markDelayedRequest = () => {}
     const delayedRequest = new Promise<void>((resolve) => { markDelayedRequest = resolve })
@@ -765,7 +765,7 @@ test('WebSocket 重同步的旧响应不会覆盖同一服务器的新状态', a
     let markDelayedResponseComplete = () => {}
     const delayedResponseComplete = new Promise<void>((resolve) => { markDelayedResponseComplete = resolve })
     let delayNextBootstrap = true
-    await page.route(`**/api/guilds/${firstServerID}/bootstrap`, async (route) => {
+    await page.route(`**/api/guilds/${firstGuildID}/bootstrap`, async (route) => {
       if (!delayNextBootstrap) {
         await route.continue()
         return
@@ -784,18 +784,18 @@ test('WebSocket 重同步的旧响应不会覆盖同一服务器的新状态', a
       sockets.at(-1)?.close(4000, 'test resynchronization')
     })
     await delayedRequest
-    await page.getByTitle(secondServerName).click()
-    await expect(page.locator('.guild-title strong')).toHaveText(secondServerName)
-    await page.getByRole('button', { name: firstServerName, exact: true }).click()
-    await expect(page.locator('.guild-title strong')).toHaveText(firstServerName)
+    await page.getByTitle(secondGuildName).click()
+    await expect(page.locator('.guild-title strong')).toHaveText(secondGuildName)
+    await page.getByRole('button', { name: firstGuildName, exact: true }).click()
+    await expect(page.locator('.guild-title strong')).toHaveText(firstGuildName)
     await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
     releaseDelayedResponse()
     await delayedResponseComplete
-    await expect(page.locator('.guild-title strong')).toHaveText(firstServerName)
+    await expect(page.locator('.guild-title strong')).toHaveText(firstGuildName)
     await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
   } finally {
     releaseDelayedResponse()
-    const response = await request.delete(`/api/platform/guilds/${secondServer.id}`)
+    const response = await request.delete(`/api/platform/guilds/${secondGuild.id}`)
     expect(response.ok()).toBeTruthy()
   }
 })
@@ -994,12 +994,12 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
   await expect(page.locator('.rail-status.online')).toBeAttached()
 
   await request.post('/api/auth/login', { data: { username, password } })
-  const serverID = await firstJoinedGuildID(request)
-  const bootstrapResponse = await request.get(`/api/guilds/${serverID}/bootstrap`)
+  const guildID = await firstJoinedGuildID(request)
+  const bootstrapResponse = await request.get(`/api/guilds/${guildID}/bootstrap`)
   const bootstrap = await bootstrapResponse.json() as { channels: Array<{ id: number; type: string; name: string }> }
   const activeTextChannel = bootstrap.channels.find((channel) => channel.type === 'text')!
   const extraChannelName = `静默频道${Date.now().toString(36).slice(-5)}`
-  const channelResponse = await request.post(`/api/guilds/${serverID}/channels`, { data: { type: 'text', name: extraChannelName } })
+  const channelResponse = await request.post(`/api/guilds/${guildID}/channels`, { data: { type: 'text', name: extraChannelName } })
   expect(channelResponse.ok()).toBeTruthy()
   const extraChannel = (await channelResponse.json() as { channel: { id: number } }).channel
   const suffix = `${Date.now().toString(36)}_${isMobile ? 'm' : 'd'}_${testInfo.workerIndex}`
@@ -1009,7 +1009,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
     password: 'sound-member-password',
     role: 'member',
   }
-  await createGuildMember(request, serverID, account)
+  await createGuildMember(request, guildID, account)
 
   const other = await createRequestContext.newContext({ baseURL })
   try {
@@ -1020,7 +1020,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
     await expect(page.getByRole('button', { name: new RegExp(extraChannelName) })).toBeAttached()
     const beforeInactiveMessage = await toneCount(page)
     const inactiveMessage = `非当前频道静默检查 ${Date.now()}`
-    const inactiveResponse = await other.post(`/api/guilds/${serverID}/channels/${extraChannel.id}/messages`, { data: { content: inactiveMessage } })
+    const inactiveResponse = await other.post(`/api/guilds/${guildID}/channels/${extraChannel.id}/messages`, { data: { content: inactiveMessage } })
     expect(inactiveResponse.ok()).toBeTruthy()
     await expect(page.getByRole('button', { name: new RegExp(extraChannelName) }).locator('.channel-unread')).toHaveText('1')
     await page.waitForTimeout(150)
@@ -1029,7 +1029,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
 
     const beforeOtherMessage = await toneCount(page)
     const otherMessage = `他人提示音检查 ${Date.now()}`
-    const sendResponse = await other.post(`/api/guilds/${serverID}/channels/${activeTextChannel.id}/messages`, { data: { content: otherMessage } })
+    const sendResponse = await other.post(`/api/guilds/${guildID}/channels/${activeTextChannel.id}/messages`, { data: { content: otherMessage } })
     expect(sendResponse.ok()).toBeTruthy()
     await expect(page.getByText(otherMessage, { exact: true })).toBeVisible()
     await expect.poll(() => toneCount(page)).toBe(beforeOtherMessage + 1)
@@ -1044,7 +1044,7 @@ test('他人的新消息播放提示音，自己的消息不播放', async ({ pa
     expect(await toneCount(page)).toBe(beforeOwnMessage)
   } finally {
     await other.dispose()
-    await request.delete(`/api/guilds/${serverID}/channels/${extraChannel.id}`)
+    await request.delete(`/api/guilds/${guildID}/channels/${extraChannel.id}`)
   }
 })
 
@@ -1322,7 +1322,7 @@ test('管理控制台外框不随页签内容变化', async ({ page, isMobile })
 
 test('平台管理员可通过登录名确认删除账号', async ({ page, request, browser, isMobile }, testInfo) => {
   await request.post('/api/auth/login', { data: { username, password } })
-  const serverID = await firstJoinedGuildID(request)
+  const guildID = await firstJoinedGuildID(request)
   const suffix = `${Date.now().toString(36)}_${isMobile ? 'm' : 'd'}_${testInfo.workerIndex}`
   const account = {
     username: `delete_${suffix}`,
@@ -1330,7 +1330,7 @@ test('平台管理员可通过登录名确认删除账号', async ({ page, reque
     password: 'delete-member-password',
     role: 'member',
   }
-  const created = { user: await createGuildMember(request, serverID, account) }
+  const created = { user: await createGuildMember(request, guildID, account) }
   let replacementID = 0
 
   const target = await browser.newContext({ baseURL })
@@ -1430,7 +1430,7 @@ async function setSoundSuppressedThroughStore(page: Page, suppressed: boolean) {
 
 async function setSyntheticVoiceConnection(page: Page, options: {
   status?: 'connecting' | 'connected' | 'reconnecting'
-  serverName?: string
+  guildName?: string
   channelName?: string
   audioBitrateKbps?: number
 } = {}) {
@@ -1448,7 +1448,7 @@ async function setSyntheticVoiceConnection(page: Page, options: {
     const voice = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('voice')
     if (!voice) throw new Error('未找到语音 store')
     voice.status = summary.status ?? 'connected'
-    voice.connectedGuildName = summary.serverName ?? '测试服务器'
+    voice.connectedGuildName = summary.guildName ?? '测试服务器'
     voice.connectedChannelName = summary.channelName ?? '测试语音频道'
     if (summary.audioBitrateKbps !== undefined) {
       voice.connectedChannelId = 99_999
