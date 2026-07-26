@@ -3,18 +3,10 @@ import { defineStore } from 'pinia'
 import { ApiError, request } from '../api'
 import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildMemberPayload, Message, OnlineClient, ServerBootstrapData, ServerSummary, User, VoiceRoom } from '../types'
 import { useSoundStore } from './sounds'
+import { activeChannelKey, emptyMessageState, isCompleteUser, mapGuildMember, savedChannelID, savedServerID, type MessageState } from './app-utils'
+import { useSocket } from './app-socket'
 
 type AuthPayload = { user: User }
-type SocketEvent = { type: string; serverId?: number; data: unknown }
-
-interface MessageState {
-  messages: Message[]
-  hasEarlier: boolean
-  loading: boolean
-  loaded: boolean
-}
-
-const VOICE_ROOMS_REFRESH_DELAY_MS = 350
 
 export const useAppStore = defineStore('app', () => {
   const ready = ref(false)
@@ -30,14 +22,22 @@ export const useAppStore = defineStore('app', () => {
   const onlineIds = ref<number[]>([])
   const onlineClients = ref<Record<number, ClientType>>({})
   const socketStatus = ref<'offline' | 'connecting' | 'online'>('offline')
-  let socket: WebSocket | null = null
-  let reconnectTimer: number | undefined
-  let pageLifecycleInstalled = false
-  let synchronizingSocket: WebSocket | null = null
-  let socketActivityVersion = 0
-  let voiceRoomsRefreshTimer: number | undefined
   let serverBootstrapVersion = 0
   const messageLoadVersions = new Map<number, number>()
+
+  const socket = useSocket({
+    user,
+    servers,
+    activeServerId,
+    activeTextChannelId,
+    socketStatus,
+    handleEvent,
+    clearServerState,
+    applyBootstrap,
+    loadChannelMessages,
+    nextServerBootstrapVersion: () => ++serverBootstrapVersion,
+    isServerBootstrapVersionCurrent: (version) => version === serverBootstrapVersion,
+  })
 
   const isAdmin = computed(() => activeServer.value?.role === 'owner' || activeServer.value?.role === 'admin')
   const isServerAdmin = computed(() => activeServer.value?.role === 'owner' || activeServer.value?.role === 'admin')
@@ -53,7 +53,7 @@ export const useAppStore = defineStore('app', () => {
   const activeUnreadCount = computed(() => activeTextChannelId.value === null ? 0 : channelReadStates.value[activeTextChannelId.value]?.unreadCount ?? 0)
 
   async function initialize() {
-    installPageLifecycle()
+    socket.installPageLifecycle()
     try {
       await bootstrap()
     } catch (error) {
@@ -71,7 +71,7 @@ export const useAppStore = defineStore('app', () => {
     if (!activeServerId.value || !joined.some((server) => server.id === activeServerId.value)) activeServerId.value = joined[0]?.id ?? null
     if (activeServerId.value !== null) await loadServerBootstrap(activeServerId.value)
     else clearServerState()
-    if (!socket) connectSocket()
+    if (!socket.isConnected()) socket.connectSocket()
   }
 
   async function loadServerBootstrap(serverId: number) {
@@ -137,7 +137,7 @@ export const useAppStore = defineStore('app', () => {
     try {
       await request<void>('/api/auth/logout', { method: 'POST' })
     } finally {
-      stopSocket()
+      socket.stopSocket()
       user.value = null
       users.value = []
       servers.value = []
@@ -251,145 +251,6 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem(`cws.server.${activeServerId.value ?? 0}.channelAtBottom.${channelId}`, String(atBottom))
   }
 
-  function detectClientType(): ClientType {
-    if (window.desktopApplicationAudio !== undefined) return 'electron'
-    if (window.celeryShell !== undefined) return 'android'
-    return 'web'
-  }
-
-  function connectSocket() {
-    stopSocket()
-    if (!user.value) return
-    socketStatus.value = 'connecting'
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const connection = new WebSocket(`${protocol}//${location.host}/api/ws?client=${detectClientType()}`)
-    socket = connection
-    connection.onopen = () => {
-      synchronizingSocket = connection
-      socketActivityVersion = 0
-      void synchronizeSocket(connection)
-    }
-    connection.onmessage = (messageEvent) => {
-      const event = JSON.parse(messageEvent.data) as SocketEvent
-      if (synchronizingSocket === connection) {
-        socketActivityVersion += 1
-        return
-      }
-      handleEvent(event.type, event.data, event.serverId)
-    }
-    connection.onclose = (event) => {
-      if (socket !== connection) return
-      socket = null
-      if (synchronizingSocket === connection) synchronizingSocket = null
-      socketStatus.value = 'offline'
-      if (event.code === 1008) {
-        user.value = null
-        return
-      }
-      if (user.value) reconnectTimer = window.setTimeout(connectSocket, 2500)
-    }
-  }
-
-  async function synchronizeSocket(connection: WebSocket) {
-    try {
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        const activityVersion = socketActivityVersion
-        const data = await request<BootstrapData>('/api/bootstrap')
-        if (socket !== connection) return
-        if (socketActivityVersion !== activityVersion) continue
-        user.value = data.user
-        servers.value = data.servers ?? servers.value
-        if (activeServerId.value === null || !servers.value.some((server) => server.id === activeServerId.value && server.joined)) {
-          activeServerId.value = servers.value.find((server) => server.joined)?.id ?? null
-        }
-        if (activeServerId.value === null) { clearServerState(); synchronizingSocket = null; socketStatus.value = 'online'; return }
-        const serverId = activeServerId.value
-        const bootstrapVersion = ++serverBootstrapVersion
-        let serverData: ServerBootstrapData
-        try {
-          serverData = await request<ServerBootstrapData>(`/api/servers/${serverId}/bootstrap`)
-        } catch (error) {
-          if (socket !== connection) return
-          if (socketActivityVersion !== activityVersion || serverBootstrapVersion !== bootstrapVersion || activeServerId.value !== serverId) continue
-          throw error
-        }
-        if (socket !== connection) return
-        if (socketActivityVersion !== activityVersion || serverBootstrapVersion !== bootstrapVersion || activeServerId.value !== serverId) continue
-        const members = serverData.members.map(mapGuildMember)
-        const currentUser = { ...data.user, voiceMuted: serverData.membership.voiceMuted, textMuted: serverData.membership.textMuted, permanentlyBanned: serverData.membership.permanentlyBanned, temporaryBanUntil: serverData.membership.temporaryBanUntil }
-        applyBootstrap({ user: currentUser, users: members, channels: serverData.channels, channelReadStates: serverData.channelReadStates, online: serverData.online, voiceRooms: serverData.voiceRooms }, true)
-        const channelId = activeTextChannelId.value
-        if (channelId !== null) await loadChannelMessages(channelId, true)
-        if (socket !== connection) return
-        if (socketActivityVersion !== activityVersion || serverBootstrapVersion !== bootstrapVersion || activeServerId.value !== serverId) continue
-        synchronizingSocket = null
-        socketStatus.value = 'online'
-        return
-      }
-      connection.close(1012, 'state synchronization busy')
-    } catch (error) {
-      synchronizingSocket = null
-      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-        user.value = null
-        connection.close(1008, 'session revoked')
-        return
-      }
-      if (socket === connection) connection.close(1012, 'state synchronization failed')
-    }
-  }
-
-  function stopSocket() {
-    if (reconnectTimer) window.clearTimeout(reconnectTimer)
-    reconnectTimer = undefined
-    if (voiceRoomsRefreshTimer) window.clearTimeout(voiceRoomsRefreshTimer)
-    voiceRoomsRefreshTimer = undefined
-    if (socket) {
-      socket.onclose = null
-      socket.close()
-    }
-    socket = null
-    synchronizingSocket = null
-    socketStatus.value = 'offline'
-  }
-
-  function installPageLifecycle() {
-    if (pageLifecycleInstalled) return
-    pageLifecycleInstalled = true
-    window.addEventListener('pagehide', closeSocketForPageExit)
-    window.addEventListener('pageshow', reconnectSocketAfterRestore)
-  }
-
-  function closeSocketForPageExit() {
-    if (reconnectTimer) window.clearTimeout(reconnectTimer)
-    reconnectTimer = undefined
-    if (socket) {
-      socket.onclose = null
-      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-        socket.close(1000, 'page closed')
-      }
-    }
-    socket = null
-    synchronizingSocket = null
-    socketStatus.value = 'offline'
-  }
-
-  function reconnectSocketAfterRestore() {
-    if (user.value && !socket) connectSocket()
-  }
-
-  function requestVoiceRoomsRefresh() {
-    if (voiceRoomsRefreshTimer !== undefined) return
-    voiceRoomsRefreshTimer = window.setTimeout(() => {
-      voiceRoomsRefreshTimer = undefined
-      if (socket?.readyState !== WebSocket.OPEN) return
-      try {
-        socket.send(JSON.stringify({ type: 'refresh_voice_rooms' }))
-      } catch {
-        // The periodic server reconciliation remains the fallback if the socket closes concurrently.
-      }
-    }, VOICE_ROOMS_REFRESH_DELAY_MS)
-  }
-
   function handleEvent(type: string, data: unknown, serverId?: number) {
     if (serverId && (type === 'member_added' || type === 'member_updated')) {
       const member = data as GuildMemberPayload
@@ -456,7 +317,7 @@ export const useAppStore = defineStore('app', () => {
     } else if (type === 'user_deleted') {
       removeUser((data as { id: number }).id)
     } else if (type === 'session_revoked') {
-      stopSocket()
+      socket.stopSocket()
       user.value = null
     }
   }
@@ -572,7 +433,7 @@ export const useAppStore = defineStore('app', () => {
         : message)
     })
     if (user.value?.id === userId) {
-      stopSocket()
+      socket.stopSocket()
       user.value = null
     }
   }
@@ -581,53 +442,8 @@ export const useAppStore = defineStore('app', () => {
     ready, user, users, servers, activeServerId, activeServer, channels, textChannels, voiceChannels, activeTextChannelId, activeTextChannel,
     voiceRooms, messages, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
     channelReadStates, onlineIds, onlineClients, socketStatus, isAdmin, isServerAdmin, isPlatformAdmin,
-    initialize, bootstrap, loadServerBootstrap, selectServer, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh,
+    initialize, bootstrap, loadServerBootstrap, selectServer, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh: socket.requestVoiceRoomsRefresh,
     sendMessage, loadEarlier, markActiveChannelRead, updateProfile, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,
   }
 })
-
-function emptyMessageState(): MessageState {
-  return { messages: [], hasEarlier: false, loading: false, loaded: false }
-}
-
-function savedChannelID(serverId: number | null) {
-  if (serverId === null) return null
-  const key = activeChannelKey(serverId)
-  const value = Number(localStorage.getItem(key))
-  if (Number.isFinite(value) && value > 0) return value
-  const legacyValue = Number(localStorage.getItem('cws.activeTextChannelId'))
-  if (Number.isFinite(legacyValue) && legacyValue > 0) {
-    localStorage.setItem(key, String(legacyValue))
-    localStorage.removeItem('cws.activeTextChannelId')
-    return legacyValue
-  }
-  return null
-}
-
-function activeChannelKey(serverId: number) {
-  return `cws.server.${serverId}.activeTextChannelId`
-}
-
-function savedServerID() {
-  const value = Number(localStorage.getItem('cws.activeServerId'))
-  return Number.isFinite(value) && value > 0 ? value : null
-}
-
-function isCompleteUser(value: Partial<User>): value is User {
-  return typeof value.id === 'number' && typeof value.username === 'string' && typeof value.displayName === 'string'
-}
-
-function mapGuildMember(member: GuildMemberPayload): User {
-  return {
-    id: member.userId,
-    username: member.username,
-    displayName: member.displayName,
-    role: member.role,
-    voiceMuted: member.voiceMuted,
-    textMuted: member.textMuted,
-    permanentlyBanned: member.permanentlyBanned,
-    temporaryBanUntil: member.temporaryBanUntil,
-    createdAt: member.joinedAt,
-  }
-}

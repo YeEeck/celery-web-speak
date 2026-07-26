@@ -567,7 +567,7 @@ test('服务器所有者兼平台管理员显示双重角色副标题', async ({
   await expect(page.locator('.admin-panel .panel-header p')).toHaveText('服务器所有者 · 平台管理员')
 })
 
-test('WebSocket 重同步的旧服务器响应不会覆盖当前服务器', async ({ page, request, isMobile }) => {
+test('WebSocket 重同步的旧响应不会覆盖同一服务器的新状态', async ({ page, request, isMobile }) => {
   test.skip(isMobile, '桌面项目覆盖服务器切换的可控乱序响应')
   await request.post('/api/auth/login', { data: { username, password } })
   const firstServerID = await firstJoinedServerID(request)
@@ -592,6 +592,7 @@ test('WebSocket 重同步的旧服务器响应不会覆盖当前服务器', asyn
     })
     await page.reload()
     await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+    const firstServerName = await page.locator('.server-title strong').innerText()
 
     let markDelayedRequest = () => {}
     const delayedRequest = new Promise<void>((resolve) => { markDelayedRequest = resolve })
@@ -606,9 +607,10 @@ test('WebSocket 重同步的旧服务器响应不会覆盖当前服务器', asyn
       }
       delayNextBootstrap = false
       const response = await route.fetch()
+      const stalePayload = await response.json()
       markDelayedRequest()
       await release
-      await route.fulfill({ response })
+      await route.fulfill({ response, json: { ...stalePayload, channels: [] } })
       markDelayedResponseComplete()
     })
 
@@ -619,9 +621,13 @@ test('WebSocket 重同步的旧服务器响应不会覆盖当前服务器', asyn
     await delayedRequest
     await page.getByTitle(secondServerName).click()
     await expect(page.locator('.server-title strong')).toHaveText(secondServerName)
+    await page.getByRole('button', { name: firstServerName, exact: true }).click()
+    await expect(page.locator('.server-title strong')).toHaveText(firstServerName)
+    await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
     releaseDelayedResponse()
     await delayedResponseComplete
-    await expect(page.locator('.server-title strong')).toHaveText(secondServerName)
+    await expect(page.locator('.server-title strong')).toHaveText(firstServerName)
+    await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
   } finally {
     releaseDelayedResponse()
     const response = await request.delete(`/api/platform/servers/${secondServer.id}`)
