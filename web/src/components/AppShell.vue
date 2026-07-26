@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EllipsisVertical, Hash, LogOut, Plus, Radio, ServerCog, X } from '@lucide/vue'
 import AccountMenu from './AccountMenu.vue'
 import AdminPanel from './AdminPanel.vue'
+import PlatformAdminPanel from './PlatformAdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
 import ChatPane from './ChatPane.vue'
 import LeaveGuildDialog from './LeaveGuildDialog.vue'
@@ -36,8 +37,7 @@ const changelogOpen = ref(false)
 const platformOpen = ref(false)
 const platformInitialGuildId = ref<number | null>(null)
 const platformCreateOnOpen = ref(false)
-const adminInitialTab = ref<'channel' | 'users' | 'invites'>('channel')
-const adminPlatformMode = ref(false)
+const platformAdminOpen = ref(false)
 const leavingGuild = ref(false)
 const leaveGuildError = ref('')
 const leaveTarget = ref<GuildSummary | null>(null)
@@ -271,8 +271,6 @@ async function openGuildAdmin(guild: GuildSummary) {
     void nextTick(() => trigger?.focus())
     return
   }
-  adminInitialTab.value = 'channel'
-  adminPlatformMode.value = false
   adminOpen.value = true
   channelsOpen.value = false
 }
@@ -301,9 +299,7 @@ function closeLeaveGuildDialog() {
 
 function openPlatformAccounts() {
   platformOpen.value = false
-  adminInitialTab.value = 'users'
-  adminPlatformMode.value = true
-  adminOpen.value = true
+  platformAdminOpen.value = true
 }
 
 async function leaveGuild() {
@@ -469,7 +465,8 @@ function closeChangelog() {
       @close="closeProfile"
       @changelog="changelogOpen = true"
     />
-    <AdminPanel v-if="adminOpen" :initial-tab="adminInitialTab" :platform-mode="adminPlatformMode" @close="adminOpen = false" />
+    <AdminPanel v-if="adminOpen" @close="adminOpen = false" />
+    <PlatformAdminPanel v-if="platformAdminOpen" @close="platformAdminOpen = false" />
     <PlatformGuildsPanel v-if="platformOpen" :initial-guild-id="platformInitialGuildId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
     <ChangelogModal v-if="changelogOpen" @close="closeChangelog" />
   </main>
