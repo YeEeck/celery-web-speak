@@ -79,8 +79,8 @@ watch(() => app.activeServerId === voice.connectedServerId && app.voiceChannels.
 watch(() => voice.connectedServerId === null || app.servers.some((server) => server.id === voice.connectedServerId && server.joined), (hasMembership) => {
   if (!hasMembership && voice.joined) void voice.leave({ notifyServer: false })
 })
-watch(() => app.activeServerId === voice.connectedServerId ? app.user?.voiceMuted : false, (value) => {
-  void voice.syncServerMute(Boolean(value))
+watch(() => app.activeServerId === voice.connectedServerId ? app.user?.voiceMuted : undefined, (value) => {
+  if (value !== undefined) void voice.syncServerMute(value)
 }, { immediate: true })
 watch(() => app.socketStatus, (value) => {
   if (value === 'online') voice.retryDeafenedSync()

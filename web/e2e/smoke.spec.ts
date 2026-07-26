@@ -349,6 +349,10 @@ test('离线语音快捷控制可调音量、选择设备并直达设置', async
   expect(inputMenuBounds.x).toBeCloseTo(expectedInputMenuLeft, 0)
   expect(microphoneBounds.y - inputMenuBounds.y - inputMenuBounds.height).toBeCloseTo(8, 0)
   const defaultInput = inputMenu.getByRole('menuitemradio', { name: /系统默认/ })
+  await setSyntheticDeviceChange(page, 'input', 'default')
+  await expect(defaultInput).toBeDisabled()
+  await setSyntheticDeviceChange(page, null, '')
+  await expect(defaultInput).toBeEnabled()
   await defaultInput.click()
   await expect(inputMenu).toBeVisible()
   await inputMenu.getByRole('menuitem', { name: '语音设置', exact: true }).click()
@@ -1451,6 +1455,22 @@ async function setSyntheticVoiceConnection(page: Page, options: {
       voice.updateConnectedChannelSettings({ id: 99_999, audioBitrateKbps: summary.audioBitrateKbps })
     }
   }, options)
+}
+
+async function setSyntheticDeviceChange(page: Page, kind: 'input' | 'output' | null, deviceId: string) {
+  await page.evaluate(({ nextKind, nextDeviceId }) => {
+    type VoiceStoreTestState = {
+      deviceChangingKind: 'input' | 'output' | null
+      deviceChangingId: string
+    }
+    type PiniaTestState = { _s: Map<string, VoiceStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const voice = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('voice')
+    if (!voice) throw new Error('未找到语音 store')
+    voice.deviceChangingKind = nextKind
+    voice.deviceChangingId = nextDeviceId
+  }, { nextKind: kind, nextDeviceId: deviceId })
 }
 
 test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile }) => {

@@ -22,6 +22,7 @@ const options = computed(() => props.kind === 'input' ? voice.inputDeviceOptions
 const preferredId = computed(() => props.kind === 'input' ? voice.preferredInputId : voice.preferredOutputId)
 const title = computed(() => props.kind === 'input' ? '输入设备' : '输出设备')
 const permissionBusy = computed(() => voice.devicePermissionState === 'requesting')
+const deviceBusy = computed(() => voice.deviceChangingKind !== null)
 const error = computed(() => {
   if (voice.deviceChangeErrorKind === props.kind) return voice.deviceChangeError
   if (props.kind === 'input' && voice.devicePermissionState === 'denied') {
@@ -138,8 +139,8 @@ onBeforeUnmount(() => {
           role="menuitemradio"
           :data-device-id="option.deviceId"
           :aria-checked="option.deviceId === preferredId"
-          :aria-disabled="option.unavailable"
-          :disabled="option.unavailable"
+          :aria-disabled="option.unavailable || deviceBusy"
+          :disabled="option.unavailable || deviceBusy"
           :title="option.label"
           @click="selectDevice(option.deviceId)"
         >
