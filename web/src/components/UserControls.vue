@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { AudioLines, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RadioTower, RefreshCw, Square, VolumeX } from '@lucide/vue'
+import { AudioLines, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RadioTower, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
 import VoiceDeviceMenu from './VoiceDeviceMenu.vue'
