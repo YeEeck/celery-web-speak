@@ -34,7 +34,24 @@ const appVersion = "0.4.4"
 
 > **注意**：`web/package.json`、`web/package-lock.json` 的根包版本与后端 `appVersion` 常量必须保持一致。
 
-### 3. 更新更新日志
+### 3. 同步发布文档版本号
+
+将 `README.md` 和 `docs/deployment.md` 中指向当前稳定版本的版本号同步更新为目标版本，包括：
+
+- 当前稳定版本说明
+- `git clone`、`git fetch` 和 `git checkout` 命令中的仓库标签
+- `APP_IMAGE` 示例中的镜像标签
+- 更新与回滚章节中的目标版本示例
+
+例如，发布 `v0.4.4` 时，文档中的稳定版本、仓库标签和应用镜像标签都应使用 `v0.4.4`。历史版本的更新说明和升级路径不属于当前稳定版本引用，不要批量替换。
+
+可在提交前检查目标版本和上一个稳定版本的引用，确认所有当前版本示例均已同步：
+
+```bash
+rg -n 'v0\.4\.4|v<上一个稳定版本>' README.md docs/deployment.md
+```
+
+### 4. 更新更新日志
 
 编辑 `internal/httpapi/CHANGELOG.json`，在数组**顶部**追加新版本条目：
 
@@ -59,7 +76,7 @@ const appVersion = "0.4.4"
 | `date` | string | 发布日期，格式 `YYYY-MM-DD` |
 | `changes` | string[] | 变更列表，每条带 `feat:` / `fix:` / `chore:` 等前缀 |
 
-### 4. 构建与测试
+### 5. 构建与测试
 
 ```bash
 go test ./...
@@ -69,7 +86,7 @@ npm run typecheck
 npm run build
 ```
 
-### 5. 提交与打标签
+### 6. 提交与打标签
 
 ```bash
 git add -A
@@ -77,7 +94,7 @@ git commit -m "chore: 更新版本号到 v0.4.4"
 git tag v0.4.4
 ```
 
-### 6. 推送发布
+### 7. 推送发布
 
 ```bash
 git push --atomic origin dev v0.4.4
