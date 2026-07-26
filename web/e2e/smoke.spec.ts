@@ -332,6 +332,7 @@ test('离线语音快捷控制可调音量、选择设备并直达设置', async
   expect(popoverLayout).toEqual({ width: 44, valueGap: 3, bottomGap: 17, tail: 'none' })
   await microphoneVolume.fill('2.25')
   await expect(toolbar.getByText('225%', { exact: true })).toBeVisible()
+  await expect.poll(() => microphoneVolume.evaluate((element) => getComputedStyle(element).getPropertyValue('--range-progress'))).toBe('75%')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.microphoneGain'))).toBe('2.25')
 
   await microphone.click({ button: 'right' })

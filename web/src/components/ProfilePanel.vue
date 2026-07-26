@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/app'
 import { useSoundStore, type NotificationSound, type SoundPresetId, SOUND_PRESETS } from '../stores/sounds'
 import { useThemeStore } from '../stores/theme'
 import { useVoiceStore } from '../stores/voice'
+import { rangeProgressStyle } from '../utils/range'
 
 const props = withDefaults(defineProps<{
   initialTab?: 'account' | 'audio'
@@ -169,7 +170,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
               <p v-if="voice.deviceChangeErrorKind === 'input' && voice.deviceChangeError" class="form-error" role="alert">{{ voice.deviceChangeError }}</p>
               <label class="audio-level-control">
                 <span><span>麦克风增益</span><strong>{{ Math.round(voice.microphoneGain * 100) }}%</strong></span>
-                <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" aria-label="麦克风增益" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" />
+                <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" :style="rangeProgressStyle(voice.microphoneGain, 0, 3)" aria-label="麦克风增益" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" />
               </label>
               <div class="toggle-list">
                 <label><span>回声抑制</span><input type="checkbox" :checked="voice.echoCancellation" @change="voice.setEchoCancellation(($event.target as HTMLInputElement).checked)" /></label>
@@ -192,7 +193,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
               <p v-if="voice.deviceChangeErrorKind === 'output' && voice.deviceChangeError" class="form-error" role="alert">{{ voice.deviceChangeError }}</p>
               <label class="audio-level-control">
                 <span><span>扬声器音量</span><strong>{{ Math.round(voice.outputVolume * 100) }}%</strong></span>
-                <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" aria-label="扬声器音量" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" />
+                <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" :style="rangeProgressStyle(voice.outputVolume, 0, 3)" aria-label="扬声器音量" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" />
               </label>
             </section>
           </div>
@@ -206,7 +207,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           </label>
           <label class="audio-level-control">
             <span><span>提示音音量</span><strong>{{ Math.round(sounds.volume * 100) }}%</strong></span>
-            <input type="range" min="0" max="1" step="0.05" :value="sounds.volume" :disabled="!sounds.enabled" aria-label="提示音音量" @input="sounds.setVolume(Number(($event.target as HTMLInputElement).value))" />
+            <input type="range" min="0" max="1" step="0.05" :value="sounds.volume" :style="rangeProgressStyle(sounds.volume, 0, 1)" :disabled="!sounds.enabled" aria-label="提示音音量" @input="sounds.setVolume(Number(($event.target as HTMLInputElement).value))" />
           </label>
           <h3><BellRing :size="18" />各事件</h3>
           <div class="sound-event-list">

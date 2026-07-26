@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { AudioLines, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RadioTower, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
+import { rangeProgressStyle } from '../utils/range'
 import VoiceDeviceMenu from './VoiceDeviceMenu.vue'
 
 const emit = defineEmits<{
@@ -224,7 +225,7 @@ onBeforeUnmount(() => {
           @pointerleave="scheduleVolumeClose"
         >
           <output>{{ Math.round(voice.microphoneGain * 100) }}%</output>
-          <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" :aria-label="microphoneVolumeLabel" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
+          <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" :style="rangeProgressStyle(voice.microphoneGain, 0, 3)" :aria-label="microphoneVolumeLabel" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
         </section>
       </div>
       <div
@@ -259,7 +260,7 @@ onBeforeUnmount(() => {
           @pointerleave="scheduleVolumeClose"
         >
           <output>{{ Math.round(voice.outputVolume * 100) }}%</output>
-          <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" :aria-label="outputVolumeLabel" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
+          <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" :style="rangeProgressStyle(voice.outputVolume, 0, 3)" :aria-label="outputVolumeLabel" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
         </section>
       </div>
       <button
@@ -304,7 +305,7 @@ onBeforeUnmount(() => {
       </div>
       <label v-if="voice.applicationAudioActive" class="application-audio-volume">
         <span><Volume2 :size="14" />发送音量</span>
-        <input type="range" min="0" max="1" step="0.01" :value="voice.applicationAudioVolume" @input="voice.setApplicationAudioVolume(Number(($event.target as HTMLInputElement).value))" />
+        <input type="range" min="0" max="1" step="0.01" :value="voice.applicationAudioVolume" :style="rangeProgressStyle(voice.applicationAudioVolume, 0, 1)" @input="voice.setApplicationAudioVolume(Number(($event.target as HTMLInputElement).value))" />
         <output>{{ Math.round(voice.applicationAudioVolume * 100) }}%</output>
       </label>
     </section>
