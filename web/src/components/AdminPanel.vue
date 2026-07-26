@@ -49,19 +49,19 @@ const deleteConfirmation = ref('')
 const deleteConfirmationInput = ref<HTMLInputElement | null>(null)
 const platformUsers = ref<User[]>([])
 
-const serverContext = computed(() => props.platformMode ? null : app.activeServer)
+const guildContext = computed(() => props.platformMode ? null : app.activeGuild)
 const adminSubtitle = computed(() => {
-  if (!serverContext.value) return '平台管理员'
-  const serverRole = serverContext.value.role === 'owner' ? '服务器所有者' : '服务器管理员'
+  if (!guildContext.value) return '平台管理员'
+  const serverRole = guildContext.value.role === 'owner' ? '服务器所有者' : '服务器管理员'
   return app.isPlatformAdmin ? `${serverRole} · 平台管理员` : serverRole
 })
-const userPool = computed(() => serverContext.value ? app.users : platformUsers.value)
+const userPool = computed(() => guildContext.value ? app.users : platformUsers.value)
 const selectedUser = computed(() => userPool.value.find((user) => user.id === selectedUserId.value) ?? null)
 const manageableUsers = computed(() => userPool.value.filter((user) => user.id !== app.user!.id))
-const canManageRoles = computed(() => app.isPlatformAdmin || serverContext.value?.role === 'owner')
-const canRenameServer = computed(() => app.isPlatformAdmin || serverContext.value?.role === 'owner')
+const canManageRoles = computed(() => app.isPlatformAdmin || guildContext.value?.role === 'owner')
+const canRenameServer = computed(() => app.isPlatformAdmin || guildContext.value?.role === 'owner')
 
-watch(serverContext, (server) => {
+watch(guildContext, (server) => {
   serverName.value = server?.name ?? ''
 }, { immediate: true })
 
@@ -106,9 +106,9 @@ async function run(action: () => Promise<void>, success: string) {
 }
 
 async function addMember() {
-  if (!memberUsername.value.trim() || app.activeServerId === null) return
+  if (!memberUsername.value.trim() || app.activeGuildId === null) return
   await run(async () => {
-    await request(`/api/servers/${app.activeServerId}/members`, { method: 'POST', body: JSON.stringify({ username: memberUsername.value.trim() }) })
+    await request(`/api/guilds/${app.activeGuildId}/members`, { method: 'POST', body: JSON.stringify({ username: memberUsername.value.trim() }) })
     memberUsername.value = ''
     await app.bootstrap()
     selectedUserId.value = manageableUsers.value.at(-1)?.id ?? null
@@ -117,9 +117,9 @@ async function addMember() {
 
 async function renameServer() {
   const name = serverName.value.trim()
-  if (!name || app.activeServerId === null) return
+  if (!name || app.activeGuildId === null) return
   await run(async () => {
-    await request(`/api/servers/${app.activeServerId}`, { method: 'PATCH', body: JSON.stringify({ name }) })
+    await request(`/api/guilds/${app.activeGuildId}`, { method: 'PATCH', body: JSON.stringify({ name }) })
     await app.bootstrap()
   }, '服务器名称已更新')
 }
@@ -128,7 +128,7 @@ async function saveSettings() {
   const channel = selectedChannel.value
   if (!channel) return
   await run(async () => {
-    await request(`/api/servers/${app.activeServerId}/channels/${channel.id}`, {
+    await request(`/api/guilds/${app.activeGuildId}/channels/${channel.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
         name: channelName.value,
@@ -146,7 +146,7 @@ async function saveSettings() {
 async function createChannel() {
   if (!newChannelName.value.trim()) return
   await run(async () => {
-    const payload = await request<{ channel: { id: number } }>(`/api/servers/${app.activeServerId}/channels`, {
+    const payload = await request<{ channel: { id: number } }>(`/api/guilds/${app.activeGuildId}/channels`, {
       method: 'POST',
       body: JSON.stringify({ type: newChannelType.value, name: newChannelName.value }),
     })
@@ -160,7 +160,7 @@ async function deleteChannel() {
   const channel = selectedChannel.value
   if (!channel || !window.confirm(`永久删除${channel.type === 'text' ? '文字' : '语音'}频道“${channel.name}”？此操作无法恢复。`)) return
   await run(async () => {
-    await request(`/api/servers/${app.activeServerId}/channels/${channel.id}`, { method: 'DELETE' })
+    await request(`/api/guilds/${app.activeGuildId}/channels/${channel.id}`, { method: 'DELETE' })
     await app.bootstrap()
     selectedChannelId.value = app.channels[0]?.id ?? null
   }, '频道已永久删除')
@@ -168,7 +168,7 @@ async function deleteChannel() {
 
 const moderationPermission = computed(() => {
   const target = selectedUser.value
-  if (!serverContext.value || !target) return { allowed: false, reason: '' }
+  if (!guildContext.value || !target) return { allowed: false, reason: '' }
   if (target.role === 'owner') {
     return {
       allowed: false,
@@ -177,7 +177,7 @@ const moderationPermission = computed(() => {
         : '服务器管理员不能管理服务器所有者。',
     }
   }
-  if (target.role === 'admin' && !app.isPlatformAdmin && serverContext.value.role !== 'owner') {
+  if (target.role === 'admin' && !app.isPlatformAdmin && guildContext.value.role !== 'owner') {
     return { allowed: false, reason: '服务器管理员不能管理其他管理员。' }
   }
   return { allowed: true, reason: '' }
@@ -187,8 +187,8 @@ async function setMute(kind: 'voice' | 'text', value: boolean) {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
-    if (app.activeServerId === null) return
-    await request<{ member: unknown }>(`/api/servers/${app.activeServerId}/members/${target.id}/mute`, {
+    if (app.activeGuildId === null) return
+    await request<{ member: unknown }>(`/api/guilds/${app.activeGuildId}/members/${target.id}/mute`, {
       method: 'PATCH',
       body: JSON.stringify({
         voiceMuted: kind === 'voice' ? value : target.voiceMuted,
@@ -204,16 +204,16 @@ async function setRole(role: PlatformRole | GuildRole) {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
-    if (!serverContext.value) {
+    if (!guildContext.value) {
       await request(`/api/platform/users/${target.id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) })
       await loadPlatformUsers()
     } else {
-      if (app.activeServerId === null) return
-      await request(`/api/servers/${app.activeServerId}/members/${target.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: role === 'admin' ? 'admin' : 'member' }) })
+      if (app.activeGuildId === null) return
+      await request(`/api/guilds/${app.activeGuildId}/members/${target.id}/role`, { method: 'PATCH', body: JSON.stringify({ role: role === 'admin' ? 'admin' : 'member' }) })
       await app.bootstrap()
     }
     selectedUserId.value = target.id
-  }, serverContext.value ? '服务器角色已更新' : '平台角色已更新')
+  }, guildContext.value ? '服务器角色已更新' : '平台角色已更新')
 }
 
 async function kick() {
@@ -221,8 +221,8 @@ async function kick() {
   if (!target) return
   const until = new Date(Date.now() + kickMinutes.value * 60_000).toISOString()
   await run(async () => {
-    if (app.activeServerId === null) return
-    await request(`/api/servers/${app.activeServerId}/members/${target.id}/ban`, { method: 'PATCH', body: JSON.stringify({ banned: false, temporaryBanUntil: until }) })
+    if (app.activeGuildId === null) return
+    await request(`/api/guilds/${app.activeGuildId}/members/${target.id}/ban`, { method: 'PATCH', body: JSON.stringify({ banned: false, temporaryBanUntil: until }) })
     await app.bootstrap()
   }, `已将 ${target.displayName} 移出频道`)
 }
@@ -231,17 +231,17 @@ async function clearTemporaryBan() {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
-    if (app.activeServerId === null) return
-    await request(`/api/servers/${app.activeServerId}/members/${target.id}/temporary-ban`, { method: 'DELETE' })
+    if (app.activeGuildId === null) return
+    await request(`/api/guilds/${app.activeGuildId}/members/${target.id}/temporary-ban`, { method: 'DELETE' })
     await app.bootstrap()
   }, '临时封禁已解除')
 }
 
 async function removeMember() {
   const target = selectedUser.value
-  if (!target || app.activeServerId === null || !window.confirm(`将 ${target.displayName} 移出当前服务器？历史消息会保留，之后可重新添加。`)) return
+  if (!target || app.activeGuildId === null || !window.confirm(`将 ${target.displayName} 移出当前服务器？历史消息会保留，之后可重新添加。`)) return
   await run(async () => {
-    await request(`/api/servers/${app.activeServerId}/members/${target.id}/kick`, { method: 'POST' })
+    await request(`/api/guilds/${app.activeGuildId}/members/${target.id}/kick`, { method: 'POST' })
     await app.bootstrap()
     selectedUserId.value = manageableUsers.value[0]?.id ?? null
   }, '成员已移出服务器')
@@ -251,14 +251,14 @@ async function permanentBan(banned: boolean) {
   const target = selectedUser.value
   if (!target) return
   await run(async () => {
-    if (!serverContext.value) {
+    if (!guildContext.value) {
       await request(`/api/platform/users/${target.id}/suspend`, { method: 'PATCH', body: JSON.stringify({ suspended: banned }) })
       await loadPlatformUsers()
     } else {
-      await request(`/api/servers/${app.activeServerId}/members/${target.id}/ban`, { method: 'PATCH', body: JSON.stringify({ banned }) })
+      await request(`/api/guilds/${app.activeGuildId}/members/${target.id}/ban`, { method: 'PATCH', body: JSON.stringify({ banned }) })
       await app.bootstrap()
     }
-  }, banned ? (serverContext.value ? '服务器永久封禁已生效' : '平台账号已停用') : (serverContext.value ? '服务器永久封禁已解除' : '平台账号已恢复'))
+  }, banned ? (guildContext.value ? '服务器永久封禁已生效' : '平台账号已停用') : (guildContext.value ? '服务器永久封禁已解除' : '平台账号已恢复'))
 }
 
 async function doResetPassword() {
@@ -295,7 +295,7 @@ async function deleteUser() {
       body: JSON.stringify({ username: deleteConfirmation.value }),
     })
     app.removeUser(target.id)
-    if (!serverContext.value) platformUsers.value = platformUsers.value.filter((user) => user.id !== target.id)
+    if (!guildContext.value) platformUsers.value = platformUsers.value.filter((user) => user.id !== target.id)
     deleteTarget.value = null
     deleteConfirmation.value = ''
     selectedUserId.value = manageableUsers.value[0]?.id ?? null
@@ -410,12 +410,12 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
   <div class="modal-backdrop admin-backdrop" @mousedown.self="$emit('close')">
     <section class="admin-panel" role="dialog" aria-modal="true" aria-labelledby="admin-title">
       <header class="panel-header">
-        <div><h2 id="admin-title">{{ serverContext ? '服务器管理' : '平台管理' }}</h2><p>{{ adminSubtitle }}</p></div>
+        <div><h2 id="admin-title">{{ guildContext ? '服务器管理' : '平台管理' }}</h2><p>{{ adminSubtitle }}</p></div>
         <button class="icon-button" title="关闭" @click="$emit('close')"><X :size="21" /></button>
       </header>
       <nav class="admin-tabs">
-        <button v-if="serverContext" :class="{ active: tab === 'channel' }" @click="selectTab('channel')"><Gauge :size="17" />频道</button>
-        <button :class="{ active: tab === 'users' }" @click="selectTab('users')"><UserCog :size="17" />{{ serverContext ? '成员' : '平台账号' }}</button>
+        <button v-if="guildContext" :class="{ active: tab === 'channel' }" @click="selectTab('channel')"><Gauge :size="17" />频道</button>
+        <button :class="{ active: tab === 'users' }" @click="selectTab('users')"><UserCog :size="17" />{{ guildContext ? '成员' : '平台账号' }}</button>
         <button v-if="platformMode" :class="{ active: tab === 'invites' }" @click="selectTab('invites')"><Ticket :size="17" />创建与邀请</button>
       </nav>
 
@@ -425,7 +425,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
             <h3>服务器设置</h3>
             <div class="server-rename-row">
               <input v-model.trim="serverName" maxlength="64" aria-label="服务器名称" />
-              <button class="secondary-button" :disabled="busy || !serverName || serverName === serverContext?.name" @click="renameServer"><Save :size="16" />保存名称</button>
+              <button class="secondary-button" :disabled="busy || !serverName || serverName === guildContext?.name" @click="renameServer"><Save :size="16" />保存名称</button>
             </div>
           </template>
           <h3>创建频道</h3>
@@ -466,7 +466,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
 
         <section v-else-if="tab === 'users'" class="user-admin-layout">
           <aside class="admin-user-list">
-            <form v-if="serverContext" class="member-add-form" @submit.prevent="addMember">
+            <form v-if="guildContext" class="member-add-form" @submit.prevent="addMember">
               <input v-model.trim="memberUsername" aria-label="成员完整登录名" placeholder="完整登录名" />
               <button class="icon-button" type="submit" title="添加成员" :disabled="busy || !memberUsername"><UserPlus :size="17" /></button>
             </form>
@@ -482,7 +482,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
           </aside>
           <div v-if="selectedUser" ref="userDetail" class="user-admin-detail">
             <header><UserAvatar :name="selectedUser.displayName" :size="48" /><div><h3>{{ selectedUser.displayName }}</h3><p>@{{ selectedUser.username }}</p></div></header>
-            <template v-if="serverContext && moderationPermission.allowed">
+            <template v-if="guildContext && moderationPermission.allowed">
               <div class="toggle-list">
                 <label><span>语音禁言</span><input type="checkbox" :checked="selectedUser.voiceMuted" @change="setMute('voice', ($event.target as HTMLInputElement).checked)" /></label>
                 <label><span>文字禁言</span><input type="checkbox" :checked="selectedUser.textMuted" @change="setMute('text', ($event.target as HTMLInputElement).checked)" /></label>
@@ -492,12 +492,12 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
               <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '解除服务器永久封禁' : '服务器永久封禁' }}</button>
               <button class="secondary-button danger-text" @click="removeMember"><UserMinus :size="16" />移出服务器</button>
             </template>
-            <p v-else-if="serverContext && moderationPermission.reason" class="permission-note"><ShieldCheck :size="17" />{{ moderationPermission.reason }}</p>
+            <p v-else-if="guildContext && moderationPermission.reason" class="permission-note"><ShieldCheck :size="17" />{{ moderationPermission.reason }}</p>
 
-            <template v-if="serverContext && canManageRoles && selectedUser.role !== 'owner'">
+            <template v-if="guildContext && canManageRoles && selectedUser.role !== 'owner'">
               <label><span>服务器角色</span><select :value="selectedUser.role" @change="setRole(($event.target as HTMLSelectElement).value as GuildRole)"><option value="member">普通成员</option><option value="admin">服务器管理员</option></select></label>
             </template>
-            <template v-if="!serverContext">
+            <template v-if="!guildContext">
               <label><span>平台角色</span><select :value="selectedUser.isPlatformAdmin ? 'platform_admin' : 'member'" @change="setRole(($event.target as HTMLSelectElement).value as PlatformRole)"><option value="member">普通账号</option><option value="platform_admin">平台管理员</option></select></label>
               <label><span>重置密码</span><span class="inline-actions"><input v-model="resetPassword" type="password" minlength="10" placeholder="至少 10 位" /><button class="secondary-button" :disabled="resetPassword.length < 10" @click="doResetPassword"><KeyRound :size="16" />重置</button></span></label>
               <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '恢复平台账号' : '停用平台账号' }}</button>

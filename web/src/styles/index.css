@@ -11,11 +11,11 @@
 @import './components/ChatPane.css';
 @import './components/MemberList.css';
 @import './overlays.css';
-@import './components/ServerActionMenu.css';
+@import './components/GuildActionMenu.css';
 @import './components/AccountMenu.css';
 @import './components/dialogs.css';
 @import './components/ProfilePanel.css';
 @import './components/AdminPanel.css';
-@import './components/PlatformServersPanel.css';
+@import './components/PlatformGuildsPanel.css';
 @import './components/ChangelogModal.css';
 @import './responsive.css';

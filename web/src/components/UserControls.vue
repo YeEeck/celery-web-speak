@@ -30,13 +30,13 @@ const transmissionModeTooltip = computed(() => voice.transmissionModeChanging ? 
 const transmissionModeAriaLabel = computed(() => voice.transmissionModeChanging
   ? '传输模式切换中'
   : `当前模式：${transmissionModeLabel.value}；切换为${transmissionModeTarget.value}`)
-const microphoneMuted = computed(() => voice.muted || voice.serverMuted)
+const microphoneMuted = computed(() => voice.muted || voice.guildMuted)
 const microphoneVolumeMuted = computed(() => microphoneMuted.value || voice.deafened)
 const microphoneVolumeLabel = computed(() => microphoneVolumeMuted.value ? '麦克风增益，当前静音' : '麦克风增益')
 const outputVolumeLabel = computed(() => voice.deafened ? '扬声器音量，当前静音' : '扬声器音量')
 const microphoneTitle = computed(() => {
   if (voice.muteChanging) return '麦克风状态切换中'
-  if (voice.serverMuted) return voice.microphoneEnabledPreference ? '管理员禁言' : '取消静音'
+  if (voice.guildMuted) return voice.microphoneEnabledPreference ? '管理员禁言' : '取消静音'
   return voice.muted ? '取消静音' : '麦克风静音'
 })
 

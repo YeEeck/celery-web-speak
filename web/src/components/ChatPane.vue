@@ -116,8 +116,8 @@ function resizeComposer() {
 
 async function removeMessage(id: number) {
   if (app.activeTextChannelId === null) return
-  if (app.activeServerId === null) return
-  await request<void>(`/api/servers/${app.activeServerId}/channels/${app.activeTextChannelId}/messages/${id}`, { method: 'DELETE' })
+  if (app.activeGuildId === null) return
+  await request<void>(`/api/guilds/${app.activeGuildId}/channels/${app.activeTextChannelId}/messages/${id}`, { method: 'DELETE' })
 }
 
 async function loadEarlierMessages() {

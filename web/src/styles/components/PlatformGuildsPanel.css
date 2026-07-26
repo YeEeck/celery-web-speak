@@ -1,0 +1,32 @@
+.platform-panel { width: min(980px, 100%); height: min(720px, calc(100vh - 48px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--panel); box-shadow: 0 18px 55px rgba(0,0,0,.38); }
+.panel-header-actions { display: flex; align-items: center; gap: 4px; }
+.platform-guild-layout { min-height: 0; display: grid; grid-template-columns: 310px minmax(0, 1fr); }
+.platform-guild-list { min-height: 0; padding: 18px 14px; border-right: 1px solid var(--line); display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 18px; background: var(--tab-bar); }
+.platform-create-form { gap: 9px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.platform-create-form h3, .platform-owner-action h3, .platform-guild-danger h3 { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.platform-create-form input { padding: 9px 10px; }
+.platform-guild-list nav { min-height: 0; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+.platform-guild-list nav > button { width: 100%; min-height: 52px; padding: 5px 8px; border: 0; border-radius: 4px; display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 9px; background: transparent; color: var(--muted); text-align: left; cursor: pointer; transition: var(--t-colors); }
+.platform-guild-list nav > button:hover { color: var(--text); background: var(--hover); }
+.platform-guild-list nav > button.active { color: var(--text); background: var(--active); }
+.platform-guild-list .guild-initial { width: 38px; height: 38px; border-radius: 4px; font-size: 15px; }
+.platform-guild-list nav span:last-child { min-width: 0; display: grid; gap: 3px; }
+.platform-guild-list nav strong, .platform-guild-list nav small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-guild-list nav small { color: var(--faint); font-size: 10px; }
+.platform-guild-detail { min-height: 0; padding: 28px; display: flex; flex-direction: column; gap: 24px; overflow-y: auto; }
+.platform-guild-detail > header { display: flex; align-items: center; gap: 14px; }
+.platform-guild-detail > header h3 { font-size: 20px; }
+.platform-guild-detail > header p { margin-top: 4px; color: var(--faint); font-size: 11px; }
+.platform-guild-mark { width: 52px; height: 52px; border-radius: 6px; display: grid; place-items: center; background: var(--elevated); color: var(--text); font-size: 20px; font-weight: 750; }
+.server-metadata { margin: 0; display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.server-metadata div { min-width: 0; padding: 13px 10px; }
+.server-metadata dt { color: var(--faint); font-size: 10px; font-weight: 700; }
+.server-metadata dd { margin: 5px 0 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.platform-owner-action { display: grid; gap: 10px; }
+.platform-owner-action select { min-width: 0; }
+.platform-guild-danger { margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(218,55,60,.45); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.platform-guild-danger p { margin-top: 4px; color: var(--faint); font-size: 11px; }
+.server-delete-confirmation { flex: 1; display: grid; grid-template-columns: minmax(120px, 1fr) auto auto; gap: 8px; }
+.danger-button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--red); color: white; font-weight: 650; cursor: pointer; transition: var(--t-colors); }
+.danger-button:hover:not(:disabled) { background: var(--red-hover); }
+.platform-guild-empty { display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--faint); }

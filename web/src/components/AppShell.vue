@@ -5,19 +5,19 @@ import AccountMenu from './AccountMenu.vue'
 import AdminPanel from './AdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
 import ChatPane from './ChatPane.vue'
-import LeaveServerDialog from './LeaveServerDialog.vue'
+import LeaveGuildDialog from './LeaveGuildDialog.vue'
 import LogoutDialog from './LogoutDialog.vue'
 import MemberList from './MemberList.vue'
-import PlatformServersPanel from './PlatformServersPanel.vue'
+import PlatformGuildsPanel from './PlatformGuildsPanel.vue'
 import ProfilePanel from './ProfilePanel.vue'
-import ServerActionMenu from './ServerActionMenu.vue'
+import GuildActionMenu from './GuildActionMenu.vue'
 import UserControls from './UserControls.vue'
 import UserAvatar from './UserAvatar.vue'
 import VoiceChannel from './VoiceChannel.vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
-import type { ServerSummary, VersionResponse } from '../types'
+import type { GuildSummary, VersionResponse } from '../types'
 
 const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
 
@@ -34,22 +34,22 @@ const profileFocusReturn = ref<HTMLElement | null>(null)
 const adminOpen = ref(false)
 const changelogOpen = ref(false)
 const platformOpen = ref(false)
-const platformInitialServerId = ref<number | null>(null)
+const platformInitialGuildId = ref<number | null>(null)
 const platformCreateOnOpen = ref(false)
 const adminInitialTab = ref<'channel' | 'users' | 'invites'>('channel')
 const adminPlatformMode = ref(false)
-const leavingServer = ref(false)
-const leaveServerError = ref('')
-const leaveTarget = ref<ServerSummary | null>(null)
+const leavingGuild = ref(false)
+const leaveGuildError = ref('')
+const leaveTarget = ref<GuildSummary | null>(null)
 const leaveDialogTrigger = ref<HTMLElement | null>(null)
-const serverActionMenu = ref<{
-  server: ServerSummary
+const guildActionMenu = ref<{
+  guild: GuildSummary
   x: number
   y: number
   align: 'start' | 'end'
   trigger: HTMLElement | null
 } | null>(null)
-const serverActionTrigger = ref<HTMLButtonElement | null>(null)
+const guildActionTrigger = ref<HTMLButtonElement | null>(null)
 const accountTrigger = ref<HTMLButtonElement | null>(null)
 const accountMenuOpen = ref(false)
 const logoutOpen = ref(false)
@@ -62,7 +62,7 @@ let mobileQuery: MediaQueryList | null = null
 const membersVisible = computed(() => wideMemberLayout.value ? desktopMembersVisible.value : membersOpen.value)
 
 watch(() => {
-  if (app.activeServerId !== voice.connectedServerId) return null
+  if (app.activeGuildId !== voice.connectedGuildId) return null
   const channel = app.voiceChannels.find((item) => item.id === voice.connectedChannelId)
   if (!channel) return null
   return channel
@@ -73,21 +73,21 @@ watch(() => {
     void voice.applyPublishSettingsChange(changes.microphoneChanged, changes.backgroundAudioChanged)
   }
 })
-watch(() => app.activeServerId === voice.connectedServerId && app.voiceChannels.some((channel) => channel.id === voice.connectedChannelId), (exists) => {
-  if (!exists && voice.joined && app.activeServerId === voice.connectedServerId) void voice.leave()
+watch(() => app.activeGuildId === voice.connectedGuildId && app.voiceChannels.some((channel) => channel.id === voice.connectedChannelId), (exists) => {
+  if (!exists && voice.joined && app.activeGuildId === voice.connectedGuildId) void voice.leave()
 })
-watch(() => voice.connectedServerId === null || app.servers.some((server) => server.id === voice.connectedServerId && server.joined), (hasMembership) => {
+watch(() => voice.connectedGuildId === null || app.guilds.some((guild) => guild.id === voice.connectedGuildId && guild.joined), (hasMembership) => {
   if (!hasMembership && voice.joined) void voice.leave({ notifyServer: false })
 })
-watch(() => app.activeServerId === voice.connectedServerId ? app.user?.voiceMuted : undefined, (value) => {
-  if (value !== undefined) void voice.syncServerMute(value)
+watch(() => app.activeGuildId === voice.connectedGuildId ? app.user?.voiceMuted : undefined, (value) => {
+  if (value !== undefined) void voice.syncGuildMute(value)
 }, { immediate: true })
 watch(() => app.socketStatus, (value) => {
   if (value === 'online') voice.retryDeafenedSync()
 })
-watch(() => app.activeServerId, () => closeServerActionMenu())
-watch(() => leaveTarget.value === null || app.servers.some((server) => server.id === leaveTarget.value?.id && server.joined), (hasMembership) => {
-  if (!hasMembership && !leavingServer.value) closeLeaveServerDialog()
+watch(() => app.activeGuildId, () => closeGuildActionMenu())
+watch(() => leaveTarget.value === null || app.guilds.some((guild) => guild.id === leaveTarget.value?.id && guild.joined), (hasMembership) => {
+  if (!hasMembership && !leavingGuild.value) closeLeaveGuildDialog()
 })
 onMounted(() => {
   wideMemberQuery = window.matchMedia('(min-width: 1141px)')
@@ -127,31 +127,31 @@ function selectTextChannel(channelId: number) {
   channelsOpen.value = false
 }
 
-function openPlatformServers(serverId: number | null = null, create = false) {
-  platformInitialServerId.value = serverId
+function openPlatformGuilds(guildId: number | null = null, create = false) {
+  platformInitialGuildId.value = guildId
   platformCreateOnOpen.value = create
   platformOpen.value = true
 }
 
-function openServer(server: ServerSummary) {
+function openGuild(guild: GuildSummary) {
   closeAccountMenu()
-  if (!server.joined) {
-    openPlatformServers(server.id)
+  if (!guild.joined) {
+    openPlatformGuilds(guild.id)
     return
   }
   if (!mobileQuery?.matches) {
-    void app.selectServer(server.id)
+    void app.selectGuild(guild.id)
     return
   }
-  if (server.id === app.activeServerId) {
+  if (guild.id === app.activeGuildId) {
     channelsOpen.value = !channelsOpen.value
     return
   }
-  void selectMobileRailServer(server.id)
+  void selectMobileRailGuild(guild.id)
 }
 
-async function selectMobileRailServer(serverId: number) {
-  await app.selectServer(serverId)
+async function selectMobileRailGuild(guildId: number) {
+  await app.selectGuild(guildId)
   channelsOpen.value = true
 }
 
@@ -160,7 +160,7 @@ function toggleAccountMenu() {
     closeAccountMenu(true)
     return
   }
-  closeServerActionMenu()
+  closeGuildActionMenu()
   channelsOpen.value = false
   accountMenuOpen.value = true
 }
@@ -219,50 +219,50 @@ async function logout() {
   }
 }
 
-function openServerActionMenu(server: ServerSummary, trigger: HTMLElement, x: number, y: number, align: 'start' | 'end') {
-  serverActionMenu.value = { server, trigger, x, y, align }
+function openGuildActionMenu(guild: GuildSummary, trigger: HTMLElement, x: number, y: number, align: 'start' | 'end') {
+  guildActionMenu.value = { guild, trigger, x, y, align }
 }
 
-function openHeaderServerActions(event: MouseEvent) {
-  const server = app.activeServer
+function openHeaderGuildActions(event: MouseEvent) {
+  const guild = app.activeGuild
   const trigger = event.currentTarget as HTMLElement
-  if (!server) return
-  if (serverActionMenu.value?.trigger === trigger) {
-    closeServerActionMenu(true)
+  if (!guild) return
+  if (guildActionMenu.value?.trigger === trigger) {
+    closeGuildActionMenu(true)
     return
   }
   const bounds = trigger.getBoundingClientRect()
-  const headerBounds = mobileQuery?.matches ? trigger.closest('.server-title')?.getBoundingClientRect() : null
-  openServerActionMenu(server, trigger, headerBounds ? headerBounds.right - 10 : bounds.right, (headerBounds?.bottom ?? bounds.bottom) + 4, 'end')
+  const headerBounds = mobileQuery?.matches ? trigger.closest('.guild-title')?.getBoundingClientRect() : null
+  openGuildActionMenu(guild, trigger, headerBounds ? headerBounds.right - 10 : bounds.right, (headerBounds?.bottom ?? bounds.bottom) + 4, 'end')
 }
 
-function openServerContextMenu(server: ServerSummary, event: MouseEvent) {
-  openServerActionMenu(server, event.currentTarget as HTMLElement, event.clientX, event.clientY, 'start')
+function openGuildContextMenu(guild: GuildSummary, event: MouseEvent) {
+  openGuildActionMenu(guild, event.currentTarget as HTMLElement, event.clientX, event.clientY, 'start')
 }
 
-function openServerKeyboardMenu(server: ServerSummary, event: KeyboardEvent) {
+function openGuildKeyboardMenu(guild: GuildSummary, event: KeyboardEvent) {
   if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
   event.preventDefault()
   const trigger = event.currentTarget as HTMLElement
   const bounds = trigger.getBoundingClientRect()
-  openServerActionMenu(server, trigger, bounds.right + 4, bounds.top, 'start')
+  openGuildActionMenu(guild, trigger, bounds.right + 4, bounds.top, 'start')
 }
 
-function closeServerActionMenu(restoreFocus = false) {
-  const trigger = serverActionMenu.value?.trigger
-  serverActionMenu.value = null
+function closeGuildActionMenu(restoreFocus = false) {
+  const trigger = guildActionMenu.value?.trigger
+  guildActionMenu.value = null
   if (restoreFocus) void nextTick(() => trigger?.focus())
 }
 
-async function openServerAdmin(server: ServerSummary) {
-  const trigger = serverActionMenu.value?.trigger ?? null
-  closeServerActionMenu()
-  const previousServerId = app.activeServerId
+async function openGuildAdmin(guild: GuildSummary) {
+  const trigger = guildActionMenu.value?.trigger ?? null
+  closeGuildActionMenu()
+  const previousGuildId = app.activeGuildId
   try {
-    if (server.id !== previousServerId) await app.selectServer(server.id)
+    if (guild.id !== previousGuildId) await app.selectGuild(guild.id)
   } catch (error) {
     try {
-      if (previousServerId !== null && app.servers.some((item) => item.id === previousServerId && item.joined)) await app.selectServer(previousServerId)
+      if (previousGuildId !== null && app.guilds.some((item) => item.id === previousGuildId && item.joined)) await app.selectGuild(previousGuildId)
       else await app.bootstrap()
     } catch {
       // 保留原始切换错误。
@@ -277,24 +277,24 @@ async function openServerAdmin(server: ServerSummary) {
   channelsOpen.value = false
 }
 
-function openServerPlatformManagement(server: ServerSummary) {
-  closeServerActionMenu()
-  openPlatformServers(server.id)
+function openGuildPlatformManagement(guild: GuildSummary) {
+  closeGuildActionMenu()
+  openPlatformGuilds(guild.id)
   channelsOpen.value = false
 }
 
-function confirmLeaveServer(server: ServerSummary) {
-  leaveDialogTrigger.value = serverActionMenu.value?.trigger ?? null
-  closeServerActionMenu()
-  leaveServerError.value = ''
-  leaveTarget.value = server
+function confirmLeaveGuild(guild: GuildSummary) {
+  leaveDialogTrigger.value = guildActionMenu.value?.trigger ?? null
+  closeGuildActionMenu()
+  leaveGuildError.value = ''
+  leaveTarget.value = guild
 }
 
-function closeLeaveServerDialog() {
-  if (leavingServer.value) return
+function closeLeaveGuildDialog() {
+  if (leavingGuild.value) return
   const trigger = leaveDialogTrigger.value
   leaveTarget.value = null
-  leaveServerError.value = ''
+  leaveGuildError.value = ''
   leaveDialogTrigger.value = null
   void nextTick(() => trigger?.focus())
 }
@@ -306,14 +306,14 @@ function openPlatformAccounts() {
   adminOpen.value = true
 }
 
-async function leaveServer() {
-  const server = leaveTarget.value
-  if (!server || server.role === 'owner' || leavingServer.value) return
-  leavingServer.value = true
-  leaveServerError.value = ''
+async function leaveGuild() {
+  const guild = leaveTarget.value
+  if (!guild || guild.role === 'owner' || leavingGuild.value) return
+  leavingGuild.value = true
+  leaveGuildError.value = ''
   try {
-    await request(`/api/servers/${server.id}/leave`, { method: 'POST' })
-    if (voice.connectedServerId === server.id) {
+    await request(`/api/guilds/${guild.id}/leave`, { method: 'POST' })
+    if (voice.connectedGuildId === guild.id) {
       try {
         await voice.leave({ notifyServer: false, playLeaveSound: true })
       } catch {
@@ -325,9 +325,9 @@ async function leaveServer() {
     leaveDialogTrigger.value = null
     channelsOpen.value = false
   } catch (error) {
-    leaveServerError.value = error instanceof Error ? error.message : '离开服务器失败'
+    leaveGuildError.value = error instanceof Error ? error.message : '离开服务器失败'
   } finally {
-    leavingServer.value = false
+    leavingGuild.value = false
   }
 }
 
@@ -354,28 +354,28 @@ function closeChangelog() {
 
 <template>
   <main :class="['app-shell', { 'members-collapsed': wideMemberLayout && !desktopMembersVisible }]">
-    <nav class="server-rail" aria-label="服务器">
-      <span class="rail-logo" title="Celery Web Speak"><img class="server-icon" src="/favicon.svg" alt="" /></span>
+    <nav class="guild-rail" aria-label="服务器">
+      <span class="rail-logo" title="Celery Web Speak"><img class="guild-icon" src="/favicon.svg" alt="" /></span>
       <span class="rail-status" :class="app.socketStatus" title="业务连接状态"><Radio :size="18" /></span>
       <span class="rail-divider" />
-      <button v-if="app.isPlatformAdmin" class="server-button platform-manage" type="button" title="平台服务器管理" @click="openPlatformServers()"><ServerCog :size="20" /></button>
+      <button v-if="app.isPlatformAdmin" class="guild-button platform-manage" type="button" title="平台服务器管理" @click="openPlatformGuilds()"><ServerCog :size="20" /></button>
       <span v-if="app.isPlatformAdmin" class="rail-divider" />
       <div class="rail-scroll">
         <button
-          v-for="server in app.servers"
-          :key="server.id"
-          :class="['server-button', { active: server.id === app.activeServerId, 'metadata-only': !server.joined }]"
+          v-for="guild in app.guilds"
+          :key="guild.id"
+          :class="['guild-button', { active: guild.id === app.activeGuildId, 'metadata-only': !guild.joined }]"
           type="button"
-          :title="server.joined ? server.name : `${server.name}（仅管理信息）`"
-          :aria-label="server.joined ? server.name : `${server.name}（仅管理信息）`"
-          @click="openServer(server)"
-          @contextmenu.prevent="openServerContextMenu(server, $event)"
-          @keydown="openServerKeyboardMenu(server, $event)"
+          :title="guild.joined ? guild.name : `${guild.name}（仅管理信息）`"
+          :aria-label="guild.joined ? guild.name : `${guild.name}（仅管理信息）`"
+          @click="openGuild(guild)"
+          @contextmenu.prevent="openGuildContextMenu(guild, $event)"
+          @keydown="openGuildKeyboardMenu(guild, $event)"
         >
-          <span class="server-initial">{{ server.name.trim().slice(0, 1).toUpperCase() }}</span>
-          <span v-if="server.unreadCount" class="server-unread" />
+          <span class="guild-initial">{{ guild.name.trim().slice(0, 1).toUpperCase() }}</span>
+          <span v-if="guild.unreadCount" class="guild-unread" />
         </button>
-        <button v-if="app.isPlatformAdmin" class="server-button add-server" type="button" title="创建服务器" @click="openPlatformServers(null, true)"><Plus :size="22" /></button>
+        <button v-if="app.isPlatformAdmin" class="guild-button add-guild" type="button" title="创建服务器" @click="openPlatformGuilds(null, true)"><Plus :size="22" /></button>
       </div>
       <div class="rail-account">
         <button
@@ -392,17 +392,17 @@ function closeChangelog() {
     </nav>
 
     <aside :class="['channel-sidebar', { 'mobile-drawer-open': channelsOpen }]">
-      <header class="server-title">
-        <span><strong>{{ app.activeServer?.name ?? '尚未加入服务器' }}</strong><small>{{ app.activeServer ? '服务器频道' : '请联系服务器管理员' }}</small></span>
-        <button v-if="app.activeServer" ref="serverActionTrigger" class="icon-button server-actions-trigger" type="button" title="服务器操作" aria-label="服务器操作" :aria-expanded="serverActionMenu?.trigger === serverActionTrigger" @click="openHeaderServerActions"><EllipsisVertical :size="20" /></button>
-        <button v-if="app.isPlatformAdmin && !app.activeServer" class="icon-button mobile-only" title="平台服务器管理" @click="openPlatformServers(); channelsOpen = false"><ServerCog :size="19" /></button>
+      <header class="guild-title">
+        <span><strong>{{ app.activeGuild?.name ?? '尚未加入服务器' }}</strong><small>{{ app.activeGuild ? '服务器频道' : '请联系服务器管理员' }}</small></span>
+        <button v-if="app.activeGuild" ref="guildActionTrigger" class="icon-button server-actions-trigger" type="button" title="服务器操作" aria-label="服务器操作" :aria-expanded="guildActionMenu?.trigger === guildActionTrigger" @click="openHeaderGuildActions"><EllipsisVertical :size="20" /></button>
+        <button v-if="app.isPlatformAdmin && !app.activeGuild" class="icon-button mobile-only" title="平台服务器管理" @click="openPlatformGuilds(); channelsOpen = false"><ServerCog :size="19" /></button>
         <button class="icon-button mobile-only" title="关闭" @click="channelsOpen = false"><X :size="19" /></button>
       </header>
       <div class="channel-scroll">
-        <p v-if="!app.activeServer" class="server-empty">尚未加入任何服务器，请联系服务器管理员将你加入服务器。</p>
-        <div v-if="app.activeServer" class="category-heading"><span>语音频道</span></div>
+        <p v-if="!app.activeGuild" class="server-empty">尚未加入任何服务器，请联系服务器管理员将你加入服务器。</p>
+        <div v-if="app.activeGuild" class="category-heading"><span>语音频道</span></div>
         <VoiceChannel v-for="channel in app.voiceChannels" :key="channel.id" :channel="channel" />
-        <div v-if="app.activeServer" class="category-heading"><span>文字频道</span></div>
+        <div v-if="app.activeGuild" class="category-heading"><span>文字频道</span></div>
         <button
           v-for="channel in app.textChannels"
           :key="channel.id"
@@ -446,21 +446,21 @@ function closeChangelog() {
     </div>
 
     <div id="voice-audio-root" aria-hidden="true" />
-    <ServerActionMenu
-      v-if="serverActionMenu"
-      :server="serverActionMenu.server"
+    <GuildActionMenu
+      v-if="guildActionMenu"
+      :guild="guildActionMenu.guild"
       :is-platform-admin="app.isPlatformAdmin"
-      :x="serverActionMenu.x"
-      :y="serverActionMenu.y"
-      :align="serverActionMenu.align"
-      :trigger="serverActionMenu.trigger"
-      @close="closeServerActionMenu"
-      @manage="openServerAdmin"
-      @platform="openServerPlatformManagement"
-      @leave="confirmLeaveServer"
+      :x="guildActionMenu.x"
+      :y="guildActionMenu.y"
+      :align="guildActionMenu.align"
+      :trigger="guildActionMenu.trigger"
+      @close="closeGuildActionMenu"
+      @manage="openGuildAdmin"
+      @platform="openGuildPlatformManagement"
+      @leave="confirmLeaveGuild"
     />
     <AccountMenu v-if="accountMenuOpen" :trigger="accountTrigger" @close="closeAccountMenu" @settings="openProfile" @logout="openLogoutDialog" />
-    <LeaveServerDialog v-if="leaveTarget" :server="leaveTarget" :busy="leavingServer" :error="leaveServerError" @cancel="closeLeaveServerDialog" @confirm="leaveServer" />
+    <LeaveGuildDialog v-if="leaveTarget" :guild="leaveTarget" :busy="leavingGuild" :error="leaveGuildError" @cancel="closeLeaveGuildDialog" @confirm="leaveGuild" />
     <LogoutDialog v-if="logoutOpen" :busy="loggingOut" :error="logoutError" :voice-joined="voice.joined" @cancel="closeLogoutDialog" @confirm="logout" />
     <ProfilePanel
       v-if="profileOpen"
@@ -470,7 +470,7 @@ function closeChangelog() {
       @changelog="changelogOpen = true"
     />
     <AdminPanel v-if="adminOpen" :initial-tab="adminInitialTab" :platform-mode="adminPlatformMode" @close="adminOpen = false" />
-    <PlatformServersPanel v-if="platformOpen" :initial-server-id="platformInitialServerId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
+    <PlatformGuildsPanel v-if="platformOpen" :initial-guild-id="platformInitialGuildId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
     <ChangelogModal v-if="changelogOpen" @close="closeChangelog" />
   </main>
 </template>

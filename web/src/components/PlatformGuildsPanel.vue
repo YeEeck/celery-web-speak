@@ -3,18 +3,18 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { LogIn, Plus, RefreshCw, Save, ServerCog, Trash2, UserCog, UserRoundCog, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
-import type { ServerSummary, User } from '../types'
+import type { GuildSummary, User } from '../types'
 
-const props = defineProps<{ initialServerId?: number | null; createOnOpen?: boolean }>()
+const props = defineProps<{ initialGuildId?: number | null; createOnOpen?: boolean }>()
 const emit = defineEmits<{ close: []; accounts: [] }>()
 const app = useAppStore()
-const servers = ref<ServerSummary[]>([])
+const guilds = ref<GuildSummary[]>([])
 const users = ref<User[]>([])
-const selectedServerId = ref<number | null>(props.initialServerId ?? null)
-const newServerName = ref('')
+const selectedGuildId = ref<number | null>(props.initialGuildId ?? null)
+const newGuildName = ref('')
 const newOwnerUsername = ref('')
 const newOwnerId = ref<number | null>(null)
-const renamedServerName = ref('')
+const renamedGuildName = ref('')
 const deleteConfirmation = ref('')
 const showDeleteConfirmation = ref(false)
 const busy = ref(false)
@@ -23,22 +23,22 @@ const message = ref('')
 const errorMessage = ref('')
 const createNameInput = ref<HTMLInputElement | null>(null)
 
-const selectedServer = computed(() => servers.value.find((server) => server.id === selectedServerId.value) ?? null)
-const selectedOwner = computed(() => users.value.find((user) => user.id === selectedServer.value?.ownerUserId) ?? null)
-const ownerCandidates = computed(() => users.value.filter((user) => !user.permanentlyBanned && user.id !== selectedServer.value?.ownerUserId))
+const selectedGuild = computed(() => guilds.value.find((guild) => guild.id === selectedGuildId.value) ?? null)
+const selectedOwner = computed(() => users.value.find((user) => user.id === selectedGuild.value?.ownerUserId) ?? null)
+const ownerCandidates = computed(() => users.value.filter((user) => !user.permanentlyBanned && user.id !== selectedGuild.value?.ownerUserId))
 
-watch(() => props.initialServerId, (id) => {
-  if (id) selectedServerId.value = id
+watch(() => props.initialGuildId, (id) => {
+  if (id) selectedGuildId.value = id
 })
-watch(selectedServerId, () => {
+watch(selectedGuildId, () => {
   newOwnerId.value = null
   deleteConfirmation.value = ''
   showDeleteConfirmation.value = false
   message.value = ''
   errorMessage.value = ''
 })
-watch(selectedServer, (server) => {
-  renamedServerName.value = server?.name ?? ''
+watch(selectedGuild, (guild) => {
+  renamedGuildName.value = guild?.name ?? ''
 }, { immediate: true })
 
 onMounted(async () => {
@@ -50,14 +50,14 @@ async function refresh() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const [serverPayload, userPayload] = await Promise.all([
-      request<{ servers: ServerSummary[] }>('/api/platform/servers'),
+    const [guildPayload, userPayload] = await Promise.all([
+      request<{ guilds: GuildSummary[] }>('/api/platform/guilds'),
       request<{ users: User[] }>('/api/platform/users'),
     ])
-    servers.value = serverPayload.servers ?? []
+    guilds.value = guildPayload.guilds ?? []
     users.value = userPayload.users ?? []
-    if (!selectedServerId.value || !servers.value.some((server) => server.id === selectedServerId.value)) {
-      selectedServerId.value = servers.value[0]?.id ?? null
+    if (!selectedGuildId.value || !guilds.value.some((guild) => guild.id === selectedGuildId.value)) {
+      selectedGuildId.value = guilds.value[0]?.id ?? null
     }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载失败'
@@ -80,51 +80,51 @@ async function run(action: () => Promise<void>, success: string) {
   }
 }
 
-async function createServer() {
-  const name = newServerName.value.trim()
+async function createGuild() {
+  const name = newGuildName.value.trim()
   const ownerUsername = newOwnerUsername.value.trim()
   if (!name || !ownerUsername) return
   await run(async () => {
-    const payload = await request<{ server: ServerSummary }>('/api/platform/servers', {
+    const payload = await request<{ guild: GuildSummary }>('/api/platform/guilds', {
       method: 'POST',
       body: JSON.stringify({ name, ownerUsername }),
     })
-    newServerName.value = ''
+    newGuildName.value = ''
     newOwnerUsername.value = ''
     await Promise.all([refresh(), app.bootstrap()])
-    selectedServerId.value = payload.server.id
+    selectedGuildId.value = payload.guild.id
   }, '服务器已创建')
 }
 
-async function joinServer() {
-  const server = selectedServer.value
-  if (!server) return
+async function joinGuild() {
+  const guild = selectedGuild.value
+  if (!guild) return
   await run(async () => {
-    await request(`/api/platform/servers/${server.id}/join`, { method: 'POST' })
+    await request(`/api/platform/guilds/${guild.id}/join`, { method: 'POST' })
     await Promise.all([refresh(), app.bootstrap()])
-    await app.selectServer(server.id)
+    await app.selectGuild(guild.id)
   }, '已加入服务器')
 }
 
-async function renameServer() {
-  const server = selectedServer.value
-  const name = renamedServerName.value.trim()
-  if (!server || !name || name === server.name) return
+async function renameGuild() {
+  const guild = selectedGuild.value
+  const name = renamedGuildName.value.trim()
+  if (!guild || !name || name === guild.name) return
   await run(async () => {
-    await request(`/api/platform/servers/${server.id}`, {
+    await request(`/api/platform/guilds/${guild.id}`, {
       method: 'PATCH',
       body: JSON.stringify({ name }),
     })
     await Promise.all([refresh(), app.bootstrap()])
-    selectedServerId.value = server.id
+    selectedGuildId.value = guild.id
   }, '服务器名称已更新')
 }
 
 async function transferOwner() {
-  const server = selectedServer.value
-  if (!server || !newOwnerId.value) return
+  const guild = selectedGuild.value
+  if (!guild || !newOwnerId.value) return
   await run(async () => {
-    await request(`/api/platform/servers/${server.id}/owner`, {
+    await request(`/api/platform/guilds/${guild.id}/owner`, {
       method: 'PATCH',
       body: JSON.stringify({ userId: newOwnerId.value }),
     })
@@ -132,12 +132,12 @@ async function transferOwner() {
   }, '所有权已转让')
 }
 
-async function deleteServer() {
-  const server = selectedServer.value
-  if (!server || deleteConfirmation.value !== server.name) return
+async function deleteGuild() {
+  const guild = selectedGuild.value
+  if (!guild || deleteConfirmation.value !== guild.name) return
   await run(async () => {
-    await request(`/api/platform/servers/${server.id}`, { method: 'DELETE' })
-    selectedServerId.value = null
+    await request(`/api/platform/guilds/${guild.id}`, { method: 'DELETE' })
+    selectedGuildId.value = null
     deleteConfirmation.value = ''
     showDeleteConfirmation.value = false
     await Promise.all([refresh(), app.bootstrap()])
@@ -147,9 +147,9 @@ async function deleteServer() {
 
 <template>
   <div class="modal-backdrop platform-backdrop" @mousedown.self="emit('close')">
-    <section class="platform-panel" role="dialog" aria-modal="true" aria-labelledby="platform-servers-title">
+    <section class="platform-panel" role="dialog" aria-modal="true" aria-labelledby="platform-guilds-title">
       <header class="panel-header">
-        <div><h2 id="platform-servers-title">平台服务器</h2><p>{{ servers.length }} 个服务器</p></div>
+        <div><h2 id="platform-guilds-title">平台服务器</h2><p>{{ guilds.length }} 个服务器</p></div>
         <span class="panel-header-actions">
           <button class="icon-button" type="button" title="平台账号与邀请码" @click="emit('accounts')"><UserCog :size="18" /></button>
           <button class="icon-button" type="button" title="刷新" :disabled="loading || busy" @click="refresh"><RefreshCw :size="18" /></button>
@@ -157,41 +157,41 @@ async function deleteServer() {
         </span>
       </header>
 
-      <div class="platform-server-layout">
-        <aside class="platform-server-list">
-          <form class="platform-create-form" @submit.prevent="createServer">
+      <div class="platform-guild-layout">
+        <aside class="platform-guild-list">
+          <form class="platform-create-form" @submit.prevent="createGuild">
             <h3><Plus :size="17" />创建服务器</h3>
-            <input ref="createNameInput" v-model.trim="newServerName" maxlength="64" placeholder="服务器名称" aria-label="服务器名称" />
+            <input ref="createNameInput" v-model.trim="newGuildName" maxlength="64" placeholder="服务器名称" aria-label="服务器名称" />
             <input v-model.trim="newOwnerUsername" maxlength="32" placeholder="所有者完整登录名" aria-label="所有者完整登录名" />
-            <button class="primary-button" type="submit" :disabled="busy || !newServerName || !newOwnerUsername"><Plus :size="17" />创建</button>
+            <button class="primary-button" type="submit" :disabled="busy || !newGuildName || !newOwnerUsername"><Plus :size="17" />创建</button>
           </form>
           <nav aria-label="平台服务器列表">
-            <button v-for="server in servers" :key="server.id" type="button" :class="{ active: server.id === selectedServerId }" @click="selectedServerId = server.id">
-              <span class="server-initial">{{ server.name.trim().slice(0, 1).toUpperCase() }}</span>
-              <span><strong>{{ server.name }}</strong><small>{{ server.joined ? '已加入' : '仅管理信息' }}</small></span>
+            <button v-for="guild in guilds" :key="guild.id" type="button" :class="{ active: guild.id === selectedGuildId }" @click="selectedGuildId = guild.id">
+              <span class="guild-initial">{{ guild.name.trim().slice(0, 1).toUpperCase() }}</span>
+              <span><strong>{{ guild.name }}</strong><small>{{ guild.joined ? '已加入' : '仅管理信息' }}</small></span>
             </button>
           </nav>
         </aside>
 
-        <div v-if="selectedServer" class="platform-server-detail">
+        <div v-if="selectedGuild" class="platform-guild-detail">
           <header>
-            <span class="platform-server-mark">{{ selectedServer.name.trim().slice(0, 1).toUpperCase() }}</span>
-            <div><h3>{{ selectedServer.name }}</h3><p>服务器 #{{ selectedServer.id }}</p></div>
+            <span class="platform-guild-mark">{{ selectedGuild.name.trim().slice(0, 1).toUpperCase() }}</span>
+            <div><h3>{{ selectedGuild.name }}</h3><p>服务器 #{{ selectedGuild.id }}</p></div>
           </header>
           <dl class="server-metadata">
-            <div><dt>所有者</dt><dd>{{ selectedOwner?.displayName ?? `用户 #${selectedServer.ownerUserId}` }}</dd></div>
-            <div><dt>成员</dt><dd>{{ selectedServer.memberCount }}</dd></div>
-            <div><dt>创建时间</dt><dd>{{ new Date(selectedServer.createdAt).toLocaleString('zh-CN') }}</dd></div>
-            <div><dt>状态</dt><dd>{{ selectedServer.joined ? '已加入' : '未加入' }}</dd></div>
+            <div><dt>所有者</dt><dd>{{ selectedOwner?.displayName ?? `用户 #${selectedGuild.ownerUserId}` }}</dd></div>
+            <div><dt>成员</dt><dd>{{ selectedGuild.memberCount }}</dd></div>
+            <div><dt>创建时间</dt><dd>{{ new Date(selectedGuild.createdAt).toLocaleString('zh-CN') }}</dd></div>
+            <div><dt>状态</dt><dd>{{ selectedGuild.joined ? '已加入' : '未加入' }}</dd></div>
           </dl>
 
-            <button v-if="!selectedServer.joined" class="primary-button" type="button" :disabled="busy" @click="joinServer"><LogIn :size="17" />加入为服务器管理员</button>
+            <button v-if="!selectedGuild.joined" class="primary-button" type="button" :disabled="busy" @click="joinGuild"><LogIn :size="17" />加入为服务器管理员</button>
 
             <section class="platform-owner-action">
               <h3><ServerCog :size="18" />服务器名称</h3>
               <div class="inline-actions">
-                <input v-model.trim="renamedServerName" maxlength="64" aria-label="修改服务器名称" />
-                <button class="secondary-button" type="button" :disabled="busy || !renamedServerName || renamedServerName === selectedServer.name" @click="renameServer"><Save :size="16" />保存</button>
+                <input v-model.trim="renamedGuildName" maxlength="64" aria-label="修改服务器名称" />
+                <button class="secondary-button" type="button" :disabled="busy || !renamedGuildName || renamedGuildName === selectedGuild.name" @click="renameGuild"><Save :size="16" />保存</button>
               </div>
             </section>
 
@@ -206,17 +206,17 @@ async function deleteServer() {
             </div>
           </section>
 
-          <section class="platform-server-danger">
-            <div><h3><Trash2 :size="18" />删除服务器</h3><p>{{ selectedServer.memberCount }} 名成员</p></div>
+          <section class="platform-guild-danger">
+            <div><h3><Trash2 :size="18" />删除服务器</h3><p>{{ selectedGuild.memberCount }} 名成员</p></div>
             <button v-if="!showDeleteConfirmation" class="secondary-button danger-text" type="button" @click="showDeleteConfirmation = true">删除</button>
             <div v-else class="server-delete-confirmation">
-              <input v-model="deleteConfirmation" :placeholder="selectedServer.name" aria-label="输入服务器名称确认删除" />
+              <input v-model="deleteConfirmation" :placeholder="selectedGuild.name" aria-label="输入服务器名称确认删除" />
               <button class="secondary-button" type="button" @click="showDeleteConfirmation = false; deleteConfirmation = ''">取消</button>
-              <button class="danger-button" type="button" :disabled="busy || deleteConfirmation !== selectedServer.name" @click="deleteServer">确认删除</button>
+              <button class="danger-button" type="button" :disabled="busy || deleteConfirmation !== selectedGuild.name" @click="deleteGuild">确认删除</button>
             </div>
           </section>
         </div>
-        <div v-else class="platform-server-empty"><ServerCog :size="30" /><span>暂无服务器</span></div>
+        <div v-else class="platform-guild-empty"><ServerCog :size="30" /><span>暂无服务器</span></div>
       </div>
 
       <footer class="panel-footer"><span v-if="errorMessage" class="form-error">{{ errorMessage }}</span><span v-else class="form-success">{{ message }}</span></footer>

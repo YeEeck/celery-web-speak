@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Gauge, LogOut, ServerCog } from '@lucide/vue'
-import type { ServerSummary } from '../types'
+import type { GuildSummary } from '../types'
 
 const props = defineProps<{
-  server: ServerSummary
+  guild: GuildSummary
   isPlatformAdmin: boolean
   x: number
   y: number
@@ -13,17 +13,17 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   close: [restoreFocus?: boolean]
-  manage: [server: ServerSummary]
-  platform: [server: ServerSummary]
-  leave: [server: ServerSummary]
+  manage: [guild: GuildSummary]
+  platform: [guild: GuildSummary]
+  leave: [guild: GuildSummary]
 }>()
 
 const menu = ref<HTMLElement | null>(null)
 const left = ref(props.x)
 const top = ref(props.y)
 const positioned = ref(false)
-const canManage = computed(() => props.server.joined && (props.server.role === 'owner' || props.server.role === 'admin'))
-const canLeave = computed(() => props.server.joined && props.server.role !== 'owner')
+const canManage = computed(() => props.guild.joined && (props.guild.role === 'owner' || props.guild.role === 'admin'))
+const canLeave = computed(() => props.guild.joined && props.guild.role !== 'owner')
 const hasPrimaryAction = computed(() => canManage.value || props.isPlatformAdmin)
 
 function items() {
@@ -98,13 +98,13 @@ onBeforeUnmount(() => {
       :class="{ positioned }"
       :style="{ left: `${left}px`, top: `${top}px` }"
       role="menu"
-      :aria-label="`${server.name}的服务器操作`"
+      :aria-label="`${guild.name}的服务器操作`"
       @keydown="handleKeyDown"
     >
-      <button v-if="canManage" type="button" role="menuitem" @click="emit('manage', server)"><Gauge :size="17" />管理控制台</button>
-      <button v-if="isPlatformAdmin" type="button" role="menuitem" @click="emit('platform', server)"><ServerCog :size="17" />平台服务器管理</button>
+      <button v-if="canManage" type="button" role="menuitem" @click="emit('manage', guild)"><Gauge :size="17" />管理控制台</button>
+      <button v-if="isPlatformAdmin" type="button" role="menuitem" @click="emit('platform', guild)"><ServerCog :size="17" />平台服务器管理</button>
       <span v-if="canLeave && hasPrimaryAction" class="server-action-divider" role="separator" />
-      <button v-if="canLeave" class="danger" type="button" role="menuitem" @click="emit('leave', server)"><LogOut :size="17" />离开服务器</button>
+      <button v-if="canLeave" class="danger" type="button" role="menuitem" @click="emit('leave', guild)"><LogOut :size="17" />离开服务器</button>
     </nav>
   </Teleport>
 </template>

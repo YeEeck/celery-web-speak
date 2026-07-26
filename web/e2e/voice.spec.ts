@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
-import { createServerMember, deletePlatformUser, firstJoinedServerID } from './api-helpers'
+import { createGuildMember, deletePlatformUser, firstJoinedGuildID } from './api-helpers'
 
 const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080'
 const adminUsername = process.env.E2E_USERNAME ?? 'admin'
@@ -10,7 +10,7 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
   test.skip(!runVoiceTest, '需要已运行的 LiveKit Compose 环境')
 
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
-  const serverID = await firstJoinedServerID(request)
+  const serverID = await firstJoinedGuildID(request)
   const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
   const displaySuffix = suffix.slice(-6)
   const accounts = [
@@ -22,7 +22,7 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
 
   try {
     for (const account of accounts) {
-      accountIds.set(account.username, (await createServerMember(request, serverID, account)).id)
+      accountIds.set(account.username, (await createGuildMember(request, serverID, account)).id)
     }
     for (const account of accounts) {
       const context = await browser.newContext({ permissions: ['microphone'] })
@@ -49,11 +49,11 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
     await expectVoiceOrder(contexts.map(({ page }) => page), accounts.map(({ displayName }) => displayName))
 
     const secondAccountId = accountIds.get(accounts[1].username)!
-    const promoteResponse = await request.patch(`/api/servers/${serverID}/members/${secondAccountId}/role`, { data: { role: 'admin' } })
+    const promoteResponse = await request.patch(`/api/guilds/${serverID}/members/${secondAccountId}/role`, { data: { role: 'admin' } })
     expect(promoteResponse.ok()).toBeTruthy()
     await expectVoiceOrder(contexts.map(({ page }) => page), [accounts[1].displayName, accounts[0].displayName])
 
-    const demoteResponse = await request.patch(`/api/servers/${serverID}/members/${secondAccountId}/role`, { data: { role: 'member' } })
+    const demoteResponse = await request.patch(`/api/guilds/${serverID}/members/${secondAccountId}/role`, { data: { role: 'member' } })
     expect(demoteResponse.ok()).toBeTruthy()
     await expectVoiceOrder(contexts.map(({ page }) => page), accounts.map(({ displayName }) => displayName))
 
@@ -110,14 +110,14 @@ test('主动退出语音只提示一次并与被动离开和耳机静音区分',
   test.skip(!runVoiceTest, '需要已运行的 LiveKit Compose 环境')
 
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
-  const serverID = await firstJoinedServerID(request)
+  const serverID = await firstJoinedGuildID(request)
   const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
   const account = {
     username: `leave_sound_${suffix}`,
     displayName: `退出音测试${suffix.slice(-5)}`,
     password: 'leave-sound-password',
   }
-  const accountID = (await createServerMember(request, serverID, account)).id
+  const accountID = (await createGuildMember(request, serverID, account)).id
   const context = await browser.newContext({ permissions: ['microphone'] })
   await context.grantPermissions(['microphone'], { origin: baseURL })
   const page = await context.newPage()
@@ -164,14 +164,14 @@ test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser
   test.skip(!runVoiceTest, '需要已运行的 LiveKit Compose 环境')
 
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
-  const serverID = await firstJoinedServerID(request)
+  const serverID = await firstJoinedGuildID(request)
   const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
   const account = {
     username: `dtx_${suffix}`,
     displayName: `DTX测试${suffix.slice(-5)}`,
     password: 'dtx-member-password',
   }
-  const accountID = (await createServerMember(request, serverID, account)).id
+  const accountID = (await createGuildMember(request, serverID, account)).id
   const context = await browser.newContext({ permissions: ['microphone'] })
   await context.grantPermissions(['microphone'], { origin: baseURL })
   const page = await context.newPage()
@@ -219,7 +219,7 @@ test('远端麦克风与暂停的背景音可独立调节并持久化', async ({
   test.setTimeout(60_000)
 
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
-  const serverID = await firstJoinedServerID(request)
+  const serverID = await firstJoinedGuildID(request)
   const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
   const accounts = [
     { username: `volume_a_${suffix}`, displayName: `音量甲${suffix.slice(-6)}`, password: 'volume-member-password-a' },
@@ -230,7 +230,7 @@ test('远端麦克风与暂停的背景音可独立调节并持久化', async ({
 
   try {
     for (const account of accounts) {
-      accountIds.push((await createServerMember(request, serverID, account)).id)
+      accountIds.push((await createGuildMember(request, serverID, account)).id)
 
       const context = await browser.newContext({ permissions: ['microphone'] })
       await context.grantPermissions(['microphone'], { origin: baseURL })
@@ -276,14 +276,14 @@ test('同一账号加入新语音频道会断开旧房间连接', async ({ brows
   test.skip(!runVoiceTest, '需要已运行的 LiveKit Compose 环境')
 
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
-  const serverID = await firstJoinedServerID(request)
+  const serverID = await firstJoinedGuildID(request)
   const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
   const channelName = `语音切换${suffix.slice(-5)}`
-  const channelResponse = await request.post(`/api/servers/${serverID}/channels`, { data: { type: 'voice', name: channelName } })
+  const channelResponse = await request.post(`/api/guilds/${serverID}/channels`, { data: { type: 'voice', name: channelName } })
   expect(channelResponse.ok()).toBeTruthy()
   const channel = (await channelResponse.json() as { channel: { id: number } }).channel
   const account = { username: `voice_switch_${suffix}`, displayName: `语音切换用户${suffix.slice(-4)}`, password: 'voice-switch-password' }
-  const accountID = (await createServerMember(request, serverID, account)).id
+  const accountID = (await createGuildMember(request, serverID, account)).id
 
   const contexts: Array<{ context: BrowserContext; page: Page }> = []
   try {
@@ -309,7 +309,7 @@ test('同一账号加入新语音频道会断开旧房间连接', async ({ brows
     await expect(defaultPreview.locator('.voice-member-name').filter({ hasText: account.displayName })).toHaveCount(0, { timeout: 2_000 })
   } finally {
     await Promise.allSettled(contexts.map(({ context }) => context.close()))
-    await request.delete(`/api/servers/${serverID}/channels/${channel.id}`)
+    await request.delete(`/api/guilds/${serverID}/channels/${channel.id}`)
     await deletePlatformUser(request, accountID, account.username)
   }
 })

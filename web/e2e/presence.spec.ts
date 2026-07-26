@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test'
-import { createServerMember, deletePlatformUser, firstJoinedServerID } from './api-helpers'
+import { createGuildMember, deletePlatformUser, firstJoinedGuildID } from './api-helpers'
 
 const baseURL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080'
 const adminUsername = process.env.E2E_USERNAME ?? 'admin'
@@ -10,14 +10,14 @@ test('成员列表实时反映多连接关闭与异常断网', async ({ browser,
   test.setTimeout(100_000)
 
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
-  const serverID = await firstJoinedServerID(request)
+  const serverID = await firstJoinedGuildID(request)
   const suffix = `${Date.now().toString(36)}_${testInfo.project.name}`.replace(/[^a-z0-9_-]/g, '_')
   const account = {
     username: `presence_${suffix}`.slice(0, 32),
     displayName: `在线状态${suffix.slice(-6)}`,
     password: 'presence-member-password',
   }
-  const accountID = (await createServerMember(request, serverID, account)).id
+  const accountID = (await createGuildMember(request, serverID, account)).id
   const targetContexts: BrowserContext[] = []
 
   try {
@@ -61,10 +61,10 @@ test('业务连接恢复后同步断线期间的频道和消息', async ({ isMob
   test.skip(isMobile, '业务状态恢复只需在一个浏览器项目中验证')
   test.setTimeout(100_000)
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
-  const serverID = await firstJoinedServerID(request)
+  const serverID = await firstJoinedGuildID(request)
   const suffix = Date.now().toString(36)
   const account = { username: `sync_${suffix}`, displayName: `同步测试${suffix.slice(-4)}`, password: 'sync-member-password' }
-  const accountID = (await createServerMember(request, serverID, account)).id
+  const accountID = (await createGuildMember(request, serverID, account)).id
   await login(page, account.username, account.password)
   const channelName = `恢复频道${Date.now().toString(36).slice(-5)}`
   const message = `断线恢复检查 ${Date.now()}`
@@ -73,13 +73,13 @@ test('业务连接恢复后同步断线期间的频道和消息', async ({ isMob
   try {
     await page.evaluate(() => window.dispatchEvent(new Event('pagehide')))
     await expect.poll(async () => {
-      const bootstrap = await (await request.get(`/api/servers/${serverID}/bootstrap`)).json() as { online: { userId: number; client: string }[] }
+      const bootstrap = await (await request.get(`/api/guilds/${serverID}/bootstrap`)).json() as { online: { userId: number; client: string }[] }
       return bootstrap.online.some((entry) => entry.userId === accountID)
     }).toBe(false)
-    const channelResponse = await request.post(`/api/servers/${serverID}/channels`, { data: { type: 'text', name: channelName } })
+    const channelResponse = await request.post(`/api/guilds/${serverID}/channels`, { data: { type: 'text', name: channelName } })
     expect(channelResponse.ok()).toBeTruthy()
     channelID = (await channelResponse.json() as { channel: { id: number } }).channel.id
-    const messageResponse = await request.post(`/api/servers/${serverID}/channels/${channelID}/messages`, { data: { content: message } })
+    const messageResponse = await request.post(`/api/guilds/${serverID}/channels/${channelID}/messages`, { data: { content: message } })
     expect(messageResponse.ok()).toBeTruthy()
 
     await page.evaluate(() => window.dispatchEvent(new Event('pageshow')))
@@ -89,7 +89,7 @@ test('业务连接恢复后同步断线期间的频道和消息', async ({ isMob
     await channelButton.click()
     await expect(page.getByText(message, { exact: true })).toBeVisible()
   } finally {
-    if (channelID) await request.delete(`/api/servers/${serverID}/channels/${channelID}`)
+    if (channelID) await request.delete(`/api/guilds/${serverID}/channels/${channelID}`)
     await deletePlatformUser(request, accountID, account.username)
   }
 })

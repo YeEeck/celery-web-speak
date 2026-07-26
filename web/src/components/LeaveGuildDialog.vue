@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { LoaderCircle, LogOut } from '@lucide/vue'
-import type { ServerSummary } from '../types'
+import type { GuildSummary } from '../types'
 
-const props = defineProps<{ server: ServerSummary; busy: boolean; error: string }>()
+const props = defineProps<{ guild: GuildSummary; busy: boolean; error: string }>()
 const emit = defineEmits<{ cancel: []; confirm: [] }>()
 const panel = ref<HTMLElement | null>(null)
 const cancelButton = ref<HTMLButtonElement | null>(null)
@@ -46,7 +46,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div class="modal-backdrop leave-server-backdrop" @mousedown.self="cancel">
       <section ref="panel" class="leave-server-panel" role="alertdialog" aria-modal="true" aria-labelledby="leave-server-title" aria-describedby="leave-server-description" tabindex="-1">
-        <h2 id="leave-server-title">离开“{{ server.name }}”？</h2>
+        <h2 id="leave-server-title">离开“{{ guild.name }}”？</h2>
         <p id="leave-server-description">你的成员身份将被移除，之后需要由服务器管理员重新添加。你发送的历史消息不会被删除。</p>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <footer>
