@@ -141,7 +141,7 @@ func TestPlatformAdminCannotSuspendSelf(t *testing.T) {
 func TestGuildVoiceLeaveRequiresMembership(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()
-	serverID, err := db.DefaultGuildID(ctx)
+	guildID, err := db.DefaultGuildID(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestGuildVoiceLeaveRequiresMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.AddGuildMember(ctx, serverID, admin.ID, member.Username); err != nil {
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, member.Username); err != nil {
 		t.Fatal(err)
 	}
 	token, _, err := db.CreateSession(ctx, member.ID, time.Hour)
@@ -157,7 +157,7 @@ func TestGuildVoiceLeaveRequiresMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	recorder := serveGuildHTTPRequest(server, token, http.MethodPost, "/api/guilds/"+formatID(serverID)+"/voice/leave", "")
+	recorder := serveGuildHTTPRequest(server, token, http.MethodPost, "/api/guilds/"+formatID(guildID)+"/voice/leave", "")
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("guild voice leave = %d %s", recorder.Code, recorder.Body.String())
 	}
@@ -562,21 +562,21 @@ func TestGuildAuthorizationDoesNotCrossGuildThroughLegacyOrScopedRoutes(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	servers, err := db.ListGuildsForUser(ctx, admin.ID, true)
+	guilds, err := db.ListGuildsForUser(ctx, admin.ID, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var defaultServerID int64
-	for _, item := range servers {
+	var defaultGuildID int64
+	for _, item := range guilds {
 		if item.ID != second.ID && item.Joined {
-			defaultServerID = item.ID
+			defaultGuildID = item.ID
 			break
 		}
 	}
-	if defaultServerID == 0 {
-		t.Fatal("default server not found")
+	if defaultGuildID == 0 {
+		t.Fatal("default guild not found")
 	}
-	if _, err := db.AddGuildMember(ctx, defaultServerID, admin.ID, member.Username); err != nil {
+	if _, err := db.AddGuildMember(ctx, defaultGuildID, admin.ID, member.Username); err != nil {
 		t.Fatal(err)
 	}
 	memberToken, _, err := db.CreateSession(ctx, member.ID, time.Hour)

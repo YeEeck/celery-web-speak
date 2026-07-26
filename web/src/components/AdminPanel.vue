@@ -38,7 +38,7 @@ const newDisplayName = ref('')
 const newPassword = ref('')
 const newRole = ref<PlatformRole>('member')
 const memberUsername = ref('')
-const serverName = ref('')
+const guildName = ref('')
 const message = ref('')
 const errorMessage = ref('')
 const busy = ref(false)
@@ -52,17 +52,17 @@ const platformUsers = ref<User[]>([])
 const guildContext = computed(() => props.platformMode ? null : app.activeGuild)
 const adminSubtitle = computed(() => {
   if (!guildContext.value) return '平台管理员'
-  const serverRole = guildContext.value.role === 'owner' ? '服务器所有者' : '服务器管理员'
-  return app.isPlatformAdmin ? `${serverRole} · 平台管理员` : serverRole
+  const guildRole = guildContext.value.role === 'owner' ? '服务器所有者' : '服务器管理员'
+  return app.isPlatformAdmin ? `${guildRole} · 平台管理员` : guildRole
 })
 const userPool = computed(() => guildContext.value ? app.users : platformUsers.value)
 const selectedUser = computed(() => userPool.value.find((user) => user.id === selectedUserId.value) ?? null)
 const manageableUsers = computed(() => userPool.value.filter((user) => user.id !== app.user!.id))
 const canManageRoles = computed(() => app.isPlatformAdmin || guildContext.value?.role === 'owner')
-const canRenameServer = computed(() => app.isPlatformAdmin || guildContext.value?.role === 'owner')
+const canRenameGuild = computed(() => app.isPlatformAdmin || guildContext.value?.role === 'owner')
 
-watch(guildContext, (server) => {
-  serverName.value = server?.name ?? ''
+watch(guildContext, (guild) => {
+  guildName.value = guild?.name ?? ''
 }, { immediate: true })
 
 watch(selectedChannel, (channel) => {
@@ -115,8 +115,8 @@ async function addMember() {
   }, '成员已加入服务器')
 }
 
-async function renameServer() {
-  const name = serverName.value.trim()
+async function renameGuild() {
+  const name = guildName.value.trim()
   if (!name || app.activeGuildId === null) return
   await run(async () => {
     await request(`/api/guilds/${app.activeGuildId}`, { method: 'PATCH', body: JSON.stringify({ name }) })
@@ -421,11 +421,11 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
 
       <div ref="adminContent" :class="['admin-content', { 'users-content': tab === 'users' }]">
         <section v-if="tab === 'channel'" class="settings-section channel-settings">
-          <template v-if="canRenameServer">
+          <template v-if="canRenameGuild">
             <h3>服务器设置</h3>
             <div class="guild-rename-row">
-              <input v-model.trim="serverName" maxlength="64" aria-label="服务器名称" />
-              <button class="secondary-button" :disabled="busy || !serverName || serverName === guildContext?.name" @click="renameServer"><Save :size="16" />保存名称</button>
+              <input v-model.trim="guildName" maxlength="64" aria-label="服务器名称" />
+              <button class="secondary-button" :disabled="busy || !guildName || guildName === guildContext?.name" @click="renameGuild"><Save :size="16" />保存名称</button>
             </div>
           </template>
           <h3>创建频道</h3>
