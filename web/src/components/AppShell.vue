@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { EllipsisVertical, Hash, Plus, Radio, ServerCog, X } from '@lucide/vue'
+import { EllipsisVertical, Hash, LogOut, Plus, Radio, ServerCog, X } from '@lucide/vue'
 import AccountMenu from './AccountMenu.vue'
 import AdminPanel from './AdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
@@ -28,6 +28,9 @@ const membersOpen = ref(false)
 const desktopMembersVisible = ref(true)
 const wideMemberLayout = ref(window.matchMedia('(min-width: 1141px)').matches)
 const profileOpen = ref(false)
+const profileInitialTab = ref<'account' | 'audio'>('account')
+const profileInitialAudioSubNav = ref<'input' | 'output'>('input')
+const profileFocusReturn = ref<HTMLElement | null>(null)
 const adminOpen = ref(false)
 const changelogOpen = ref(false)
 const platformOpen = ref(false)
@@ -77,8 +80,8 @@ watch(() => voice.connectedServerId === null || app.servers.some((server) => ser
   if (!hasMembership && voice.joined) void voice.leave({ notifyServer: false })
 })
 watch(() => app.activeServerId === voice.connectedServerId ? app.user?.voiceMuted : false, (value) => {
-  if (value) void voice.syncServerMute(true)
-})
+  void voice.syncServerMute(Boolean(value))
+}, { immediate: true })
 watch(() => app.socketStatus, (value) => {
   if (value === 'online') voice.retryDeafenedSync()
 })
@@ -91,6 +94,7 @@ onMounted(() => {
   mobileQuery = window.matchMedia('(max-width: 760px)')
   wideMemberQuery.addEventListener('change', handleWideMemberLayout)
   mobileQuery.addEventListener('change', closeTemporaryDrawers)
+  void voice.initializeDevices()
   void checkVersionAndShowChangelog()
 })
 onBeforeUnmount(() => {
@@ -168,12 +172,24 @@ function closeAccountMenu(restoreFocus = false) {
 
 function openProfile() {
   closeAccountMenu()
+  profileInitialTab.value = 'account'
+  profileInitialAudioSubNav.value = 'input'
+  profileFocusReturn.value = accountTrigger.value
+  profileOpen.value = true
+}
+
+function openVoiceSettings(kind: 'input' | 'output', trigger: HTMLButtonElement) {
+  profileInitialTab.value = 'audio'
+  profileInitialAudioSubNav.value = kind
+  profileFocusReturn.value = trigger
   profileOpen.value = true
 }
 
 function closeProfile() {
   profileOpen.value = false
-  void nextTick(() => accountTrigger.value?.focus())
+  const target = profileFocusReturn.value ?? accountTrigger.value
+  profileFocusReturn.value = null
+  void nextTick(() => target?.focus())
 }
 
 function openLogoutDialog() {
@@ -402,16 +418,23 @@ function closeChangelog() {
         <div class="voice-connection-summary">
           <span class="connection-indicator" />
           <span>
-            <strong>{{ voice.status === 'connected' ? '语音已连接' : '正在恢复连接' }}</strong>
+            <strong>{{ voice.status === 'connecting' ? '正在连接' : voice.status === 'connected' ? '语音已连接' : '正在重连' }}</strong>
             <small class="voice-connection-detail">
               <span class="voice-connection-location">{{ voice.connectedServerName }} / {{ voice.connectedChannelName }}</span>
               <span class="voice-connection-bitrate">· {{ voice.connectedAudioBitrateKbps }} kbps</span>
             </small>
           </span>
+          <button
+            class="icon-button danger voice-disconnect-button"
+            type="button"
+            :title="voice.status === 'connecting' ? '取消语音连接' : '断开语音'"
+            :aria-label="voice.status === 'connecting' ? '取消语音连接' : '断开语音'"
+            @click="voice.leave({ playLeaveSound: true })"
+          ><LogOut :size="18" /></button>
         </div>
         <p v-if="voice.transmissionModeError" class="voice-control-error" role="alert">{{ voice.transmissionModeError }}</p>
       </div>
-      <UserControls />
+      <UserControls @settings="openVoiceSettings" />
     </aside>
 
     <ChatPane :members-visible="membersVisible" @channels="channelsOpen = true" @members="toggleMembers" />
@@ -439,7 +462,13 @@ function closeChangelog() {
     <AccountMenu v-if="accountMenuOpen" :trigger="accountTrigger" @close="closeAccountMenu" @settings="openProfile" @logout="openLogoutDialog" />
     <LeaveServerDialog v-if="leaveTarget" :server="leaveTarget" :busy="leavingServer" :error="leaveServerError" @cancel="closeLeaveServerDialog" @confirm="leaveServer" />
     <LogoutDialog v-if="logoutOpen" :busy="loggingOut" :error="logoutError" :voice-joined="voice.joined" @cancel="closeLogoutDialog" @confirm="logout" />
-    <ProfilePanel v-if="profileOpen" @close="closeProfile" @changelog="changelogOpen = true" />
+    <ProfilePanel
+      v-if="profileOpen"
+      :initial-tab="profileInitialTab"
+      :initial-audio-sub-nav="profileInitialAudioSubNav"
+      @close="closeProfile"
+      @changelog="changelogOpen = true"
+    />
     <AdminPanel v-if="adminOpen" :initial-tab="adminInitialTab" :platform-mode="adminPlatformMode" @close="adminOpen = false" />
     <PlatformServersPanel v-if="platformOpen" :initial-server-id="platformInitialServerId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
     <ChangelogModal v-if="changelogOpen" @close="closeChangelog" />

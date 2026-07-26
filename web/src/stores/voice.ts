@@ -85,19 +85,19 @@ export const useVoiceStore = defineStore('voice', () => {
   const outputDevices = ref<MediaDeviceInfo[]>([])
   const activeInputId = ref('')
   const activeOutputId = ref('')
+  const outputDeviceSelectionSupported = supportsAudioOutputSelection()
   const savedInputDevice = getSavedDevicePreference(PREFERRED_INPUT_DEVICE_KEY)
   const savedOutputDevice = getSavedDevicePreference(PREFERRED_OUTPUT_DEVICE_KEY)
   const preferredInputId = ref(savedInputDevice.deviceId)
   const preferredInputLabel = ref(savedInputDevice.label)
-  const preferredOutputId = ref(savedOutputDevice.deviceId)
-  const preferredOutputLabel = ref(savedOutputDevice.label)
+  const preferredOutputId = ref(outputDeviceSelectionSupported ? savedOutputDevice.deviceId : DEFAULT_DEVICE_ID)
+  const preferredOutputLabel = ref(outputDeviceSelectionSupported ? savedOutputDevice.label : '系统默认')
   const devicePermissionState = ref<'idle' | 'requesting' | 'granted' | 'denied'>('idle')
   const devicePermissionError = ref('')
   const deviceChangeError = ref('')
   const deviceChangeErrorKind = ref<'input' | 'output' | null>(null)
   const deviceChangingKind = ref<'input' | 'output' | null>(null)
   const deviceChangingId = ref('')
-  const outputDeviceSelectionSupported = supportsAudioOutputSelection()
   const microphoneGain = ref(getSavedLevel(MICROPHONE_GAIN_KEY))
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
   const echoCancellation = ref(getSavedBoolean(ECHO_CANCELLATION_KEY, true))
@@ -117,8 +117,14 @@ export const useVoiceStore = defineStore('voice', () => {
   let voiceSession = 0
   let preferenceRevision = 0
   let deviceListenersInstalled = false
+  let deviceInitializationPromise: Promise<boolean> | null = null
+  let permissionRequestPromise: Promise<boolean> | null = null
   let deviceRefreshPromise: Promise<void> | null = null
   let preferenceFeedbackTimer: number | null = null
+
+  if (!outputDeviceSelectionSupported && savedOutputDevice.deviceId !== DEFAULT_DEVICE_ID) {
+    saveDevicePreference(PREFERRED_OUTPUT_DEVICE_KEY, { deviceId: DEFAULT_DEVICE_ID, label: '系统默认' })
+  }
 
   const joined = computed(() => status.value !== 'idle' && status.value !== 'error')
   const connectedAudioBitrateKbps = computed(() => connectedPublishSettings.value.audioBitrateKbps)
@@ -231,10 +237,19 @@ export const useVoiceStore = defineStore('voice', () => {
       deviceListenersInstalled = true
       navigator.mediaDevices?.addEventListener('devicechange', handleDeviceChange)
     }
-    await requestMicrophonePermission()
+    if (!deviceInitializationPromise) deviceInitializationPromise = requestMicrophonePermission()
+    return deviceInitializationPromise
   }
 
-  async function requestMicrophonePermission() {
+  function requestMicrophonePermission() {
+    if (permissionRequestPromise) return permissionRequestPromise
+    permissionRequestPromise = performMicrophonePermissionRequest().finally(() => {
+      permissionRequestPromise = null
+    })
+    return permissionRequestPromise
+  }
+
+  async function performMicrophonePermissionRequest() {
     devicePermissionState.value = 'requesting'
     devicePermissionError.value = ''
     try {
@@ -283,6 +298,9 @@ export const useVoiceStore = defineStore('voice', () => {
       connectedServerName.value = serverName
       connectedChannelName.value = channel.name
       setConnectedChannelSettings(channel)
+      await initializeDevices()
+      if (permissionRequestPromise) await permissionRequestPromise
+      if (session !== voiceSession) return
       const tokenDeafened = deafenedPreference.value
       const credentials = await request<VoiceCredentials>(`/api/servers/${serverId}/channels/${channelId}/voice/token`, {
         method: 'POST',
