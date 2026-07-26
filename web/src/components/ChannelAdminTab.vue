@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, inject, ref, watch } from 'vue'
-import { Hash, Plus, Radio, Save, Trash2 } from '@lucide/vue'
+import { computed, inject, nextTick, ref, watch } from 'vue'
+import { Hash, Plus, Radio, Save, Trash2, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import type { ChannelType } from '../types'
@@ -19,6 +19,10 @@ const backgroundAudioRedEnabled = ref(selectedChannel.value?.backgroundAudioRedE
 const retention = ref(selectedChannel.value?.messageRetention ?? 500)
 const newChannelType = ref<ChannelType>('text')
 const newChannelName = ref('')
+const showCreateDialog = ref(false)
+const createNameInput = ref<HTMLInputElement | null>(null)
+const showDeleteConfirmation = ref(false)
+const deleteConfirmation = ref('')
 
 const voiceOnlineCount = computed(() => {
   const channel = selectedChannel.value
@@ -33,7 +37,22 @@ watch(selectedChannel, (channel) => {
   audioRedEnabled.value = channel?.audioRedEnabled ?? true
   backgroundAudioRedEnabled.value = channel?.backgroundAudioRedEnabled ?? false
   retention.value = channel?.messageRetention ?? 500
+  showDeleteConfirmation.value = false
+  deleteConfirmation.value = ''
 })
+
+function openCreateDialog() {
+  newChannelType.value = 'text'
+  newChannelName.value = ''
+  showCreateDialog.value = true
+  nextTick(() => createNameInput.value?.focus())
+}
+
+function closeCreateDialog() {
+  if (busy.value) return
+  showCreateDialog.value = false
+  newChannelName.value = ''
+}
 
 async function saveSettings() {
   const channel = selectedChannel.value
@@ -62,6 +81,7 @@ async function createChannel() {
       body: JSON.stringify({ type: newChannelType.value, name: newChannelName.value }),
     })
     newChannelName.value = ''
+    showCreateDialog.value = false
     await app.bootstrap()
     selectedChannelId.value = payload.channel.id
   }, '频道已创建')
@@ -69,9 +89,11 @@ async function createChannel() {
 
 async function deleteChannel() {
   const channel = selectedChannel.value
-  if (!channel || !window.confirm(`永久删除${channel.type === 'text' ? '文字' : '语音'}频道“${channel.name}”？此操作无法恢复。`)) return
+  if (!channel || deleteConfirmation.value !== channel.name) return
   await run(async () => {
     await request(`/api/guilds/${app.activeGuildId}/channels/${channel.id}`, { method: 'DELETE' })
+    showDeleteConfirmation.value = false
+    deleteConfirmation.value = ''
     await app.bootstrap()
     selectedChannelId.value = app.channels[0]?.id ?? null
   }, '频道已永久删除')
@@ -81,6 +103,7 @@ async function deleteChannel() {
 <template>
   <section class="channel-admin-layout">
     <aside class="channel-admin-list" aria-label="频道列表">
+      <button class="secondary-button channel-create-trigger" type="button" @click="openCreateDialog"><Plus :size="16" />创建频道</button>
       <div class="category-heading"><span>语音频道</span></div>
       <button
         v-for="channel in app.voiceChannels"
@@ -138,16 +161,31 @@ async function deleteChannel() {
         <label v-else><span>保留消息数量</span><input v-model.number="retention" type="number" min="100" max="5000" step="100" /></label>
         <div class="channel-admin-actions">
           <button class="primary-button" :disabled="busy || !channelName" @click="saveSettings"><Save :size="17" />保存频道设置</button>
-          <button class="secondary-button danger-text" :disabled="busy" @click="deleteChannel"><Trash2 :size="16" />永久删除</button>
         </div>
       </section>
 
-      <section class="settings-section channel-settings">
-        <h3>创建频道</h3>
-        <div class="channel-create-row">
-          <select v-model="newChannelType" aria-label="频道类型"><option value="text">文字频道</option><option value="voice">语音频道</option></select>
-          <input v-model.trim="newChannelName" maxlength="32" placeholder="频道名称" aria-label="新频道名称" @keydown.enter="createChannel" />
-          <button class="primary-button" :disabled="busy || !newChannelName" @click="createChannel"><Plus :size="17" />创建</button>
+      <section class="channel-admin-danger">
+        <div><h3><Trash2 :size="18" />删除频道</h3><p>{{ selectedChannel.type === 'text' ? '频道内所有消息将被永久删除，此操作无法恢复。' : '语音房间及其通话记录将被永久移除，此操作无法恢复。' }}</p></div>
+        <button v-if="!showDeleteConfirmation" class="secondary-button danger-text" type="button" @click="showDeleteConfirmation = true">删除</button>
+        <div v-else class="channel-delete-confirmation">
+          <input v-model="deleteConfirmation" :placeholder="selectedChannel.name" aria-label="输入频道名称确认删除" />
+          <button class="secondary-button" type="button" @click="showDeleteConfirmation = false; deleteConfirmation = ''">取消</button>
+          <button class="danger-button" type="button" :disabled="busy || deleteConfirmation !== selectedChannel.name" @click="deleteChannel">确认删除</button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="showCreateDialog" class="channel-create-backdrop" @mousedown.self="closeCreateDialog" @keydown.esc.stop="closeCreateDialog">
+      <section class="channel-create-dialog" role="dialog" aria-modal="true" aria-labelledby="channel-create-title">
+        <header>
+          <h3 id="channel-create-title">创建频道</h3>
+          <button class="icon-button" title="关闭" :disabled="busy" @click="closeCreateDialog"><X :size="19" /></button>
+        </header>
+        <label><span>频道类型</span><select v-model="newChannelType" aria-label="频道类型"><option value="text">文字频道</option><option value="voice">语音频道</option></select></label>
+        <label><span>频道名称</span><input ref="createNameInput" v-model.trim="newChannelName" maxlength="32" placeholder="频道名称" aria-label="新频道名称" @keydown.enter="createChannel" /></label>
+        <div class="channel-create-actions">
+          <button class="secondary-button" type="button" :disabled="busy" @click="closeCreateDialog">取消</button>
+          <button class="primary-button" type="button" :disabled="busy || !newChannelName" @click="createChannel"><Plus :size="17" />创建</button>
         </div>
       </section>
     </div>

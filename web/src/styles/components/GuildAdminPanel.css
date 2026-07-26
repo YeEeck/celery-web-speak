@@ -11,9 +11,17 @@
 .channel-admin-detail h3 { font-size: 17px; }
 .channel-admin-detail header p { color: var(--faint); }
 .channel-admin-mark { width: 44px; height: 44px; border-radius: 6px; display: grid; place-items: center; background: var(--elevated); color: var(--text); }
+.channel-create-trigger { margin: 0 0 8px; }
+.channel-admin-danger { margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(218,55,60,.45); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.channel-admin-danger h3 { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.channel-admin-danger p { margin-top: 4px; color: var(--faint); font-size: 11px; }
+.channel-delete-confirmation { flex: 1; display: grid; grid-template-columns: minmax(120px, 1fr) auto auto; gap: 8px; }
+.channel-create-backdrop { position: absolute; z-index: 4; inset: 0; padding: 18px; display: grid; place-items: center; background: rgba(0,0,0,.72); }
+.channel-create-dialog { width: min(420px, 100%); padding: 20px; border: 1px solid var(--border-strong); border-radius: 6px; display: grid; gap: 14px; background: var(--panel); box-shadow: 0 18px 48px rgba(0,0,0,.48); }
+.channel-create-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.channel-create-dialog h3 { font-size: 17px; }
+.channel-create-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .guild-rename-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-.channel-create-row { display: grid; grid-template-columns: 132px minmax(0,1fr) auto; gap: 8px; align-items: end; }
-.channel-create-row .primary-button { min-width: 92px; }
 .channel-admin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .range-setting { gap: 10px; }.range-setting > span:first-child { display: flex; justify-content: space-between; }.range-setting input { padding: 0; accent-color: var(--brand); }
 .range-labels { display: flex; justify-content: space-between; color: var(--faint); font-weight: 500; }

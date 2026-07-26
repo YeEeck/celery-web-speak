@@ -49,8 +49,6 @@
   .channel-admin-list { max-height: none; padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--line); }
   .channel-admin-detail { padding-right: 4px; }
   .two-column { grid-template-columns: 1fr; }
-  .channel-create-row { grid-template-columns: 1fr; }
-  .channel-create-row .primary-button { width: 100%; }
   .guild-rename-row { grid-template-columns: 1fr; }
   .guild-rename-row button { width: 100%; }
   .sound-event-row { grid-template-columns: 1fr; }
