@@ -10,6 +10,9 @@
 .profile-save-row { display: flex; align-items: center; gap: 12px; }
 .profile-save-row .primary-button { min-height: 34px; padding: 0 14px; }
 .profile-hint { color: var(--faint); font-size: 11px; }
+.profile-device-feedback { display: flex; align-items: center; gap: 10px; }
+.profile-device-feedback .form-error { min-width: 0; flex: 1; font-size: 11px; overflow-wrap: anywhere; }
+.profile-device-feedback .secondary-button { min-height: 34px; padding: 0 12px; flex: 0 0 auto; font-size: 11px; }
 .theme-mode-group { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .theme-mode-group button { min-height: 44px; border: 1px solid var(--line); border-radius: 4px; background: var(--main); color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font-weight: 650; transition: var(--t-colors); }
 .theme-mode-group button:hover { background: var(--hover); color: var(--text); }

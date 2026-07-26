@@ -158,19 +158,26 @@ test('移动端切换其他服务器后自动打开频道抽屉', async ({ page,
 })
 
 test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isMobile }) => {
-  await expect(page.locator('.user-controls')).toHaveCount(0)
+  const toolbar = page.locator('.user-controls')
+  await expect(toolbar).toHaveCount(1)
+  await expect(page.locator('.voice-connection-panel')).toHaveCount(0)
   if (isMobile) await page.getByTitle('频道', { exact: true }).click()
-  await setSyntheticVoiceConnection(page)
+  await expect(toolbar.getByTitle('麦克风静音', { exact: true })).toBeEnabled()
+  await expect(toolbar.getByTitle('耳机静音', { exact: true })).toBeEnabled()
+  await setSyntheticVoiceConnection(page, { status: 'connecting' })
 
   const connectionPanel = page.locator('.voice-connection-panel')
-  const toolbar = page.locator('.user-controls')
   const modeButton = toolbar.locator('.transmission-mode-button')
   const modeTooltip = toolbar.locator('.transmission-mode-tooltip')
   const controlButtons = toolbar.locator('.control-buttons')
   const connectionLocation = connectionPanel.locator('.voice-connection-location')
   const connectionBitrate = connectionPanel.locator('.voice-connection-bitrate')
   await expect(connectionPanel).toBeVisible()
-  await expect(connectionPanel.locator('button')).toHaveCount(0)
+  await expect(connectionPanel.getByText('正在连接', { exact: true })).toBeVisible()
+  await expect(connectionPanel.getByTitle('取消语音连接', { exact: true })).toBeVisible()
+  await setSyntheticVoiceConnection(page)
+  await expect(connectionPanel.getByText('语音已连接', { exact: true })).toBeVisible()
+  await expect(connectionPanel.getByTitle('断开语音', { exact: true })).toHaveClass(/danger/)
   await expect(connectionLocation).toHaveText('测试服务器 / 测试语音频道')
   await expect(connectionBitrate).toHaveText('· 64 kbps')
   await expect(connectionBitrate).not.toHaveAttribute('title')
@@ -180,7 +187,7 @@ test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isM
   await expect(modeButton).not.toHaveAttribute('title')
   await expect(modeTooltip).toHaveText('切换为持续传输')
   await expect(modeTooltip).toHaveCSS('visibility', 'hidden')
-  await expect(toolbar.getByTitle('断开语音', { exact: true })).toHaveClass(/danger/)
+  await expect(toolbar.getByTitle('断开语音', { exact: true })).toHaveCount(0)
 
   const layout = await toolbar.evaluate((element) => {
     const bounds = element.getBoundingClientRect()
@@ -218,7 +225,7 @@ test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isM
     channelName: '很长的测试语音频道名称'.repeat(8),
     audioBitrateKbps: 96,
   })
-  await expect(connectionPanel.getByText('正在恢复连接', { exact: true })).toBeVisible()
+  await expect(connectionPanel.getByText('正在重连', { exact: true })).toBeVisible()
   await expect(connectionBitrate).toHaveText('· 96 kbps')
   const connectionLayout = await connectionPanel.evaluate((element) => {
     const detail = element.querySelector('.voice-connection-detail')!.getBoundingClientRect()
@@ -288,8 +295,166 @@ test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isM
   await expect(page.locator('.transmission-mode-button')).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
 
   await page.getByTitle('断开语音', { exact: true }).click()
-  await expect(page.locator('.user-controls')).toHaveCount(0)
+  await expect(page.locator('.user-controls')).toHaveCount(1)
   await expect(page.locator('.voice-connection-panel')).toHaveCount(0)
+})
+
+test('离线语音快捷控制可调音量、选择设备并直达设置', async ({ page, isMobile }) => {
+  test.skip(isMobile, '快捷浮层与右键菜单仅增强桌面鼠标和键盘')
+
+  const toolbar = page.locator('.user-controls')
+  const microphone = toolbar.getByTitle('麦克风静音', { exact: true })
+  const headphones = toolbar.getByTitle('耳机静音', { exact: true })
+  expect(await page.evaluate(() => matchMedia('(hover: hover) and (pointer: fine)').matches)).toBe(true)
+  await expect(page.locator('.voice-connection-panel')).toHaveCount(0)
+
+  await microphone.click()
+  await expect(toolbar.getByTitle('取消静音', { exact: true })).toBeEnabled()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.microphoneEnabled'))).toBe('false')
+  await toolbar.getByTitle('取消静音', { exact: true }).click()
+
+  await microphone.hover()
+  const microphoneVolume = toolbar.getByRole('slider', { name: '麦克风增益', exact: true })
+  await expect(microphoneVolume).toBeVisible()
+  const microphonePopover = toolbar.locator('#microphone-volume-popover')
+  await expect(microphonePopover.locator(':scope > svg')).toHaveCount(0)
+  const popoverLayout = await microphonePopover.evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
+    const output = element.querySelector('output')!.getBoundingClientRect()
+    const slider = element.querySelector('input')!.getBoundingClientRect()
+    return {
+      width: bounds.width,
+      valueGap: slider.top - output.bottom,
+      bottomGap: bounds.bottom - slider.bottom,
+      tail: getComputedStyle(element, '::after').content,
+    }
+  })
+  expect(popoverLayout).toEqual({ width: 44, valueGap: 3, bottomGap: 17, tail: 'none' })
+  await microphoneVolume.fill('2.25')
+  await expect(toolbar.getByText('225%', { exact: true })).toBeVisible()
+  await expect.poll(() => microphoneVolume.evaluate((element) => getComputedStyle(element).getPropertyValue('--range-progress'))).toBe('75%')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.microphoneGain'))).toBe('2.25')
+
+  await microphone.click({ button: 'right', position: { x: 2, y: 2 } })
+  await expect(microphoneVolume).toHaveCount(0)
+  const inputMenu = page.getByRole('menu', { name: '输入设备', exact: true })
+  await expect(inputMenu).toBeVisible()
+  const [inputMenuBounds, microphoneBounds] = await Promise.all([inputMenu.boundingBox(), microphone.boundingBox()])
+  if (!inputMenuBounds || !microphoneBounds) throw new Error('无法测量输入设备菜单锚点')
+  const viewportWidth = page.viewportSize()?.width ?? 0
+  const expectedInputMenuLeft = Math.min(
+    Math.max(8, microphoneBounds.x + (microphoneBounds.width - inputMenuBounds.width) / 2),
+    viewportWidth - inputMenuBounds.width - 8,
+  )
+  expect(inputMenuBounds.x).toBeCloseTo(expectedInputMenuLeft, 0)
+  expect(microphoneBounds.y - inputMenuBounds.y - inputMenuBounds.height).toBeCloseTo(8, 0)
+  const defaultInput = inputMenu.getByRole('menuitemradio', { name: /系统默认/ })
+  await setSyntheticDeviceChange(page, 'input', 'default')
+  await expect(defaultInput).toBeDisabled()
+  await setSyntheticDeviceChange(page, null, '')
+  await expect(defaultInput).toBeEnabled()
+  await defaultInput.click()
+  await expect(inputMenu).toBeVisible()
+  await inputMenu.getByRole('menuitem', { name: '语音设置', exact: true }).click()
+
+  let settings = page.getByRole('dialog', { name: '用户设置' })
+  await expect(settings).toBeVisible()
+  await expect(settings.getByRole('button', { name: '输入', exact: true })).toHaveClass(/active/)
+  await settings.getByTitle('关闭').click()
+  await expect(microphone).toBeFocused()
+
+  await microphone.press('Shift+F10')
+  await expect(inputMenu).toBeVisible()
+  const keyboardInputMenuBounds = await inputMenu.boundingBox()
+  if (!keyboardInputMenuBounds) throw new Error('无法测量键盘打开的输入设备菜单锚点')
+  expect(keyboardInputMenuBounds.x).toBeCloseTo(inputMenuBounds.x, 0)
+  expect(keyboardInputMenuBounds.y).toBeCloseTo(inputMenuBounds.y, 0)
+  await expect(inputMenu.getByRole('menuitemradio', { name: /系统默认/ })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(inputMenu).toBeHidden()
+  await expect(microphone).toBeFocused()
+
+  await headphones.hover()
+  const outputVolume = toolbar.getByRole('slider', { name: '扬声器音量', exact: true })
+  await expect(outputVolume).toBeVisible()
+  await expect(toolbar.locator('#output-volume-popover > svg')).toHaveCount(0)
+
+  await headphones.click({ button: 'right' })
+  const outputMenu = page.getByRole('menu', { name: '输出设备', exact: true })
+  await expect(outputMenu).toBeVisible()
+  await outputMenu.getByRole('menuitemradio', { name: /系统默认/ }).click()
+  await expect(outputMenu).toBeVisible()
+  await expect(outputMenu.getByText('当前浏览器不支持选择输出设备')).toHaveCount(0)
+  await outputMenu.getByRole('menuitem', { name: '语音设置', exact: true }).click()
+
+  settings = page.getByRole('dialog', { name: '用户设置' })
+  await expect(settings.getByRole('button', { name: '输出', exact: true })).toHaveClass(/active/)
+  await settings.getByTitle('关闭').click()
+  await expect(headphones).toBeFocused()
+})
+
+test('静音时音量滑块保留数值并弱化当前无效的控制', async ({ page, isMobile }) => {
+  test.skip(isMobile, '快捷浮层仅增强桌面鼠标和键盘')
+
+  const toolbar = page.locator('.user-controls')
+  const microphonePopover = toolbar.locator('#microphone-volume-popover')
+  const outputPopover = toolbar.locator('#output-volume-popover')
+
+  await toolbar.getByTitle('麦克风静音', { exact: true }).hover()
+  const microphoneVolume = microphonePopover.getByRole('slider', { name: '麦克风增益', exact: true })
+  await microphoneVolume.fill('0')
+  await expect(microphonePopover).not.toHaveClass(/is-muted/)
+  const normalAccent = await microphoneVolume.evaluate((element) => getComputedStyle(element).accentColor)
+
+  await toolbar.getByTitle('麦克风静音', { exact: true }).click()
+  await expect(microphonePopover).toBeVisible()
+  await expect(microphonePopover).toHaveClass(/is-muted/)
+  const mutedMicrophoneVolume = microphonePopover.getByRole('slider', { name: '麦克风增益，当前静音', exact: true })
+  await expect(mutedMicrophoneVolume).toHaveValue('0')
+  await expect(microphonePopover.getByText('0%', { exact: true })).toBeVisible()
+  await expect.poll(() => mutedMicrophoneVolume.evaluate((element) => (
+    getComputedStyle(element).accentColor
+      === getComputedStyle(element.closest('section')!.querySelector('output')!).color
+  ))).toBe(true)
+  expect(await mutedMicrophoneVolume.evaluate((element) => getComputedStyle(element).accentColor)).not.toBe(normalAccent)
+
+  await toolbar.getByTitle('取消静音', { exact: true }).click()
+  await expect(microphonePopover).not.toHaveClass(/is-muted/)
+
+  await toolbar.getByTitle('耳机静音', { exact: true }).hover()
+  const outputVolume = outputPopover.getByRole('slider', { name: '扬声器音量', exact: true })
+  await expect(outputPopover).not.toHaveClass(/is-muted/)
+  const outputValue = await outputVolume.inputValue()
+  await toolbar.getByTitle('耳机静音', { exact: true }).click()
+  await expect(outputPopover).toBeVisible()
+  await expect(outputPopover).toHaveClass(/is-muted/)
+  await expect(outputPopover.getByRole('slider', { name: '扬声器音量，当前静音', exact: true })).toHaveValue(outputValue)
+
+  await toolbar.getByTitle('取消耳机静音', { exact: true }).hover()
+  await toolbar.getByTitle('取消静音', { exact: true }).hover()
+  await expect(microphonePopover).toHaveClass(/is-muted/)
+  await expect(microphonePopover.getByRole('slider', { name: '麦克风增益，当前静音', exact: true })).toHaveValue('0')
+})
+
+test('语音工具栏在 320px 窄视口内不溢出', async ({ page, isMobile }) => {
+  test.skip(isMobile, '使用桌面浏览器精确覆盖 320px 视口')
+  await page.setViewportSize({ width: 320, height: 640 })
+  await page.getByTitle('频道', { exact: true }).click()
+
+  const sidebar = page.locator('.channel-sidebar.mobile-drawer-open')
+  const toolbar = sidebar.locator('.user-controls')
+  await expect(toolbar).toBeVisible()
+  const layout = await toolbar.evaluate((element) => {
+    const bounds = element.getBoundingClientRect()
+    const mode = element.querySelector('.transmission-mode-button')!.getBoundingClientRect()
+    const controls = element.querySelector('.control-buttons')!.getBoundingClientRect()
+    return {
+      noHorizontalOverflow: element.scrollWidth <= element.clientWidth,
+      modeBeforeControls: mode.right <= controls.left,
+      controlsInside: controls.right <= bounds.right,
+    }
+  })
+  expect(layout).toEqual({ noHorizontalOverflow: true, modeBeforeControls: true, controlsInside: true })
 })
 
 test('服务器操作菜单集中展示当前角色可用操作', async ({ page, isMobile }) => {
@@ -1090,7 +1255,7 @@ test('成员列表按钮在桌面和中等宽度均可切换面板', async ({ pa
   await expect(permanentList).toBeVisible()
   await expect(channelSidebar).toHaveCSS('width', '300px')
   await expect(channelSidebar.locator('.current-user')).toHaveCount(0)
-  await expect(channelSidebar.locator('.user-controls')).toHaveCount(0)
+  await expect(channelSidebar.locator('.user-controls')).toHaveCount(1)
   await expect(page.locator('.server-rail .account-trigger')).toBeVisible()
   await expect(memberButton).toHaveAttribute('aria-pressed', 'true')
   await memberButton.click()
@@ -1264,14 +1429,14 @@ async function setSoundSuppressedThroughStore(page: Page, suppressed: boolean) {
 }
 
 async function setSyntheticVoiceConnection(page: Page, options: {
-  status?: 'connected' | 'reconnecting'
+  status?: 'connecting' | 'connected' | 'reconnecting'
   serverName?: string
   channelName?: string
   audioBitrateKbps?: number
 } = {}) {
   await page.evaluate((summary) => {
     type VoiceStoreTestState = {
-      status: 'connected' | 'reconnecting'
+      status: 'connecting' | 'connected' | 'reconnecting'
       connectedChannelId: number | null
       connectedServerName: string
       connectedChannelName: string
@@ -1290,6 +1455,22 @@ async function setSyntheticVoiceConnection(page: Page, options: {
       voice.updateConnectedChannelSettings({ id: 99_999, audioBitrateKbps: summary.audioBitrateKbps })
     }
   }, options)
+}
+
+async function setSyntheticDeviceChange(page: Page, kind: 'input' | 'output' | null, deviceId: string) {
+  await page.evaluate(({ nextKind, nextDeviceId }) => {
+    type VoiceStoreTestState = {
+      deviceChangingKind: 'input' | 'output' | null
+      deviceChangingId: string
+    }
+    type PiniaTestState = { _s: Map<string, VoiceStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const voice = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('voice')
+    if (!voice) throw new Error('未找到语音 store')
+    voice.deviceChangingKind = nextKind
+    voice.deviceChangingId = nextDeviceId
+  }, { nextKind: kind, nextDeviceId: deviceId })
 }
 
 test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile }) => {

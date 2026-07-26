@@ -59,7 +59,7 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
 
     const firstAccountRows = contexts.map(({ page }) => page.locator('.voice-member').filter({ hasText: accounts[0].displayName }))
     await contexts[0].page.getByTitle('耳机静音', { exact: true }).click()
-    await expect(contexts[0].page.getByTitle('耳机静音中', { exact: true })).toBeDisabled()
+    await expect(contexts[0].page.getByTitle('取消耳机静音', { exact: true })).toBeEnabled()
     for (const row of firstAccountRows) {
       await expect(row.getByTitle('麦克风已静音', { exact: true })).toBeVisible()
       await expect(row.getByTitle('耳机已静音', { exact: true })).toBeVisible()
@@ -178,7 +178,7 @@ test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser
 
   try {
     await loginVoicePage(page, account, testInfo.project.name.startsWith('android'))
-    await expect(page.locator('.user-controls')).toHaveCount(0)
+    await expect(page.locator('.user-controls')).toHaveCount(1)
     await page.getByRole('button', { name: /^语音频道/ }).click()
     await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
 
@@ -207,7 +207,7 @@ test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser
     await expect(page.getByTitle('麦克风静音', { exact: true })).toBeVisible()
 
     await page.getByTitle('断开语音', { exact: true }).click()
-    await expect(page.locator('.user-controls')).toHaveCount(0)
+    await expect(page.locator('.user-controls')).toHaveCount(1)
   } finally {
     await context.close()
     await deletePlatformUser(request, accountID, account.username)

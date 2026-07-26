@@ -49,6 +49,7 @@
 .voice-connection-summary { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .connection-indicator { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
 .voice-connection-summary > span:nth-child(2) { flex: 1; min-width: 0; display: grid; }
+.voice-disconnect-button { flex: 0 0 auto; }
 .voice-connection-panel strong { color: var(--success-fg); font-size: 12px; }
 .voice-connection-panel small { color: var(--muted); font-size: 10px; }
 .voice-connection-detail { min-width: 0; display: flex; align-items: baseline; gap: 4px; white-space: nowrap; }

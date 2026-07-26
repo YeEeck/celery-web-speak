@@ -40,7 +40,7 @@ func TestVoiceTokenAllowsMicrophoneAndBackgroundAudio(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
 	credentials, err := service.JoinGuildCredentials(context.Background(), store.User{
 		ID: 12, Username: "member", DisplayName: "成员",
-	}, store.GuildMember{GuildID: 3, UserID: 12, Role: store.GuildRoleMember}, 7)
+	}, store.GuildMember{GuildID: 3, UserID: 12, Role: store.GuildRoleMember}, 7, true)
 	if err != nil {
 		t.Fatalf("join credentials: %v", err)
 	}
@@ -56,6 +56,9 @@ func TestVoiceTokenAllowsMicrophoneAndBackgroundAudio(t *testing.T) {
 	got := claims.Video.GetCanPublishSources()
 	if !slices.Equal(got, want) {
 		t.Fatalf("publish sources = %v, want %v", got, want)
+	}
+	if claims.Attributes[DeafenedAttribute] != "true" {
+		t.Fatalf("deafened attribute = %q", claims.Attributes[DeafenedAttribute])
 	}
 }
 

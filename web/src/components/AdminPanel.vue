@@ -4,6 +4,7 @@ import { Ban, Clipboard, Gauge, KeyRound, Plus, Save, ShieldCheck, Ticket, Trash
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import type { ChannelType, GuildRole, Invite, PlatformRole, User } from '../types'
+import { rangeProgressStyle } from '../utils/range'
 import UserAvatar from './UserAvatar.vue'
 
 const props = defineProps<{ initialTab?: 'channel' | 'users' | 'invites'; platformMode?: boolean }>()
@@ -439,12 +440,12 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
             <label><span>频道名称</span><input v-model.trim="channelName" maxlength="32" /></label>
             <label v-if="selectedChannel.type === 'voice'" class="range-setting">
               <span>Opus 发送码率 <strong>{{ bitrate }} kbps</strong></span>
-              <input v-model.number="bitrate" type="range" min="32" max="128" step="8" />
+              <input v-model.number="bitrate" type="range" min="32" max="128" step="8" :style="rangeProgressStyle(bitrate, 32, 128)" />
               <span class="range-labels"><small>32 kbps</small><small>128 kbps</small></span>
             </label>
             <label v-if="selectedChannel.type === 'voice'" class="range-setting">
               <span>背景音码率 <strong>{{ backgroundBitrate }} kbps</strong></span>
-              <input v-model.number="backgroundBitrate" type="range" min="64" max="256" step="16" />
+              <input v-model.number="backgroundBitrate" type="range" min="64" max="256" step="16" :style="rangeProgressStyle(backgroundBitrate, 64, 256)" />
               <span class="range-labels"><small>64 kbps</small><small>256 kbps</small></span>
             </label>
             <label v-if="selectedChannel.type === 'voice'" class="setting-toggle">

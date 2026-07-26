@@ -44,6 +44,7 @@
   --role-blue: #6ea6e8;
   --faint-icon: #5b5d64;
   --warning-bg: #3a3324;
+  --range-thumb-center: #f2f3f5;
   --invite-active-fg: #66d994;
   --invite-active-bg: #254b37;
   --invite-exhausted-fg: #f4c35d;
@@ -87,6 +88,7 @@
   --role-blue: #3b6fa8;
   --faint-icon: #b5bac1;
   --warning-bg: #fdf6e3;
+  --range-thumb-center: #ffffff;
   --invite-active-fg: #1d8a47;
   --invite-active-bg: #d4f0dd;
   --invite-exhausted-fg: #8a6210;

@@ -6,6 +6,7 @@ import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
 import type { Channel } from '../types'
+import { rangeProgressStyle } from '../utils/range'
 
 const props = defineProps<{ channel: Channel }>()
 const app = useAppStore()
@@ -87,6 +88,7 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
               max="3"
               step="0.05"
               :value="participant.microphoneVolume"
+              :style="rangeProgressStyle(participant.microphoneVolume, 0, 3)"
               aria-label="麦克风音量"
               @input="voice.setParticipantMicrophoneVolume(participant.userId, Number(($event.target as HTMLInputElement).value))"
               @dblclick="voice.resetParticipantMicrophoneVolume(participant.userId)"
@@ -111,6 +113,7 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
               max="3"
               step="0.05"
               :value="participant.backgroundAudioVolume"
+              :style="rangeProgressStyle(participant.backgroundAudioVolume, 0, 3)"
               aria-label="背景音音量"
               @input="voice.setParticipantBackgroundAudioVolume(participant.userId, Number(($event.target as HTMLInputElement).value))"
               @dblclick="voice.resetParticipantBackgroundAudioVolume(participant.userId)"

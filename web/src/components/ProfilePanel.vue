@@ -1,18 +1,26 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { BellRing, Headphones, Mic, Palette, Save, UserRound, X } from '@lucide/vue'
+import { BellRing, Headphones, Mic, Palette, RefreshCw, Save, UserRound, X } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useSoundStore, type NotificationSound, type SoundPresetId, SOUND_PRESETS } from '../stores/sounds'
 import { useThemeStore } from '../stores/theme'
 import { useVoiceStore } from '../stores/voice'
+import { rangeProgressStyle } from '../utils/range'
 
+const props = withDefaults(defineProps<{
+  initialTab?: 'account' | 'audio'
+  initialAudioSubNav?: 'input' | 'output'
+}>(), {
+  initialTab: 'account',
+  initialAudioSubNav: 'input',
+})
 defineEmits<{ close: []; changelog: [] }>()
 const app = useAppStore()
 const voice = useVoiceStore()
 const sounds = useSoundStore()
 const theme = useThemeStore()
-const tab = ref<'account' | 'audio' | 'sound' | 'theme'>('account')
-const audioSubNav = ref<'input' | 'output'>('input')
+const tab = ref<'account' | 'audio' | 'sound' | 'theme'>(props.initialTab)
+const audioSubNav = ref<'input' | 'output'>(props.initialAudioSubNav)
 
 const displayName = ref(app.user!.displayName)
 const currentPassword = ref('')
@@ -147,14 +155,22 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
               <h3><Mic :size="18" />输入设备</h3>
               <label>
                 <span>麦克风</span>
-                <select :value="voice.activeInputId" :disabled="!voice.joined" @change="voice.switchInput(($event.target as HTMLSelectElement).value)">
-                  <option v-if="!voice.inputDevices.length" value="">系统默认</option>
-                  <option v-for="device in voice.inputDevices" :key="device.deviceId" :value="device.deviceId">{{ device.label || '麦克风' }}</option>
+                <select :value="voice.preferredInputId" :disabled="voice.deviceChangingKind === 'input'" @change="voice.switchInput(($event.target as HTMLSelectElement).value)">
+                  <option v-for="device in voice.inputDeviceOptions" :key="device.deviceId" :value="device.deviceId" :disabled="device.unavailable">
+                    {{ device.label }}{{ device.unavailable ? '（不可用）' : device.current && device.deviceId !== voice.preferredInputId ? '（当前使用）' : '' }}
+                  </option>
                 </select>
               </label>
+              <div v-if="voice.devicePermissionState === 'denied'" class="profile-device-feedback">
+                <p class="form-error" role="alert">{{ voice.devicePermissionError || '无法访问麦克风，请检查浏览器权限' }}</p>
+                <button class="secondary-button" type="button" @click="voice.requestMicrophonePermission()">
+                  <RefreshCw :size="16" />重新请求麦克风权限
+                </button>
+              </div>
+              <p v-if="voice.deviceChangeErrorKind === 'input' && voice.deviceChangeError" class="form-error" role="alert">{{ voice.deviceChangeError }}</p>
               <label class="audio-level-control">
                 <span><span>麦克风增益</span><strong>{{ Math.round(voice.microphoneGain * 100) }}%</strong></span>
-                <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" aria-label="麦克风增益" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" />
+                <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" :style="rangeProgressStyle(voice.microphoneGain, 0, 3)" aria-label="麦克风增益" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" />
               </label>
               <div class="toggle-list">
                 <label><span>回声抑制</span><input type="checkbox" :checked="voice.echoCancellation" @change="voice.setEchoCancellation(($event.target as HTMLInputElement).checked)" /></label>
@@ -168,14 +184,16 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
               <h3><Headphones :size="18" />输出设备</h3>
               <label>
                 <span>扬声器</span>
-                <select :value="voice.activeOutputId" :disabled="!voice.joined || !voice.outputDevices.length" @change="voice.switchOutput(($event.target as HTMLSelectElement).value)">
-                  <option v-if="!voice.outputDevices.length" value="">系统默认</option>
-                  <option v-for="device in voice.outputDevices" :key="device.deviceId" :value="device.deviceId">{{ device.label || '扬声器' }}</option>
+                <select :value="voice.preferredOutputId" :disabled="voice.deviceChangingKind === 'output'" @change="voice.switchOutput(($event.target as HTMLSelectElement).value)">
+                  <option v-for="device in voice.outputDeviceOptions" :key="device.deviceId" :value="device.deviceId" :disabled="device.unavailable">
+                    {{ device.label }}{{ device.unavailable ? '（不可用）' : device.current && device.deviceId !== voice.preferredOutputId ? '（当前使用）' : '' }}
+                  </option>
                 </select>
               </label>
+              <p v-if="voice.deviceChangeErrorKind === 'output' && voice.deviceChangeError" class="form-error" role="alert">{{ voice.deviceChangeError }}</p>
               <label class="audio-level-control">
                 <span><span>扬声器音量</span><strong>{{ Math.round(voice.outputVolume * 100) }}%</strong></span>
-                <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" aria-label="扬声器音量" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" />
+                <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" :style="rangeProgressStyle(voice.outputVolume, 0, 3)" aria-label="扬声器音量" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" />
               </label>
             </section>
           </div>
@@ -189,7 +207,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           </label>
           <label class="audio-level-control">
             <span><span>提示音音量</span><strong>{{ Math.round(sounds.volume * 100) }}%</strong></span>
-            <input type="range" min="0" max="1" step="0.05" :value="sounds.volume" :disabled="!sounds.enabled" aria-label="提示音音量" @input="sounds.setVolume(Number(($event.target as HTMLInputElement).value))" />
+            <input type="range" min="0" max="1" step="0.05" :value="sounds.volume" :style="rangeProgressStyle(sounds.volume, 0, 1)" :disabled="!sounds.enabled" aria-label="提示音音量" @input="sounds.setVolume(Number(($event.target as HTMLInputElement).value))" />
           </label>
           <h3><BellRing :size="18" />各事件</h3>
           <div class="sound-event-list">

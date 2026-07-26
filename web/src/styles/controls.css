@@ -20,6 +20,15 @@ label > span:first-child { text-transform: none; }
 input, textarea, select { width: 100%; border: 1px solid var(--border-input); border-radius: 4px; background: var(--input); color: var(--text); padding: 10px 11px; }
 .input-wrap input { border: 0; padding: 0; background: transparent; outline: none; }
 select { appearance: auto; }
+input[type="range"] { --range-accent: var(--brand); --range-progress: 0%; height: 16px; padding: 0; border: 0; appearance: none; background: transparent; accent-color: var(--range-accent); cursor: pointer; }
+input[type="range"]::-webkit-slider-runnable-track { width: 100%; height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--range-accent) 0 var(--range-progress), var(--faint-icon) var(--range-progress) 100%); }
+input[type="range"]::-webkit-slider-thumb { box-sizing: border-box; width: 16px; height: 16px; margin-top: -6px; border: 3px solid var(--range-accent); border-radius: 50%; appearance: none; background: var(--range-thumb-center); box-shadow: 0 0 0 0 transparent; transition: border-color var(--dur) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--faint-icon); }
+input[type="range"]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--range-accent); }
+input[type="range"]::-moz-range-thumb { box-sizing: border-box; width: 16px; height: 16px; border: 3px solid var(--range-accent); border-radius: 50%; background: var(--range-thumb-center); box-shadow: 0 0 0 0 transparent; transition: border-color var(--dur) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+input[type="range"]:is(:hover, :active)::-webkit-slider-thumb { box-shadow: 0 0 0 2px color-mix(in srgb, var(--range-accent) 24%, transparent); }
+input[type="range"]:is(:hover, :active)::-moz-range-thumb { box-shadow: 0 0 0 2px color-mix(in srgb, var(--range-accent) 24%, transparent); }
+input[type="range"]:disabled { cursor: not-allowed; opacity: .52; }
 /* 表单文本控件统一交互：default → hover(--line) → focus(--brand)，select/range/checkbox 除外 */
 input:not([type="range"]):not([type="checkbox"]), textarea { transition: border-color var(--dur) var(--ease); }
 input:not([type="range"]):not([type="checkbox"]):hover, textarea:hover { border-color: var(--line); }
