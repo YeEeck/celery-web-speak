@@ -647,7 +647,7 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
 
   await openGuildAdmin(page)
   await page.locator('.admin-tabs').getByRole('button', { name: '频道', exact: true }).click()
-  await page.getByLabel('选择频道').selectOption({ label: '语音 语音频道' })
+  await page.locator('.channel-admin-list').getByRole('button', { name: '语音频道', exact: true }).click()
   await expect(page.getByText('Opus 发送码率')).toBeVisible()
   await expect(page.getByLabel('语音 RED 丢包冗余')).toBeChecked()
   await expect(page.getByLabel('背景音 RED 丢包冗余')).not.toBeChecked()
@@ -774,7 +774,7 @@ test('服务器 Tab 仅所有者可见且为默认页签', async ({ page, isMobi
   await openGuildAdmin(page)
   await expect(page.getByRole('button', { name: '服务器', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '频道', exact: true })).toHaveClass(/active/)
-  await expect(page.getByLabel('选择频道')).toBeVisible()
+  await expect(page.locator('.channel-admin-list')).toBeVisible()
 })
 
 test('WebSocket 重同步的旧响应不会覆盖同一服务器的新状态', async ({ page, request, isMobile }) => {
@@ -852,7 +852,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   await page.locator('.admin-tabs').getByRole('button', { name: '频道', exact: true }).click()
   await page.getByLabel('新频道名称').fill(channelName)
   await page.getByRole('button', { name: '创建', exact: true }).click()
-  await expect(page.getByLabel('选择频道')).toHaveValue(/\d+/)
+  await expect(page.locator('.channel-admin-detail > header h3')).toHaveText(channelName)
   await page.getByTitle('关闭').last().click()
 
   if (isMobile) await page.getByTitle('频道', { exact: true }).click()
@@ -870,7 +870,7 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
 
   await openGuildAdmin(page)
   await page.locator('.admin-tabs').getByRole('button', { name: '频道', exact: true }).click()
-  await page.getByLabel('选择频道').selectOption({ label: `# ${channelName}` })
+  await page.locator('.channel-admin-list').getByRole('button', { name: channelName, exact: true }).click()
   page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: '永久删除', exact: true }).click()
   await expect(page.getByText('频道已永久删除')).toBeVisible()
@@ -1590,7 +1590,7 @@ test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile
   await page.locator('.admin-user-list button').last().click()
   await expect.poll(() => detail.evaluate((element) => element.scrollTop)).toBe(0)
   expect(await list.evaluate((element) => element.scrollTop)).toBeCloseTo(listScrollTop, 0)
-  await expect(content).toHaveClass(/users-content/)
+  await expect(content).toHaveClass(/contained/)
 })
 
 test('邀请码列表关联原码、分页并可永久删除', async ({ page }) => {

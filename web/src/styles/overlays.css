@@ -15,7 +15,7 @@
 .panel-footer > span { margin-right: auto; }
 
 .admin-panel { position: relative; width: 980px; height: 820px; max-width: none; max-height: none; grid-template-rows: auto auto minmax(0,1fr) auto; }
-.admin-content.users-content { overflow: hidden; }
+.admin-content.contained { overflow: hidden; }
 .admin-tabs { display: flex; gap: 2px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--tab-bar); }
 .admin-tabs button { min-height: 34px; border: 0; border-radius: 4px; padding: 0 12px; display: flex; align-items: center; gap: 7px; color: var(--muted); background: transparent; cursor: pointer; transition: var(--t-colors); }
 .admin-tabs button:hover { color: var(--text); background: var(--hover); }.admin-tabs button.active { color: var(--text); background: var(--active); }
