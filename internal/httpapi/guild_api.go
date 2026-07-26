@@ -600,7 +600,13 @@ func (s *Server) handleServerVoiceToken(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, "invalid_channel_type", "该频道不是语音频道")
 		return
 	}
-	credentials, err := s.media.JoinGuildCredentials(r.Context(), currentUser(r), guildMembership(r), channelID)
+	var input struct {
+		Deafened bool `json:"deafened"`
+	}
+	if r.ContentLength != 0 && !decodeJSON(w, r, &input) {
+		return
+	}
+	credentials, err := s.media.JoinGuildCredentials(r.Context(), currentUser(r), guildMembership(r), channelID, input.Deafened)
 	if err != nil {
 		s.internalError(w, "create server voice token", err)
 		return

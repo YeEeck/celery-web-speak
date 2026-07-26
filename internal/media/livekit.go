@@ -101,11 +101,11 @@ func ParseGuildRoomName(name string) (int64, int64, bool) {
 	return guildID, channelID, guildErr == nil && channelErr == nil && guildID > 0 && channelID > 0
 }
 
-func (s *Service) JoinGuildCredentials(ctx context.Context, user store.User, member store.GuildMember, channelID int64) (JoinCredentials, error) {
-	return s.joinCredentials(ctx, user, member.GuildID, channelID, string(member.Role), member.VoiceMuted)
+func (s *Service) JoinGuildCredentials(ctx context.Context, user store.User, member store.GuildMember, channelID int64, deafened bool) (JoinCredentials, error) {
+	return s.joinCredentials(ctx, user, member.GuildID, channelID, string(member.Role), member.VoiceMuted, deafened)
 }
 
-func (s *Service) joinCredentials(ctx context.Context, user store.User, guildID, channelID int64, role string, voiceMuted bool) (JoinCredentials, error) {
+func (s *Service) joinCredentials(ctx context.Context, user store.User, guildID, channelID int64, role string, voiceMuted, deafened bool) (JoinCredentials, error) {
 	now := s.now()
 	roomName := GuildRoomName(guildID, channelID)
 	s.mu.Lock()
@@ -133,17 +133,21 @@ func (s *Service) joinCredentials(ctx context.Context, user store.User, guildID,
 	if canPublish {
 		grant.SetCanPublishSources(voicePublishSources())
 	}
+	attributes := map[string]string{
+		"user_id":                strconv.FormatInt(user.ID, 10),
+		"username":               user.Username,
+		"role":                   role,
+		"guild_id":               strconv.FormatInt(guildID, 10),
+		"channel_id":             strconv.FormatInt(channelID, 10),
+		VoiceGenerationAttribute: strconv.FormatUint(generation, 10),
+	}
+	if deafened {
+		attributes[DeafenedAttribute] = "true"
+	}
 	token, err := auth.NewAccessToken(s.apiKey, s.apiSecret).
 		SetIdentity(Identity(user.ID)).
 		SetName(user.DisplayName).
-		SetAttributes(map[string]string{
-			"user_id":                strconv.FormatInt(user.ID, 10),
-			"username":               user.Username,
-			"role":                   role,
-			"guild_id":               strconv.FormatInt(guildID, 10),
-			"channel_id":             strconv.FormatInt(channelID, 10),
-			VoiceGenerationAttribute: strconv.FormatUint(generation, 10),
-		}).
+		SetAttributes(attributes).
 		SetVideoGrant(grant).
 		SetValidFor(voiceTokenTTL).
 		ToJWT()

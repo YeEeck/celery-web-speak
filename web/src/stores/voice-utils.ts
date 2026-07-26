@@ -7,6 +7,11 @@ export const DEFAULT_VOLUME = 1
 export const MAX_VOLUME = 3
 export const MICROPHONE_GAIN_KEY = 'cws.microphoneGain'
 export const OUTPUT_VOLUME_KEY = 'cws.outputVolume'
+export const MICROPHONE_ENABLED_KEY = 'cws.microphoneEnabled'
+export const DEAFENED_PREFERENCE_KEY = 'cws.deafened'
+export const PREFERRED_INPUT_DEVICE_KEY = 'cws.preferredInputDevice'
+export const PREFERRED_OUTPUT_DEVICE_KEY = 'cws.preferredOutputDevice'
+export const DEFAULT_DEVICE_ID = 'default'
 export const DEAFENED_ATTRIBUTE = 'deafened'
 export const ECHO_CANCELLATION_KEY = 'cws.echoCancellation'
 export const NOISE_SUPPRESSION_KEY = 'cws.noiseSuppression'
@@ -17,6 +22,16 @@ export const APPLICATION_AUDIO_PORT_TIMEOUT_MS = 10_000
 export const DEFAULT_AUDIO_BITRATE_KBPS = 64
 
 export type VoiceTransmissionMode = 'voice-activity' | 'continuous'
+
+export interface VoiceDevicePreference {
+  deviceId: string
+  label: string
+}
+
+export interface VoiceDeviceOption extends VoiceDevicePreference {
+  unavailable: boolean
+  current: boolean
+}
 
 export interface VoiceParticipant {
   identity: string
@@ -70,6 +85,68 @@ export function getSavedBoolean(key: string, defaultValue: boolean) {
   const saved = localStorage.getItem(key)
   if (saved === null) return defaultValue
   return saved !== 'false'
+}
+
+export function saveBoolean(key: string, value: boolean) {
+  localStorage.setItem(key, String(value))
+}
+
+export function getSavedDevicePreference(key: string): VoiceDevicePreference {
+  const saved = localStorage.getItem(key)
+  if (!saved) return { deviceId: DEFAULT_DEVICE_ID, label: '系统默认' }
+  try {
+    const value = JSON.parse(saved) as Partial<VoiceDevicePreference>
+    if (typeof value.deviceId === 'string' && value.deviceId) {
+      return { deviceId: value.deviceId, label: typeof value.label === 'string' && value.label ? value.label : '未知设备' }
+    }
+  } catch {
+    // Ignore malformed browser-local preferences.
+  }
+  return { deviceId: DEFAULT_DEVICE_ID, label: '系统默认' }
+}
+
+export function saveDevicePreference(key: string, preference: VoiceDevicePreference) {
+  localStorage.setItem(key, JSON.stringify(preference))
+}
+
+export function buildVoiceDeviceOptions(
+  devices: MediaDeviceInfo[],
+  kind: 'input' | 'output',
+  preferred: VoiceDevicePreference,
+  currentDeviceId: string,
+  hasCurrentDevice: boolean,
+): VoiceDeviceOption[] {
+  const defaultOption: VoiceDeviceOption = {
+    deviceId: DEFAULT_DEVICE_ID,
+    label: '系统默认',
+    unavailable: false,
+    current: hasCurrentDevice && (!currentDeviceId || currentDeviceId === DEFAULT_DEVICE_ID),
+  }
+  const visibleDevices = devices.filter((device) => device.deviceId && device.deviceId !== DEFAULT_DEVICE_ID)
+  let unnamedCount = 0
+  const baseLabels = visibleDevices.map((device) => {
+    const label = device.label.trim()
+    if (label) return label
+    unnamedCount += 1
+    return `${kind === 'input' ? '麦克风' : '输出设备'} ${unnamedCount}`
+  })
+  const labelOccurrences = new Map<string, number>()
+  const available = visibleDevices.map((device, index): VoiceDeviceOption => {
+    const baseLabel = baseLabels[index]!
+    const occurrence = (labelOccurrences.get(baseLabel) ?? 0) + 1
+    labelOccurrences.set(baseLabel, occurrence)
+    return {
+      deviceId: device.deviceId,
+      label: occurrence === 1 ? baseLabel : `${baseLabel}（${occurrence}）`,
+      unavailable: false,
+      current: hasCurrentDevice && currentDeviceId === device.deviceId,
+    }
+  })
+  const preferredAvailable = preferred.deviceId === DEFAULT_DEVICE_ID || available.some((option) => option.deviceId === preferred.deviceId)
+  if (!preferredAvailable) {
+    available.unshift({ ...preferred, label: preferred.label || '未知设备', unavailable: true, current: false })
+  }
+  return [defaultOption, ...available]
 }
 
 export function getSavedTransmissionMode(): VoiceTransmissionMode {
