@@ -20,7 +20,7 @@ const outputTrigger = ref<HTMLButtonElement | null>(null)
 const volumeOpen = ref<'input' | 'output' | null>(null)
 const volumePopover = ref<HTMLElement | null>(null)
 const suppressedVolumeHover = ref<'input' | 'output' | null>(null)
-const deviceMenu = ref<{ kind: 'input' | 'output'; x: number; y: number; trigger: HTMLButtonElement } | null>(null)
+const deviceMenu = ref<{ kind: 'input' | 'output'; trigger: HTMLButtonElement } | null>(null)
 let volumeCloseTimer: number | null = null
 
 const showApplicationAudio = computed(() => voice.applicationAudioSupported && voice.joined && !app.user?.voiceMuted)
@@ -97,7 +97,7 @@ function openDeviceMenu(kind: 'input' | 'output', event: MouseEvent) {
   closeVolume()
   applicationAudioPanelOpen.value = false
   suppressedVolumeHover.value = kind
-  deviceMenu.value = { kind, x: event.clientX, y: event.clientY, trigger }
+  deviceMenu.value = { kind, trigger }
 }
 
 function handleControlKeyDown(kind: 'input' | 'output', event: KeyboardEvent) {
@@ -109,11 +109,10 @@ function handleControlKeyDown(kind: 'input' | 'output', event: KeyboardEvent) {
   if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
   event.preventDefault()
   const trigger = event.currentTarget as HTMLButtonElement
-  const bounds = trigger.getBoundingClientRect()
   closeVolume()
   applicationAudioPanelOpen.value = false
   suppressedVolumeHover.value = kind
-  deviceMenu.value = { kind, x: bounds.right + 4, y: bounds.top, trigger }
+  deviceMenu.value = { kind, trigger }
 }
 
 function closeDeviceMenu(restoreFocus = false) {
@@ -312,8 +311,6 @@ onBeforeUnmount(() => {
     <VoiceDeviceMenu
       v-if="deviceMenu"
       :kind="deviceMenu.kind"
-      :x="deviceMenu.x"
-      :y="deviceMenu.y"
       :trigger="deviceMenu.trigger"
       @close="closeDeviceMenu"
       @settings="openVoiceSettings"

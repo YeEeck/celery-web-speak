@@ -335,10 +335,19 @@ test('离线语音快捷控制可调音量、选择设备并直达设置', async
   await expect.poll(() => microphoneVolume.evaluate((element) => getComputedStyle(element).getPropertyValue('--range-progress'))).toBe('75%')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.microphoneGain'))).toBe('2.25')
 
-  await microphone.click({ button: 'right' })
+  await microphone.click({ button: 'right', position: { x: 2, y: 2 } })
   await expect(microphoneVolume).toHaveCount(0)
   const inputMenu = page.getByRole('menu', { name: '输入设备', exact: true })
   await expect(inputMenu).toBeVisible()
+  const [inputMenuBounds, microphoneBounds] = await Promise.all([inputMenu.boundingBox(), microphone.boundingBox()])
+  if (!inputMenuBounds || !microphoneBounds) throw new Error('无法测量输入设备菜单锚点')
+  const viewportWidth = page.viewportSize()?.width ?? 0
+  const expectedInputMenuLeft = Math.min(
+    Math.max(8, microphoneBounds.x + (microphoneBounds.width - inputMenuBounds.width) / 2),
+    viewportWidth - inputMenuBounds.width - 8,
+  )
+  expect(inputMenuBounds.x).toBeCloseTo(expectedInputMenuLeft, 0)
+  expect(microphoneBounds.y - inputMenuBounds.y - inputMenuBounds.height).toBeCloseTo(8, 0)
   const defaultInput = inputMenu.getByRole('menuitemradio', { name: /系统默认/ })
   await defaultInput.click()
   await expect(inputMenu).toBeVisible()
@@ -352,6 +361,10 @@ test('离线语音快捷控制可调音量、选择设备并直达设置', async
 
   await microphone.press('Shift+F10')
   await expect(inputMenu).toBeVisible()
+  const keyboardInputMenuBounds = await inputMenu.boundingBox()
+  if (!keyboardInputMenuBounds) throw new Error('无法测量键盘打开的输入设备菜单锚点')
+  expect(keyboardInputMenuBounds.x).toBeCloseTo(inputMenuBounds.x, 0)
+  expect(keyboardInputMenuBounds.y).toBeCloseTo(inputMenuBounds.y, 0)
   await expect(inputMenu.getByRole('menuitemradio', { name: /系统默认/ })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(inputMenu).toBeHidden()

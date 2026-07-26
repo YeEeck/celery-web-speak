@@ -5,8 +5,6 @@ import { useVoiceStore } from '../stores/voice'
 
 const props = defineProps<{
   kind: 'input' | 'output'
-  x: number
-  y: number
   trigger: HTMLButtonElement
 }>()
 const emit = defineEmits<{
@@ -16,9 +14,9 @@ const emit = defineEmits<{
 
 const voice = useVoiceStore()
 const menu = ref<HTMLElement | null>(null)
-const left = ref(props.x)
-const top = ref(props.y)
-const availableHeight = ref<number | null>(null)
+const left = ref(0)
+const top = ref(0)
+const maxHeight = ref<number | null>(null)
 const positioned = ref(false)
 const options = computed(() => props.kind === 'input' ? voice.inputDeviceOptions : voice.outputDeviceOptions)
 const preferredId = computed(() => props.kind === 'input' ? voice.preferredInputId : voice.preferredOutputId)
@@ -98,12 +96,16 @@ onMounted(async () => {
   window.addEventListener('resize', closeOnViewportChange)
   window.addEventListener('scroll', closeOnViewportChange, true)
   await nextTick()
+  const margin = 8
+  const gap = 8
+  const triggerBounds = props.trigger.getBoundingClientRect()
+  maxHeight.value = Math.max(0, triggerBounds.top - gap - margin)
+  await nextTick()
   const bounds = menu.value?.getBoundingClientRect()
   if (!bounds) return
-  const margin = 8
-  left.value = Math.min(Math.max(margin, props.x), window.innerWidth - bounds.width - margin)
-  top.value = Math.min(Math.max(margin, props.y), window.innerHeight - bounds.height - margin)
-  availableHeight.value = window.innerHeight - top.value - margin
+  const centeredLeft = triggerBounds.left + (triggerBounds.width - bounds.width) / 2
+  left.value = Math.min(Math.max(margin, centeredLeft), window.innerWidth - bounds.width - margin)
+  top.value = Math.max(margin, triggerBounds.top - gap - bounds.height)
   positioned.value = true
   await nextTick()
   focusInitialRadio()
@@ -122,7 +124,7 @@ onBeforeUnmount(() => {
       ref="menu"
       class="voice-device-menu"
       :class="{ positioned }"
-      :style="{ left: `${left}px`, top: `${top}px`, maxHeight: availableHeight === null ? undefined : `${availableHeight}px` }"
+      :style="{ left: `${left}px`, top: `${top}px`, maxHeight: maxHeight === null ? undefined : `${maxHeight}px` }"
       role="menu"
       :aria-label="title"
       @keydown="handleKeyDown"
