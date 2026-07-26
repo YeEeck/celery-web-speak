@@ -30,6 +30,9 @@ const transmissionModeAriaLabel = computed(() => voice.transmissionModeChanging
   ? '传输模式切换中'
   : `当前模式：${transmissionModeLabel.value}；切换为${transmissionModeTarget.value}`)
 const microphoneMuted = computed(() => voice.muted || voice.serverMuted)
+const microphoneVolumeMuted = computed(() => microphoneMuted.value || voice.deafened)
+const microphoneVolumeLabel = computed(() => microphoneVolumeMuted.value ? '麦克风增益，当前静音' : '麦克风增益')
+const outputVolumeLabel = computed(() => voice.deafened ? '扬声器音量，当前静音' : '扬声器音量')
 const microphoneTitle = computed(() => {
   if (voice.muteChanging) return '麦克风状态切换中'
   if (voice.serverMuted) return voice.microphoneEnabledPreference ? '管理员禁言' : '取消静音'
@@ -215,12 +218,13 @@ onBeforeUnmount(() => {
           id="microphone-volume-popover"
           ref="volumePopover"
           class="voice-volume-popover"
-          aria-label="麦克风增益"
+          :class="{ 'is-muted': microphoneVolumeMuted }"
+          :aria-label="microphoneVolumeLabel"
           @pointerenter="clearVolumeCloseTimer"
           @pointerleave="scheduleVolumeClose"
         >
           <output>{{ Math.round(voice.microphoneGain * 100) }}%</output>
-          <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" aria-label="麦克风增益" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
+          <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" :aria-label="microphoneVolumeLabel" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
         </section>
       </div>
       <div
@@ -249,12 +253,13 @@ onBeforeUnmount(() => {
           id="output-volume-popover"
           ref="volumePopover"
           class="voice-volume-popover"
-          aria-label="扬声器音量"
+          :class="{ 'is-muted': voice.deafened }"
+          :aria-label="outputVolumeLabel"
           @pointerenter="clearVolumeCloseTimer"
           @pointerleave="scheduleVolumeClose"
         >
           <output>{{ Math.round(voice.outputVolume * 100) }}%</output>
-          <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" aria-label="扬声器音量" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
+          <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" :aria-label="outputVolumeLabel" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
         </section>
       </div>
       <button

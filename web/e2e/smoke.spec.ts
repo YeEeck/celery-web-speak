@@ -375,6 +375,49 @@ test('离线语音快捷控制可调音量、选择设备并直达设置', async
   await expect(headphones).toBeFocused()
 })
 
+test('静音时音量滑块保留数值并弱化当前无效的控制', async ({ page, isMobile }) => {
+  test.skip(isMobile, '快捷浮层仅增强桌面鼠标和键盘')
+
+  const toolbar = page.locator('.user-controls')
+  const microphonePopover = toolbar.locator('#microphone-volume-popover')
+  const outputPopover = toolbar.locator('#output-volume-popover')
+
+  await toolbar.getByTitle('麦克风静音', { exact: true }).hover()
+  const microphoneVolume = microphonePopover.getByRole('slider', { name: '麦克风增益', exact: true })
+  await microphoneVolume.fill('0')
+  await expect(microphonePopover).not.toHaveClass(/is-muted/)
+  const normalAccent = await microphoneVolume.evaluate((element) => getComputedStyle(element).accentColor)
+
+  await toolbar.getByTitle('麦克风静音', { exact: true }).click()
+  await expect(microphonePopover).toBeVisible()
+  await expect(microphonePopover).toHaveClass(/is-muted/)
+  const mutedMicrophoneVolume = microphonePopover.getByRole('slider', { name: '麦克风增益，当前静音', exact: true })
+  await expect(mutedMicrophoneVolume).toHaveValue('0')
+  await expect(microphonePopover.getByText('0%', { exact: true })).toBeVisible()
+  await expect.poll(() => mutedMicrophoneVolume.evaluate((element) => (
+    getComputedStyle(element).accentColor
+      === getComputedStyle(element.closest('section')!.querySelector('output')!).color
+  ))).toBe(true)
+  expect(await mutedMicrophoneVolume.evaluate((element) => getComputedStyle(element).accentColor)).not.toBe(normalAccent)
+
+  await toolbar.getByTitle('取消静音', { exact: true }).click()
+  await expect(microphonePopover).not.toHaveClass(/is-muted/)
+
+  await toolbar.getByTitle('耳机静音', { exact: true }).hover()
+  const outputVolume = outputPopover.getByRole('slider', { name: '扬声器音量', exact: true })
+  await expect(outputPopover).not.toHaveClass(/is-muted/)
+  const outputValue = await outputVolume.inputValue()
+  await toolbar.getByTitle('耳机静音', { exact: true }).click()
+  await expect(outputPopover).toBeVisible()
+  await expect(outputPopover).toHaveClass(/is-muted/)
+  await expect(outputPopover.getByRole('slider', { name: '扬声器音量，当前静音', exact: true })).toHaveValue(outputValue)
+
+  await toolbar.getByTitle('取消耳机静音', { exact: true }).hover()
+  await toolbar.getByTitle('取消静音', { exact: true }).hover()
+  await expect(microphonePopover).toHaveClass(/is-muted/)
+  await expect(microphonePopover.getByRole('slider', { name: '麦克风增益，当前静音', exact: true })).toHaveValue('0')
+})
+
 test('语音工具栏在 320px 窄视口内不溢出', async ({ page, isMobile }) => {
   test.skip(isMobile, '使用桌面浏览器精确覆盖 320px 视口')
   await page.setViewportSize({ width: 320, height: 640 })
