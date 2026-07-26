@@ -23,6 +23,6 @@
 .participant-volume-value { border: 0; padding: 0; background: transparent; color: var(--faint); font-size: 10px; text-align: right; cursor: pointer; transition: var(--t-fast); }
 .participant-volume-value:hover { color: var(--text); }
 .participant-volume-value.muted { color: var(--danger-fg); }
-.server-muted { position: absolute; left: 46px; bottom: -3px; font-size: 9px; color: var(--danger-fg); }
+.guild-muted { position: absolute; left: 46px; bottom: -3px; font-size: 9px; color: var(--danger-fg); }
 .voice-notice, .voice-error { margin: 5px 8px; color: var(--yellow); font-size: 11px; display: flex; align-items: center; gap: 5px; }
 .voice-error { color: var(--danger-fg); }

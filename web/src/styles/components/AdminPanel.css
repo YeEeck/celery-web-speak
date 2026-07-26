@@ -7,7 +7,7 @@
 .admin-tabs button:hover { color: var(--text); background: var(--hover); }.admin-tabs button.active { color: var(--text); background: var(--active); }
 
 .channel-settings { max-width: 620px; border: 0; }
-.server-rename-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.guild-rename-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
 .channel-create-row { display: grid; grid-template-columns: 132px minmax(0,1fr) auto; gap: 8px; align-items: end; }
 .channel-create-row .primary-button { min-width: 92px; }
 .channel-admin-actions { display: flex; flex-wrap: wrap; gap: 8px; }

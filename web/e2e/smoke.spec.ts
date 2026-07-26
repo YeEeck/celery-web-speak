@@ -556,7 +556,7 @@ test('普通成员离开服务器前看到明确后果且失败时保留对话�
     await expect(dialog.getByRole('alert')).toHaveText('测试离开失败')
     await expect.poll(async () => {
       const response = await target.request.get('/api/bootstrap')
-      const payload = await response.json() as { servers: Array<{ id: number; joined: boolean }> }
+      const payload = await response.json() as { guilds: Array<{ id: number; joined: boolean }> }
       return payload.guilds.some((server) => server.id === serverID && server.joined)
     }).toBe(true)
 
@@ -569,7 +569,7 @@ test('普通成员离开服务器前看到明确后果且失败时保留对话�
     await expect(targetPage.getByRole('alertdialog')).toBeHidden()
     await expect(targetPage.getByTitle('服务器操作')).toHaveCount(0)
     const bootstrapResponse = await target.request.get('/api/bootstrap')
-    const bootstrap = await bootstrapResponse.json() as { servers: Array<{ joined: boolean }> }
+    const bootstrap = await bootstrapResponse.json() as { guilds: Array<{ joined: boolean }> }
     expect(bootstrap.guilds.some((server) => server.joined)).toBe(false)
   } finally {
     await target.close()
@@ -592,7 +592,7 @@ test('右键离开非当前服务器后保持当前服务器', async ({ request,
   const serverName = `非当前服务器${suffix.slice(-5)}`
   const createResponse = await request.post('/api/platform/guilds', { data: { name: serverName, ownerUsername: username } })
   expect(createResponse.ok()).toBeTruthy()
-  const secondServer = (await createResponse.json() as { server: { id: number } }).server
+  const secondServer = (await createResponse.json() as { guild: { id: number } }).guild
   const addResponse = await request.post(`/api/guilds/${secondServer.id}/members`, { data: { username: account.username } })
   expect(addResponse.ok()).toBeTruthy()
 
@@ -739,7 +739,7 @@ test('WebSocket 重同步的旧响应不会覆盖同一服务器的新状态', a
   const secondServerName = `重同步服务器${Date.now().toString(36).slice(-5)}`
   const createResponse = await request.post('/api/platform/guilds', { data: { name: secondServerName, ownerUsername: username } })
   expect(createResponse.ok()).toBeTruthy()
-  const secondServer = (await createResponse.json() as { server: { id: number } }).server
+  const secondServer = (await createResponse.json() as { guild: { id: number } }).guild
   let releaseDelayedResponse = () => {}
   try {
     await expect(page.getByTitle(secondServerName)).toBeVisible()

@@ -18,15 +18,15 @@
 .platform-guild-detail > header h3 { font-size: 20px; }
 .platform-guild-detail > header p { margin-top: 4px; color: var(--faint); font-size: 11px; }
 .platform-guild-mark { width: 52px; height: 52px; border-radius: 6px; display: grid; place-items: center; background: var(--elevated); color: var(--text); font-size: 20px; font-weight: 750; }
-.server-metadata { margin: 0; display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.server-metadata div { min-width: 0; padding: 13px 10px; }
-.server-metadata dt { color: var(--faint); font-size: 10px; font-weight: 700; }
-.server-metadata dd { margin: 5px 0 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.guild-metadata { margin: 0; display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.guild-metadata div { min-width: 0; padding: 13px 10px; }
+.guild-metadata dt { color: var(--faint); font-size: 10px; font-weight: 700; }
+.guild-metadata dd { margin: 5px 0 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
 .platform-owner-action { display: grid; gap: 10px; }
 .platform-owner-action select { min-width: 0; }
 .platform-guild-danger { margin-top: auto; padding-top: 18px; border-top: 1px solid rgba(218,55,60,.45); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .platform-guild-danger p { margin-top: 4px; color: var(--faint); font-size: 11px; }
-.server-delete-confirmation { flex: 1; display: grid; grid-template-columns: minmax(120px, 1fr) auto auto; gap: 8px; }
+.guild-delete-confirmation { flex: 1; display: grid; grid-template-columns: minmax(120px, 1fr) auto auto; gap: 8px; }
 .danger-button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--red); color: white; font-weight: 650; cursor: pointer; transition: var(--t-colors); }
 .danger-button:hover:not(:disabled) { background: var(--red-hover); }
 .platform-guild-empty { display: grid; place-content: center; justify-items: center; gap: 10px; color: var(--faint); }

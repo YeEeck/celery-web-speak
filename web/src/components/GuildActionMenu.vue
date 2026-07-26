@@ -94,7 +94,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <nav
       ref="menu"
-      class="server-action-menu"
+      class="guild-action-menu"
       :class="{ positioned }"
       :style="{ left: `${left}px`, top: `${top}px` }"
       role="menu"
@@ -103,7 +103,7 @@ onBeforeUnmount(() => {
     >
       <button v-if="canManage" type="button" role="menuitem" @click="emit('manage', guild)"><Gauge :size="17" />管理控制台</button>
       <button v-if="isPlatformAdmin" type="button" role="menuitem" @click="emit('platform', guild)"><ServerCog :size="17" />平台服务器管理</button>
-      <span v-if="canLeave && hasPrimaryAction" class="server-action-divider" role="separator" />
+      <span v-if="canLeave && hasPrimaryAction" class="guild-action-divider" role="separator" />
       <button v-if="canLeave" class="danger" type="button" role="menuitem" @click="emit('leave', guild)"><LogOut :size="17" />离开服务器</button>
     </nav>
   </Teleport>

@@ -6,4 +6,4 @@
 .member-row > span:nth-child(2) { min-width: 0; flex: 1; display: grid; }
 .member-row strong, .member-row small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .member-row small { color: var(--faint); font-size: 10px; }
-.member-row.offline { opacity: .48; }.client-type { color: var(--faint); flex-shrink: 0; }.server-role { color: var(--yellow); }.channel-role { color: var(--role-blue); }
+.member-row.offline { opacity: .48; }.client-type { color: var(--faint); flex-shrink: 0; }.guild-role { color: var(--yellow); }.channel-role { color: var(--role-blue); }

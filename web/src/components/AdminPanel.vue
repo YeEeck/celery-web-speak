@@ -423,7 +423,7 @@ function selectTab(nextTab: 'channel' | 'users' | 'invites') {
         <section v-if="tab === 'channel'" class="settings-section channel-settings">
           <template v-if="canRenameServer">
             <h3>服务器设置</h3>
-            <div class="server-rename-row">
+            <div class="guild-rename-row">
               <input v-model.trim="serverName" maxlength="64" aria-label="服务器名称" />
               <button class="secondary-button" :disabled="busy || !serverName || serverName === guildContext?.name" @click="renameServer"><Save :size="16" />保存名称</button>
             </div>

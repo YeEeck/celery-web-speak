@@ -48,8 +48,8 @@
   .two-column { grid-template-columns: 1fr; }
   .channel-create-row { grid-template-columns: 1fr; }
   .channel-create-row .primary-button { width: 100%; }
-  .server-rename-row { grid-template-columns: 1fr; }
-  .server-rename-row button { width: 100%; }
+  .guild-rename-row { grid-template-columns: 1fr; }
+  .guild-rename-row button { width: 100%; }
   .sound-event-row { grid-template-columns: 1fr; }
   .profile-audio-layout { grid-template-columns: 1fr; gap: 12px; }
   .profile-audio-nav { display: flex; gap: 4px; padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--line); }
@@ -74,7 +74,7 @@
   .account-danger-zone { align-items: stretch; flex-direction: column; }.account-danger-zone button { width: 100%; }
   .platform-guild-list { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .platform-create-form { padding: 0 0 12px; border: 0; border-bottom: 1px solid var(--line); }
-  .server-metadata { grid-template-columns: 1fr; }
+  .guild-metadata { grid-template-columns: 1fr; }
   .platform-guild-danger { align-items: stretch; flex-direction: column; }
-  .server-delete-confirmation { grid-template-columns: 1fr; }
+  .guild-delete-confirmation { grid-template-columns: 1fr; }
 }

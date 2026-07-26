@@ -126,7 +126,7 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
             >{{ Math.round(participant.backgroundAudioVolume * 100) }}%</button>
           </div>
         </div>
-        <span v-if="userFor(participant)?.voiceMuted" class="server-muted">已禁言</span>
+        <span v-if="userFor(participant)?.voiceMuted" class="guild-muted">已禁言</span>
       </div>
       <p v-if="voice.status === 'reconnecting'" class="voice-notice"><Signal :size="14" /> 正在恢复语音连接</p>
     </div>

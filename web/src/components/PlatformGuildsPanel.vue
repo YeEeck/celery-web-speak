@@ -178,7 +178,7 @@ async function deleteGuild() {
             <span class="platform-guild-mark">{{ selectedGuild.name.trim().slice(0, 1).toUpperCase() }}</span>
             <div><h3>{{ selectedGuild.name }}</h3><p>服务器 #{{ selectedGuild.id }}</p></div>
           </header>
-          <dl class="server-metadata">
+          <dl class="guild-metadata">
             <div><dt>所有者</dt><dd>{{ selectedOwner?.displayName ?? `用户 #${selectedGuild.ownerUserId}` }}</dd></div>
             <div><dt>成员</dt><dd>{{ selectedGuild.memberCount }}</dd></div>
             <div><dt>创建时间</dt><dd>{{ new Date(selectedGuild.createdAt).toLocaleString('zh-CN') }}</dd></div>
@@ -209,7 +209,7 @@ async function deleteGuild() {
           <section class="platform-guild-danger">
             <div><h3><Trash2 :size="18" />删除服务器</h3><p>{{ selectedGuild.memberCount }} 名成员</p></div>
             <button v-if="!showDeleteConfirmation" class="secondary-button danger-text" type="button" @click="showDeleteConfirmation = true">删除</button>
-            <div v-else class="server-delete-confirmation">
+            <div v-else class="guild-delete-confirmation">
               <input v-model="deleteConfirmation" :placeholder="selectedGuild.name" aria-label="输入服务器名称确认删除" />
               <button class="secondary-button" type="button" @click="showDeleteConfirmation = false; deleteConfirmation = ''">取消</button>
               <button class="danger-button" type="button" :disabled="busy || deleteConfirmation !== selectedGuild.name" @click="deleteGuild">确认删除</button>

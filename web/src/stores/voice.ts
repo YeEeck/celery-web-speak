@@ -59,7 +59,7 @@ import { useApplicationAudio } from './voice-application-audio'
 export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils'
 
 interface LeaveOptions {
-  notifyServer?: boolean
+  notifyGuild?: boolean
   playLeaveSound?: boolean
 }
 
@@ -362,7 +362,7 @@ export const useVoiceStore = defineStore('voice', () => {
     const app = useAppStore()
     const targetRoom = room
     const wasDeafened = deafened.value
-    const serverId = connectedGuildId.value
+    const guildId = connectedGuildId.value
     await appAudio.stopApplicationAudio()
     const wasJoined = targetRoom !== null && room === targetRoom
     voiceSession += 1
@@ -387,8 +387,8 @@ export const useVoiceStore = defineStore('voice', () => {
     }
     sounds.setSuppressed(false)
     syncIdlePreferenceState()
-    if (wasJoined && serverId !== null && options.notifyServer !== false) {
-      await request(`/api/guilds/${serverId}/voice/leave`, { method: 'POST' })
+    if (wasJoined && guildId !== null && options.notifyGuild !== false) {
+      await request(`/api/guilds/${guildId}/voice/leave`, { method: 'POST' })
       app.requestVoiceRoomsRefresh()
     }
   }

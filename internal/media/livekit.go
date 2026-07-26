@@ -62,7 +62,7 @@ type VoiceParticipant struct {
 }
 
 type VoiceRoom struct {
-	GuildID      int64              `json:"serverId,omitempty"`
+	GuildID      int64              `json:"guildId,omitempty"`
 	ChannelID    int64              `json:"channelId"`
 	Participants []VoiceParticipant `json:"participants"`
 }
@@ -261,8 +261,8 @@ func (s *Service) RemoveParticipant(ctx context.Context, userID int64) error {
 }
 
 // RemoveParticipantFromGuild revokes a user's current voice connection only
-// when that connection belongs to the specified server. A connection in a
-// different server must remain active.
+// when that connection belongs to the specified guild. A connection in a
+// different guild must remain active.
 func (s *Service) RemoveParticipantFromGuild(ctx context.Context, userID, guildID int64) error {
 	target := s.currentTarget(userID)
 	if target.ChannelID == 0 || target.GuildID != guildID {
@@ -271,7 +271,7 @@ func (s *Service) RemoveParticipantFromGuild(ctx context.Context, userID, guildI
 	return s.RemoveParticipant(ctx, userID)
 }
 
-// RemoveGuildParticipants revokes all current voice targets in a server.
+// RemoveGuildParticipants revokes all current voice targets in a guild.
 func (s *Service) RemoveGuildParticipants(ctx context.Context, guildID int64) error {
 	s.mu.RLock()
 	userIDs := make([]int64, 0)

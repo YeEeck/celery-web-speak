@@ -77,7 +77,7 @@ watch(() => app.activeGuildId === voice.connectedGuildId && app.voiceChannels.so
   if (!exists && voice.joined && app.activeGuildId === voice.connectedGuildId) void voice.leave()
 })
 watch(() => voice.connectedGuildId === null || app.guilds.some((guild) => guild.id === voice.connectedGuildId && guild.joined), (hasMembership) => {
-  if (!hasMembership && voice.joined) void voice.leave({ notifyServer: false })
+  if (!hasMembership && voice.joined) void voice.leave({ notifyGuild: false })
 })
 watch(() => app.activeGuildId === voice.connectedGuildId ? app.user?.voiceMuted : undefined, (value) => {
   if (value !== undefined) void voice.syncGuildMute(value)
@@ -315,7 +315,7 @@ async function leaveGuild() {
     await request(`/api/guilds/${guild.id}/leave`, { method: 'POST' })
     if (voice.connectedGuildId === guild.id) {
       try {
-        await voice.leave({ notifyServer: false, playLeaveSound: true })
+        await voice.leave({ notifyGuild: false, playLeaveSound: true })
       } catch {
         // 后端已经清理目标服务器的语音参与者，继续刷新成员状态。
       }
@@ -394,12 +394,12 @@ function closeChangelog() {
     <aside :class="['channel-sidebar', { 'mobile-drawer-open': channelsOpen }]">
       <header class="guild-title">
         <span><strong>{{ app.activeGuild?.name ?? '尚未加入服务器' }}</strong><small>{{ app.activeGuild ? '服务器频道' : '请联系服务器管理员' }}</small></span>
-        <button v-if="app.activeGuild" ref="guildActionTrigger" class="icon-button server-actions-trigger" type="button" title="服务器操作" aria-label="服务器操作" :aria-expanded="guildActionMenu?.trigger === guildActionTrigger" @click="openHeaderGuildActions"><EllipsisVertical :size="20" /></button>
+        <button v-if="app.activeGuild" ref="guildActionTrigger" class="icon-button guild-actions-trigger" type="button" title="服务器操作" aria-label="服务器操作" :aria-expanded="guildActionMenu?.trigger === guildActionTrigger" @click="openHeaderGuildActions"><EllipsisVertical :size="20" /></button>
         <button v-if="app.isPlatformAdmin && !app.activeGuild" class="icon-button mobile-only" title="平台服务器管理" @click="openPlatformGuilds(); channelsOpen = false"><ServerCog :size="19" /></button>
         <button class="icon-button mobile-only" title="关闭" @click="channelsOpen = false"><X :size="19" /></button>
       </header>
       <div class="channel-scroll">
-        <p v-if="!app.activeGuild" class="server-empty">尚未加入任何服务器，请联系服务器管理员将你加入服务器。</p>
+        <p v-if="!app.activeGuild" class="guild-empty">尚未加入任何服务器，请联系服务器管理员将你加入服务器。</p>
         <div v-if="app.activeGuild" class="category-heading"><span>语音频道</span></div>
         <VoiceChannel v-for="channel in app.voiceChannels" :key="channel.id" :channel="channel" />
         <div v-if="app.activeGuild" class="category-heading"><span>文字频道</span></div>
