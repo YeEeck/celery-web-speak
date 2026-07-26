@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EllipsisVertical, Hash, LogOut, Plus, Radio, ServerCog, X } from '@lucide/vue'
 import AccountMenu from './AccountMenu.vue'
-import AdminPanel from './AdminPanel.vue'
+import GuildAdminPanel from './GuildAdminPanel.vue'
 import PlatformAdminPanel from './PlatformAdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
 import ChatPane from './ChatPane.vue'
@@ -465,7 +465,7 @@ function closeChangelog() {
       @close="closeProfile"
       @changelog="changelogOpen = true"
     />
-    <AdminPanel v-if="adminOpen" @close="adminOpen = false" />
+    <GuildAdminPanel v-if="adminOpen" @close="adminOpen = false" />
     <PlatformAdminPanel v-if="platformAdminOpen" @close="platformAdminOpen = false" />
     <PlatformGuildsPanel v-if="platformOpen" :initial-guild-id="platformInitialGuildId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
     <ChangelogModal v-if="changelogOpen" @close="closeChangelog" />

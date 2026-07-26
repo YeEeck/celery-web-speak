@@ -1,0 +1,12 @@
+.channel-settings { max-width: 620px; border: 0; }
+.guild-rename-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.channel-create-row { display: grid; grid-template-columns: 132px minmax(0,1fr) auto; gap: 8px; align-items: end; }
+.channel-create-row .primary-button { min-width: 92px; }
+.channel-admin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.range-setting { gap: 10px; }.range-setting > span:first-child { display: flex; justify-content: space-between; }.range-setting input { padding: 0; accent-color: var(--brand); }
+.range-labels { display: flex; justify-content: space-between; color: var(--faint); font-weight: 500; }
+
+.member-add-form { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 6px; margin: 0 0 10px; }
+.member-add-form input { min-width: 0; padding: 8px; }
+.member-add-form .icon-button { min-height: 34px; }
+.permission-note { display: flex; align-items: center; gap: 8px; padding: 12px; color: var(--yellow) !important; background: var(--warning-bg); border-radius: 4px; }
