@@ -290,7 +290,7 @@ func TestTemporarilyBannedPlatformAdminCannotRestoreGuildSubscription(t *testing
 	select {
 	case <-connection.send:
 	case <-time.After(time.Second):
-		t.Fatal("temporarily banned client did not receive server removal")
+		t.Fatal("temporarily banned client did not receive guild removal")
 	}
 
 	recorder = serveGuildHTTPRequest(server, targetToken, http.MethodPost, "/api/platform/guilds/"+formatID(guildID)+"/join", "")
@@ -312,7 +312,7 @@ func TestTemporarilyBannedPlatformAdminCannotRestoreGuildSubscription(t *testing
 	select {
 	case <-connection.send:
 	case <-time.After(time.Second):
-		t.Fatal("combined ban did not emit server removal")
+		t.Fatal("combined ban did not emit guild removal")
 	}
 	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodDelete, "/api/guilds/"+formatID(guildID)+"/members/"+formatID(target.ID)+"/temporary-ban", "")
 	if recorder.Code != http.StatusOK {
@@ -556,7 +556,7 @@ func TestGuildAuthorizationDoesNotCrossGuildThroughLegacyOrScopedRoutes(t *testi
 		}
 	}
 	if textChannel.ID == 0 {
-		t.Fatal("second server has no text channel")
+		t.Fatal("second guild has no text channel")
 	}
 	member, err := db.CreateUser(ctx, "member_a", "默认服务器成员", "another-secure-password", store.RoleMember)
 	if err != nil {

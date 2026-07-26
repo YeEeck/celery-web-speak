@@ -163,7 +163,7 @@ export function useSocket(ctx: SocketContext) {
       try {
         socket.send(JSON.stringify({ type: 'refresh_voice_rooms' }))
       } catch {
-        // The periodic server reconciliation remains the fallback if the socket closes concurrently.
+        // The periodic guild reconciliation remains the fallback if the socket closes concurrently.
       }
     }, VOICE_ROOMS_REFRESH_DELAY_MS)
   }

@@ -30,7 +30,7 @@ func (s *Server) schedulePendingGuildMembershipRestores(parent context.Context) 
 	defer cancel()
 	members, err := s.store.ListPendingGuildMembershipRestores(ctx, time.Now())
 	if err != nil {
-		s.logger.Warn("list pending server membership restores", "error", err)
+		s.logger.Warn("list pending guild membership restores", "error", err)
 		return
 	}
 	for _, member := range members {
@@ -43,7 +43,7 @@ func (s *Server) reconcileExpiredGuildMemberships(parent context.Context, source
 	defer cancel()
 	members, err := s.store.RestoreExpiredGuildMemberships(ctx, time.Now())
 	if err != nil {
-		s.logger.Warn("restore expired server memberships", "source", source, "error", err)
+		s.logger.Warn("restore expired guild memberships", "source", source, "error", err)
 		return
 	}
 	for _, member := range members {
