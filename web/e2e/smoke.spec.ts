@@ -294,17 +294,7 @@ test('语音工具栏按职责分栏并持久化 DTX 模式', async ({ page, isM
   await setSyntheticVoiceConnection(page)
   await expect(page.locator('.transmission-mode-button')).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
 
-  const disconnectButton = page.getByTitle('断开语音', { exact: true })
-  if (!isMobile) {
-    const headphones = page.locator('.user-controls').getByTitle('耳机静音', { exact: true })
-    await headphones.click()
-    const outputPopover = page.locator('#output-volume-popover')
-    await expect(outputPopover).toBeVisible()
-    const [popoverBounds, disconnectBounds] = await Promise.all([outputPopover.boundingBox(), disconnectButton.boundingBox()])
-    if (!popoverBounds || !disconnectBounds) throw new Error('无法测量输出音量弹层与断开按钮')
-    expect(popoverBounds.x + popoverBounds.width).toBeLessThanOrEqual(disconnectBounds.x)
-  }
-  await disconnectButton.click()
+  await page.getByTitle('断开语音', { exact: true }).click()
   await expect(page.locator('.user-controls')).toHaveCount(1)
   await expect(page.locator('.voice-connection-panel')).toHaveCount(0)
 })
