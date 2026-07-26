@@ -269,10 +269,9 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 .transmission-mode-button:focus-visible + .transmission-mode-tooltip { visibility: visible; opacity: 1; transform: translateY(0); }
 .control-buttons { margin-left: auto; display: flex; align-items: center; gap: 2px; }
 .voice-volume-control { position: relative; display: flex; align-items: center; }
-.voice-volume-popover { position: absolute; z-index: 25; left: 50%; bottom: calc(100% + 8px); width: 52px; height: 157px; padding: 10px 7px 8px; border: 1px solid var(--border-strong); border-radius: 6px; display: grid; grid-template-rows: 20px 112px; justify-items: center; gap: 5px; transform: translateX(-50%); background: var(--elevated); box-shadow: 0 10px 28px rgba(0,0,0,.42); }
-.voice-volume-popover::after { position: absolute; left: 50%; bottom: -6px; width: 10px; height: 10px; border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); transform: translateX(-50%) rotate(45deg); background: var(--elevated); content: ''; }
-.voice-volume-popover output { color: var(--text); font-size: 10px; font-weight: 700; }
-.voice-volume-popover input { width: 22px; height: 112px; min-height: 0; padding: 0; writing-mode: vertical-lr; direction: rtl; accent-color: var(--brand); cursor: pointer; }
+.voice-volume-popover { position: absolute; z-index: 25; left: 50%; bottom: calc(100% + 8px); width: 44px; height: 157px; padding: 10px 5px 14px; border: 1px solid var(--border-strong); border-radius: 6px; display: grid; grid-template-rows: 14px 112px; align-content: start; justify-items: center; gap: 3px; transform: translateX(-50%); background: var(--elevated); box-shadow: 0 10px 28px rgba(0,0,0,.42); }
+.voice-volume-popover output { color: var(--text); font-size: 10px; font-weight: 700; line-height: 14px; }
+.voice-volume-popover input { width: 22px; height: 112px; min-height: 0; margin: 0; padding: 0; writing-mode: vertical-lr; direction: rtl; accent-color: var(--brand); cursor: pointer; }
 .voice-preference-feedback { position: absolute; z-index: 24; right: 8px; bottom: calc(100% + 7px); max-width: calc(100% - 16px); padding: 6px 8px; border: 1px solid var(--border-strong); border-radius: 4px; background: var(--elevated); box-shadow: 0 7px 20px rgba(0,0,0,.35); color: var(--muted); font-size: 10px; line-height: 1.35; }
 .voice-control-divider { width: 1px; height: 22px; margin: 0 4px; flex: 0 0 auto; background: var(--line); }
 .icon-button.active { color: var(--success-fg); background: var(--hover); }
