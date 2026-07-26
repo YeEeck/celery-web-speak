@@ -194,7 +194,7 @@ async function logout() {
   loggingOut.value = true
   logoutError.value = ''
   try {
-    await voice.leave()
+    await voice.leave({ playLeaveSound: true })
     await app.logout()
   } catch (error) {
     logoutError.value = error instanceof Error ? error.message : '退出登录失败'
@@ -299,7 +299,7 @@ async function leaveServer() {
     await request(`/api/servers/${server.id}/leave`, { method: 'POST' })
     if (voice.connectedServerId === server.id) {
       try {
-        await voice.leave({ notifyServer: false })
+        await voice.leave({ notifyServer: false, playLeaveSound: true })
       } catch {
         // 后端已经清理目标服务器的语音参与者，继续刷新成员状态。
       }

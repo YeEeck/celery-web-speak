@@ -3,6 +3,10 @@ import { defineStore } from 'pinia'
 
 export type NotificationSound = 'join' | 'leave' | 'message'
 
+interface PlaySoundOptions {
+  bypassRateLimit?: boolean
+}
+
 const DEFAULT_VOLUME = 0.6
 const MIN_INTERVAL_MS = 300
 const STORAGE_PREFIX = 'cws.notificationSounds'
@@ -85,10 +89,10 @@ export const useSoundStore = defineStore('sounds', () => {
     document.removeEventListener('keydown', unlockAudio, true)
   }
 
-  function play(sound: NotificationSound) {
+  function play(sound: NotificationSound, options: PlaySoundOptions = {}) {
     if (!enabled.value || volume.value === 0 || suppressed.value || !isSoundEnabled(sound) || !context) return
     const now = performance.now()
-    if (now - lastPlayed[sound] < MIN_INTERVAL_MS) return
+    if (!options.bypassRateLimit && now - lastPlayed[sound] < MIN_INTERVAL_MS) return
     lastPlayed[sound] = now
 
     const target = context

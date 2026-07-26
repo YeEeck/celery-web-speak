@@ -114,7 +114,7 @@ onBeforeUnmount(() => {
         <Music2 v-else :size="18" />
       </button>
       <span class="voice-control-divider" aria-hidden="true" />
-      <button class="icon-button danger" title="断开语音" aria-label="断开语音" @click="voice.leave()"><PhoneOff :size="18" /></button>
+      <button class="icon-button danger" title="断开语音" aria-label="断开语音" @click="voice.leave({ playLeaveSound: true })"><PhoneOff :size="18" /></button>
     </div>
     <section
       v-if="showApplicationAudio && applicationAudioPanelOpen"

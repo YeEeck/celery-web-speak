@@ -93,14 +93,70 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
     await expect.poll(() => contexts[0].page.evaluate((userId) => localStorage.getItem(`cws.volume.${userId}`), secondAccountId)).toBe('3')
 
     const beforeRemoteLeave = await toneCount(contexts[0].page)
+    const beforeOwnLeave = await toneCount(contexts[1].page)
     await contexts[1].page.getByTitle('断开语音').click()
     await expect.poll(() => toneCount(contexts[0].page)).toBeGreaterThanOrEqual(beforeRemoteLeave + 2)
+    await expect.poll(() => toneCount(contexts[1].page)).toBeGreaterThanOrEqual(beforeOwnLeave + 2)
   } finally {
     await Promise.allSettled(contexts.map(({ context }) => context.close()))
     for (const account of accounts) {
       const accountID = accountIds.get(account.username)
       if (accountID) await deletePlatformUser(request, accountID, account.username)
     }
+  }
+})
+
+test('主动退出语音只提示一次并与被动离开和耳机静音区分', async ({ browser, request }, testInfo) => {
+  test.skip(!runVoiceTest, '需要已运行的 LiveKit Compose 环境')
+
+  await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
+  const serverID = await firstJoinedServerID(request)
+  const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
+  const account = {
+    username: `leave_sound_${suffix}`,
+    displayName: `退出音测试${suffix.slice(-5)}`,
+    password: 'leave-sound-password',
+  }
+  const accountID = (await createServerMember(request, serverID, account)).id
+  const context = await browser.newContext({ permissions: ['microphone'] })
+  await context.grantPermissions(['microphone'], { origin: baseURL })
+  const page = await context.newPage()
+
+  try {
+    await loginVoicePage(page, account, testInfo.project.name.startsWith('android'))
+    await installToneCounter(page)
+    await page.getByRole('button', { name: /语音频道/ }).click()
+    await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
+
+    const beforeOwnLeave = await toneCount(page)
+    await playLeaveSoundThroughStore(page)
+    await expect.poll(() => toneCount(page)).toBe(beforeOwnLeave + 2)
+    await page.getByTitle('断开语音').click()
+    await expect.poll(() => toneCount(page)).toBeGreaterThanOrEqual(beforeOwnLeave + 4)
+
+    const afterOwnLeave = await toneCount(page)
+    await leaveVoiceThroughStore(page, true)
+    await page.waitForTimeout(150)
+    expect(await toneCount(page)).toBe(afterOwnLeave)
+
+    await page.getByRole('button', { name: /语音频道/ }).click()
+    await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
+    const beforePassiveLeave = await toneCount(page)
+    await leaveVoiceThroughStore(page, false)
+    await page.waitForTimeout(150)
+    expect(await toneCount(page)).toBe(beforePassiveLeave)
+
+    await page.getByRole('button', { name: /语音频道/ }).click()
+    await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
+    await page.getByTitle('耳机静音', { exact: true }).click()
+    await expect(page.getByTitle('取消耳机静音', { exact: true })).toBeVisible()
+    const beforeDeafenedLeave = await toneCount(page)
+    await page.getByTitle('断开语音').click()
+    await page.waitForTimeout(150)
+    expect(await toneCount(page)).toBe(beforeDeafenedLeave)
+  } finally {
+    await context.close()
+    await deletePlatformUser(request, accountID, account.username)
   }
 })
 
@@ -293,6 +349,30 @@ async function installToneCounter(page: Page) {
 
 async function toneCount(page: Page) {
   return page.evaluate(() => (window as typeof window & { __cwsToneCount?: number }).__cwsToneCount ?? 0)
+}
+
+async function playLeaveSoundThroughStore(page: Page) {
+  await page.evaluate(() => {
+    type SoundStoreTestState = { play: (sound: 'leave') => void }
+    type PiniaTestState = { _s: Map<string, SoundStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const sounds = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('sounds')
+    if (!sounds) throw new Error('未找到提示音 store')
+    sounds.play('leave')
+  })
+}
+
+async function leaveVoiceThroughStore(page: Page, playLeaveSound: boolean) {
+  await page.evaluate(async (playSound) => {
+    type VoiceStoreTestState = { leave: (options?: { playLeaveSound?: boolean }) => Promise<void> }
+    type PiniaTestState = { _s: Map<string, VoiceStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const voice = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('voice')
+    if (!voice) throw new Error('未找到语音 store')
+    await voice.leave(playSound ? { playLeaveSound: true } : undefined)
+  }, playLeaveSound)
 }
 
 async function setRemoteBackgroundAudioAvailable(page: Page, userId: number, available: boolean) {
