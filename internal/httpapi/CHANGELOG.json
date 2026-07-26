@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.8",
+    "date": "2026-07-27",
+    "changes": [
+      "refactor: API、WebSocket 协议与前端内部统一使用 Guild 领域术语",
+      "fix: 调整耳机静音音量弹层位置，避免遮挡断开语音按钮"
+    ]
+  },
+  {
     "version": "0.4.7",
     "date": "2026-07-26",
     "changes": [
