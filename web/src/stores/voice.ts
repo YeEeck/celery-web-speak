@@ -47,6 +47,11 @@ import { useApplicationAudio } from './voice-application-audio'
 
 export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils'
 
+interface LeaveOptions {
+  notifyServer?: boolean
+  playLeaveSound?: boolean
+}
+
 export const useVoiceStore = defineStore('voice', () => {
   const status = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'>('idle')
   const connectedChannelId = ref<number | null>(null)
@@ -120,7 +125,7 @@ export const useVoiceStore = defineStore('voice', () => {
   async function join(channelId: number) {
     if (room && connectedChannelId.value === channelId) return
     if (status.value === 'connecting') return
-    if (room) await leave()
+    if (room) await leave({ playLeaveSound: true })
     voiceSession += 1
     const session = voiceSession
     const app = useAppStore()
@@ -194,15 +199,17 @@ export const useVoiceStore = defineStore('voice', () => {
     }
   }
 
-  async function leave(options: { notifyServer?: boolean } = {}) {
+  async function leave(options: LeaveOptions = {}) {
     const app = useAppStore()
-    const wasJoined = room !== null
+    const targetRoom = room
+    const wasDeafened = deafened.value
     const serverId = connectedServerId.value
     await appAudio.stopApplicationAudio()
+    const wasJoined = targetRoom !== null && room === targetRoom
     voiceSession += 1
     participantSoundsReady = false
-    if (room) {
-      room.disconnect()
+    if (wasJoined) {
+      targetRoom.disconnect()
       room = null
     }
     clearConnectedChannelSummary()
@@ -216,7 +223,11 @@ export const useVoiceStore = defineStore('voice', () => {
     deafenedSyncError.value = ''
     transmissionModeError.value = ''
     microphoneActivity.destroy()
-    useSoundStore().setSuppressed(false)
+    const sounds = useSoundStore()
+    if (wasJoined && options.playLeaveSound && !wasDeafened) {
+      sounds.play('leave', { bypassRateLimit: true })
+    }
+    sounds.setSuppressed(false)
     if (wasJoined && serverId !== null && options.notifyServer !== false) {
       await request(`/api/servers/${serverId}/voice/leave`, { method: 'POST' })
       app.requestVoiceRoomsRefresh()

@@ -768,6 +768,29 @@ test('操作提示音默认开启并持久化到浏览器', async ({ page, isMob
   await expect(page.getByLabel('新文字消息')).not.toBeChecked()
 })
 
+test('主动退出提示音绕过同类限流但仍遵守耳机静音', async ({ page }) => {
+  await installToneCounter(page)
+  await page.locator('body').click({ position: { x: 10, y: 10 } })
+
+  const initialCount = await toneCount(page)
+  await playSoundThroughStore(page, false)
+  await playSoundThroughStore(page, false)
+  await expect.poll(() => toneCount(page)).toBe(initialCount + 2)
+
+  await page.waitForTimeout(350)
+  const beforeBypass = await toneCount(page)
+  await playSoundThroughStore(page, false)
+  await playSoundThroughStore(page, true)
+  await expect.poll(() => toneCount(page)).toBe(beforeBypass + 4)
+
+  await setSoundSuppressedThroughStore(page, true)
+  const beforeSuppressed = await toneCount(page)
+  await playSoundThroughStore(page, true)
+  await page.waitForTimeout(150)
+  expect(await toneCount(page)).toBe(beforeSuppressed)
+  await setSoundSuppressedThroughStore(page, false)
+})
+
 test('主题模式与强调色持久化到浏览器', async ({ page, isMobile }) => {
   await openUserSettings(page)
   await page.getByRole('button', { name: '主题', exact: true }).click()
@@ -1214,6 +1237,30 @@ async function installToneCounter(page: import('@playwright/test').Page) {
 
 async function toneCount(page: import('@playwright/test').Page) {
   return page.evaluate(() => (window as typeof window & { __cwsToneCount?: number }).__cwsToneCount ?? 0)
+}
+
+async function playSoundThroughStore(page: Page, bypassRateLimit: boolean) {
+  await page.evaluate((bypass) => {
+    type SoundStoreTestState = { play: (sound: 'leave', options?: { bypassRateLimit?: boolean }) => void }
+    type PiniaTestState = { _s: Map<string, SoundStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const sounds = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('sounds')
+    if (!sounds) throw new Error('未找到提示音 store')
+    sounds.play('leave', { bypassRateLimit: bypass })
+  }, bypassRateLimit)
+}
+
+async function setSoundSuppressedThroughStore(page: Page, suppressed: boolean) {
+  await page.evaluate((value) => {
+    type SoundStoreTestState = { setSuppressed: (suppressed: boolean) => void }
+    type PiniaTestState = { _s: Map<string, SoundStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const sounds = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('sounds')
+    if (!sounds) throw new Error('未找到提示音 store')
+    sounds.setSuppressed(value)
+  }, suppressed)
 }
 
 async function setSyntheticVoiceConnection(page: Page, options: {
