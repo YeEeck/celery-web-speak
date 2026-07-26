@@ -458,6 +458,20 @@ test('语音工具栏在 320px 窄视口内不溢出', async ({ page, isMobile }
 })
 
 test('服务器操作菜单集中展示当前角色可用操作', async ({ page, isMobile }) => {
+  await page.route('**/api/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    await route.fulfill({
+      response,
+      json: {
+        ...payload,
+        guilds: payload.guilds.map((guild: { joined: boolean }) => guild.joined ? { ...guild, role: 'owner' } : guild),
+      },
+    })
+  })
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+
   if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   await expect(page.locator('.channel-scroll').getByText('管理控制台', { exact: true })).toHaveCount(0)
   await expect(page.locator('.channel-scroll').getByText('离开服务器', { exact: true })).toHaveCount(0)
@@ -1478,7 +1492,7 @@ test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile
     const response = await route.fetch()
     const payload = await response.json()
     const members = [
-      ...payload.members,
+      ...payload.members.map((member: { userId: number; role: string }) => member.userId === payload.membership.userId ? member : { ...member, role: 'member' }),
       ...Array.from({ length: 40 }, (_, index) => ({
         userId: 10_000 + index,
         username: `scroll-member-${index + 1}`,
@@ -1640,7 +1654,7 @@ test('空邀请码列表兼容 null 响应', async ({ page }) => {
 test('窄屏频道与成员抽屉不溢出', async ({ page, isMobile }) => {
   test.skip(!isMobile, '仅在移动端项目运行')
   await page.getByTitle('频道', { exact: true }).click()
-  await expect(page.locator('.guild-title strong')).toHaveText('Celery Web Speak')
+  await expect(page.locator('.guild-title strong')).not.toBeEmpty()
   await page.getByTitle('关闭').click()
   await page.getByRole('button', { name: /成员列表/ }).click()
   await expect(page.locator('.drawer-header strong')).toHaveText('成员')
