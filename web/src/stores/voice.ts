@@ -66,8 +66,8 @@ interface LeaveOptions {
 export const useVoiceStore = defineStore('voice', () => {
   const status = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'>('idle')
   const connectedChannelId = ref<number | null>(null)
-  const connectedServerId = ref<number | null>(null)
-  const connectedServerName = ref('')
+  const connectedGuildId = ref<number | null>(null)
+  const connectedGuildName = ref('')
   const connectedChannelName = ref('')
   const connectedPublishSettings = ref(defaultConnectedPublishSettings())
   const errorMessage = ref('')
@@ -77,7 +77,7 @@ export const useVoiceStore = defineStore('voice', () => {
   const deafened = ref(deafenedPreference.value)
   const muteChanging = ref(false)
   const deafenChanging = ref(false)
-  const serverMuted = ref(false)
+  const guildMuted = ref(false)
   const voicePreferenceFeedback = ref('')
   const deafenedSyncError = ref('')
   const participantStates = ref<VoiceParticipant[]>([])
@@ -159,7 +159,7 @@ export const useVoiceStore = defineStore('voice', () => {
 
   const participants = computed(() => {
     const app = useAppStore()
-    const connectedUsers = app.activeServerId === connectedServerId.value ? app.users : []
+    const connectedUsers = app.activeGuildId === connectedGuildId.value ? app.users : []
     return [...participantStates.value].sort((a, b) => compareParticipants(a, b, connectedUsers))
   })
 
@@ -173,9 +173,9 @@ export const useVoiceStore = defineStore('voice', () => {
   // 页面关闭时主动通知后端离开语音频道，避免依赖 LiveKit 的断开检测延迟（关闭标签页/窗口时
   // LiveKit 可能需要数十秒才能通过心跳超时发现连接已断开，导致成员列表出现幽灵状态）。
   window.addEventListener('pagehide', () => {
-    const serverId = connectedServerId.value
-    if (!joined.value || serverId === null) return
-    navigator.sendBeacon(`/api/servers/${serverId}/voice/leave`)
+    const guildId = connectedGuildId.value
+    if (!joined.value || guildId === null) return
+    navigator.sendBeacon(`/api/guilds/${guildId}/voice/leave`)
   })
 
   function setMicrophonePreference(enabled: boolean) {
@@ -284,28 +284,28 @@ export const useVoiceStore = defineStore('voice', () => {
     transmissionModeError.value = ''
     pendingDeafenedSync = null
     appliedTransmissionMode = null
-    serverMuted.value = false
+    guildMuted.value = false
     deafened.value = deafenedPreference.value
     muted.value = deafenedPreference.value || !microphoneEnabledPreference.value
     useSoundStore().setSuppressed(deafenedPreference.value)
     try {
       const channel = app.voiceChannels.find((item) => item.id === channelId)
       if (!channel) throw new Error('语音频道不存在')
-      const server = app.activeServer
-      if (!server || app.activeServerId !== server.id) throw new Error('未选择服务器')
-      const serverId = server.id
-      const serverName = server.name
-      serverMuted.value = app.user?.voiceMuted ?? false
+      const guild = app.activeGuild
+      if (!guild || app.activeGuildId !== guild.id) throw new Error('未选择服务器')
+      const guildId = guild.id
+      const guildName = guild.name
+      guildMuted.value = app.user?.voiceMuted ?? false
       connectedChannelId.value = channelId
-      connectedServerId.value = serverId
-      connectedServerName.value = serverName
+      connectedGuildId.value = guildId
+      connectedGuildName.value = guildName
       connectedChannelName.value = channel.name
       setConnectedChannelSettings(channel)
       await initializeDevices()
       if (permissionRequestPromise) await permissionRequestPromise
       if (session !== voiceSession) return
       const tokenDeafened = deafenedPreference.value
-      const credentials = await request<VoiceCredentials>(`/api/servers/${serverId}/channels/${channelId}/voice/token`, {
+      const credentials = await request<VoiceCredentials>(`/api/guilds/${guildId}/channels/${channelId}/voice/token`, {
         method: 'POST',
         body: JSON.stringify({ deafened: tokenDeafened }),
       })
@@ -350,7 +350,7 @@ export const useVoiceStore = defineStore('voice', () => {
       room = null
       clearConnectedChannelSummary()
       status.value = 'error'
-      serverMuted.value = false
+      guildMuted.value = false
       useSoundStore().setSuppressed(false)
       syncIdlePreferenceState()
       errorMessage.value = error instanceof Error ? error.message : '无法连接语音频道'
@@ -362,7 +362,7 @@ export const useVoiceStore = defineStore('voice', () => {
     const app = useAppStore()
     const targetRoom = room
     const wasDeafened = deafened.value
-    const serverId = connectedServerId.value
+    const serverId = connectedGuildId.value
     await appAudio.stopApplicationAudio()
     const wasJoined = targetRoom !== null && room === targetRoom
     voiceSession += 1
@@ -375,7 +375,7 @@ export const useVoiceStore = defineStore('voice', () => {
     document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove())
     participantStates.value = []
     status.value = 'idle'
-    serverMuted.value = false
+    guildMuted.value = false
     pendingDeafenedSync = null
     appliedTransmissionMode = null
     deafenedSyncError.value = ''
@@ -388,7 +388,7 @@ export const useVoiceStore = defineStore('voice', () => {
     sounds.setSuppressed(false)
     syncIdlePreferenceState()
     if (wasJoined && serverId !== null && options.notifyServer !== false) {
-      await request(`/api/servers/${serverId}/voice/leave`, { method: 'POST' })
+      await request(`/api/guilds/${serverId}/voice/leave`, { method: 'POST' })
       app.requestVoiceRoomsRefresh()
     }
   }
@@ -416,7 +416,7 @@ export const useVoiceStore = defineStore('voice', () => {
       await reconcileConnectedPreferences(target, session)
       if (session !== voiceSession || room !== target) return
       syncParticipants()
-      if (serverMuted.value) {
+      if (guildMuted.value) {
         showVoicePreferenceFeedback(microphoneEnabledPreference.value
           ? '管理员禁言；解除后将开启麦克风'
           : '管理员禁言；解除后将保持静音')
@@ -551,7 +551,7 @@ export const useVoiceStore = defineStore('voice', () => {
     preferenceRevision += 1
     transmissionModeError.value = ''
 
-    if (!room || status.value !== 'connected' || muted.value || deafened.value || serverMuted.value) return
+    if (!room || status.value !== 'connected' || muted.value || deafened.value || guildMuted.value) return
     const target = room
     const session = voiceSession
     transmissionModeChanging.value = true
@@ -579,7 +579,7 @@ export const useVoiceStore = defineStore('voice', () => {
   async function applyPublishSettingsChange(microphoneChanged: boolean, backgroundAudioChanged: boolean) {
     if (!room) return
     const target = room
-    if (microphoneChanged && !muted.value && !serverMuted.value) {
+    if (microphoneChanged && !muted.value && !guildMuted.value) {
       await republishMicrophone(target)
     }
     if (backgroundAudioChanged && appAudio.hasActiveTrack()) {
@@ -604,9 +604,9 @@ export const useVoiceStore = defineStore('voice', () => {
     }
   }
 
-  async function syncServerMute(value: boolean) {
-    if (serverMuted.value !== value) preferenceRevision += 1
-    serverMuted.value = value
+  async function syncGuildMute(value: boolean) {
+    if (guildMuted.value !== value) preferenceRevision += 1
+    guildMuted.value = value
     if (!room) {
       syncIdlePreferenceState()
       return
@@ -720,7 +720,7 @@ export const useVoiceStore = defineStore('voice', () => {
       if (session !== voiceSession || room !== target) return
       const revision = preferenceRevision
       const nextDeafened = deafenedPreference.value
-      const shouldEnableMicrophone = microphoneEnabledPreference.value && !nextDeafened && !serverMuted.value
+      const shouldEnableMicrophone = microphoneEnabledPreference.value && !nextDeafened && !guildMuted.value
 
       if (nextDeafened) {
         if (target.localParticipant.isMicrophoneEnabled) {
@@ -802,7 +802,7 @@ export const useVoiceStore = defineStore('voice', () => {
           clearConnectedChannelSummary()
           status.value = 'idle'
           participantStates.value = []
-          serverMuted.value = false
+          guildMuted.value = false
           pendingDeafenedSync = null
           appliedTransmissionMode = null
           deafenedSyncError.value = ''
@@ -904,8 +904,8 @@ export const useVoiceStore = defineStore('voice', () => {
         pendingDeafenedSync = null
         try {
           if (connectedChannelId.value === null) break
-          if (connectedServerId.value === null) return
-          await request<void>(`/api/servers/${connectedServerId.value}/channels/${connectedChannelId.value}/voice/state`, {
+          if (connectedGuildId.value === null) return
+          await request<void>(`/api/guilds/${connectedGuildId.value}/channels/${connectedChannelId.value}/voice/state`, {
             method: 'PATCH',
             body: JSON.stringify({ deafened: value }),
           })
@@ -937,8 +937,8 @@ export const useVoiceStore = defineStore('voice', () => {
 
   function clearConnectedChannelSummary() {
     connectedChannelId.value = null
-    connectedServerId.value = null
-    connectedServerName.value = ''
+    connectedGuildId.value = null
+    connectedGuildName.value = ''
     connectedChannelName.value = ''
     connectedPublishSettings.value = defaultConnectedPublishSettings()
   }
@@ -992,8 +992,8 @@ export const useVoiceStore = defineStore('voice', () => {
   return {
     status,
     connectedChannelId,
-    connectedServerId,
-    connectedServerName,
+    connectedGuildId,
+    connectedGuildName,
     connectedChannelName,
     connectedAudioBitrateKbps,
     errorMessage,
@@ -1005,7 +1005,7 @@ export const useVoiceStore = defineStore('voice', () => {
     deafenedPreference,
     muteChanging,
     deafenChanging,
-    serverMuted,
+    guildMuted,
     participants,
     inputDevices,
     outputDevices,
@@ -1063,7 +1063,7 @@ export const useVoiceStore = defineStore('voice', () => {
     setApplicationAudioVolume: appAudio.setApplicationAudioVolume,
     applyPublishSettingsChange,
     updateConnectedChannelSettings,
-    syncServerMute,
+    syncGuildMute,
     retryDeafenedSync,
     refreshDevices,
     initializeDevices,

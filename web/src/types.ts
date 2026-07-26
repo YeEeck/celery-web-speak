@@ -8,7 +8,7 @@ export interface OnlineClient {
   client: ClientType
 }
 
-export interface ServerSummary {
+export interface GuildSummary {
   id: number
   name: string
   ownerUserId: number
@@ -47,7 +47,7 @@ export interface Message {
 
 export interface Channel {
 	id: number
-	serverId?: number
+	guildId?: number
 	type: ChannelType
 	name: string
 	audioBitrateKbps?: number
@@ -91,7 +91,7 @@ export interface Invite {
 
 export interface BootstrapData {
   user: User
-	servers?: ServerSummary[]
+	guilds?: GuildSummary[]
 	users?: User[]
 	messages?: Message[]
 	messagesHasMore?: boolean
@@ -114,8 +114,8 @@ export interface GuildMemberPayload {
   joinedAt: string
 }
 
-export interface ServerBootstrapData {
-  server: ServerSummary
+export interface GuildBootstrapData {
+  guild: GuildSummary
   membership: GuildMemberPayload
   members: GuildMemberPayload[]
   channels: Channel[]

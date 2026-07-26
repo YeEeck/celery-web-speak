@@ -11,9 +11,9 @@ export function emptyMessageState(): MessageState {
   return { messages: [], hasEarlier: false, loading: false, loaded: false }
 }
 
-export function savedChannelID(serverId: number | null) {
-  if (serverId === null) return null
-  const key = activeChannelKey(serverId)
+export function savedChannelID(guildId: number | null) {
+  if (guildId === null) return null
+  const key = activeChannelKey(guildId)
   const value = Number(localStorage.getItem(key))
   if (Number.isFinite(value) && value > 0) return value
   const legacyValue = Number(localStorage.getItem('cws.activeTextChannelId'))
@@ -25,12 +25,12 @@ export function savedChannelID(serverId: number | null) {
   return null
 }
 
-export function activeChannelKey(serverId: number) {
-  return `cws.server.${serverId}.activeTextChannelId`
+export function activeChannelKey(guildId: number) {
+  return `cws.guild.${guildId}.activeTextChannelId`
 }
 
-export function savedServerID() {
-  const value = Number(localStorage.getItem('cws.activeServerId'))
+export function savedGuildID() {
+  const value = Number(localStorage.getItem('cws.activeGuildId'))
   return Number.isFinite(value) && value > 0 ? value : null
 }
 

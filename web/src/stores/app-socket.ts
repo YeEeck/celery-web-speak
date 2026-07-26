@@ -1,24 +1,24 @@
 import type { Ref } from 'vue'
 import { ApiError, request } from '../api'
-import type { BootstrapData, ClientType, ServerBootstrapData, ServerSummary, User } from '../types'
+import type { BootstrapData, ClientType, GuildBootstrapData, GuildSummary, User } from '../types'
 import { mapGuildMember } from './app-utils'
 
-type SocketEvent = { type: string; serverId?: number; data: unknown }
+type SocketEvent = { type: string; guildId?: number; data: unknown }
 
 const VOICE_ROOMS_REFRESH_DELAY_MS = 350
 
 export interface SocketContext {
   user: Ref<User | null>
-  servers: Ref<ServerSummary[]>
-  activeServerId: Ref<number | null>
+  guilds: Ref<GuildSummary[]>
+  activeGuildId: Ref<number | null>
   activeTextChannelId: Ref<number | null>
   socketStatus: Ref<'offline' | 'connecting' | 'online'>
-  handleEvent: (type: string, data: unknown, serverId?: number) => void
-  clearServerState: () => void
+  handleEvent: (type: string, data: unknown, guildId?: number) => void
+  clearGuildState: () => void
   applyBootstrap: (data: BootstrapData, invalidateMessages?: boolean) => void
   loadChannelMessages: (channelId: number, force?: boolean) => Promise<void>
-  nextServerBootstrapVersion: () => number
-  isServerBootstrapVersionCurrent: (version: number) => boolean
+  nextGuildBootstrapVersion: () => number
+  isGuildBootstrapVersionCurrent: (version: number) => boolean
 }
 
 export function useSocket(ctx: SocketContext) {
@@ -53,7 +53,7 @@ export function useSocket(ctx: SocketContext) {
         socketActivityVersion += 1
         return
       }
-      ctx.handleEvent(event.type, event.data, event.serverId)
+      ctx.handleEvent(event.type, event.data, event.guildId)
     }
     connection.onclose = (event) => {
       if (socket !== connection) return
@@ -76,30 +76,30 @@ export function useSocket(ctx: SocketContext) {
         if (socket !== connection) return
         if (socketActivityVersion !== activityVersion) continue
         ctx.user.value = data.user
-        ctx.servers.value = data.servers ?? ctx.servers.value
-        if (ctx.activeServerId.value === null || !ctx.servers.value.some((server) => server.id === ctx.activeServerId.value && server.joined)) {
-          ctx.activeServerId.value = ctx.servers.value.find((server) => server.joined)?.id ?? null
+        ctx.guilds.value = data.guilds ?? ctx.guilds.value
+        if (ctx.activeGuildId.value === null || !ctx.guilds.value.some((guild) => guild.id === ctx.activeGuildId.value && guild.joined)) {
+          ctx.activeGuildId.value = ctx.guilds.value.find((guild) => guild.joined)?.id ?? null
         }
-        if (ctx.activeServerId.value === null) { ctx.clearServerState(); synchronizingSocket = null; ctx.socketStatus.value = 'online'; return }
-        const serverId = ctx.activeServerId.value
-        const bootstrapVersion = ctx.nextServerBootstrapVersion()
-        let serverData: ServerBootstrapData
+        if (ctx.activeGuildId.value === null) { ctx.clearGuildState(); synchronizingSocket = null; ctx.socketStatus.value = 'online'; return }
+        const guildId = ctx.activeGuildId.value
+        const bootstrapVersion = ctx.nextGuildBootstrapVersion()
+        let guildData: GuildBootstrapData
         try {
-          serverData = await request<ServerBootstrapData>(`/api/servers/${serverId}/bootstrap`)
+          guildData = await request<GuildBootstrapData>(`/api/guilds/${guildId}/bootstrap`)
         } catch (error) {
           if (socket !== connection) return
-          if (socketActivityVersion !== activityVersion || !ctx.isServerBootstrapVersionCurrent(bootstrapVersion) || ctx.activeServerId.value !== serverId) continue
+          if (socketActivityVersion !== activityVersion || !ctx.isGuildBootstrapVersionCurrent(bootstrapVersion) || ctx.activeGuildId.value !== guildId) continue
           throw error
         }
         if (socket !== connection) return
-        if (socketActivityVersion !== activityVersion || !ctx.isServerBootstrapVersionCurrent(bootstrapVersion) || ctx.activeServerId.value !== serverId) continue
-        const members = serverData.members.map(mapGuildMember)
-        const currentUser = { ...data.user, voiceMuted: serverData.membership.voiceMuted, textMuted: serverData.membership.textMuted, permanentlyBanned: serverData.membership.permanentlyBanned, temporaryBanUntil: serverData.membership.temporaryBanUntil }
-        ctx.applyBootstrap({ user: currentUser, users: members, channels: serverData.channels, channelReadStates: serverData.channelReadStates, online: serverData.online, voiceRooms: serverData.voiceRooms }, true)
+        if (socketActivityVersion !== activityVersion || !ctx.isGuildBootstrapVersionCurrent(bootstrapVersion) || ctx.activeGuildId.value !== guildId) continue
+        const members = guildData.members.map(mapGuildMember)
+        const currentUser = { ...data.user, voiceMuted: guildData.membership.voiceMuted, textMuted: guildData.membership.textMuted, permanentlyBanned: guildData.membership.permanentlyBanned, temporaryBanUntil: guildData.membership.temporaryBanUntil }
+        ctx.applyBootstrap({ user: currentUser, users: members, channels: guildData.channels, channelReadStates: guildData.channelReadStates, online: guildData.online, voiceRooms: guildData.voiceRooms }, true)
         const channelId = ctx.activeTextChannelId.value
         if (channelId !== null) await ctx.loadChannelMessages(channelId, true)
         if (socket !== connection) return
-        if (socketActivityVersion !== activityVersion || !ctx.isServerBootstrapVersionCurrent(bootstrapVersion) || ctx.activeServerId.value !== serverId) continue
+        if (socketActivityVersion !== activityVersion || !ctx.isGuildBootstrapVersionCurrent(bootstrapVersion) || ctx.activeGuildId.value !== guildId) continue
         synchronizingSocket = null
         ctx.socketStatus.value = 'online'
         return
