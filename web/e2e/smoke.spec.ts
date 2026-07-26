@@ -521,7 +521,7 @@ test('普通成员离开服务器前看到明确后果且失败时保留对话�
     const changelog = targetPage.getByRole('dialog', { name: '更新日志' })
     if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
 
-    const menu = await openCurrentServerActions(targetPage)
+    const menu = await openCurrentGuildActions(targetPage)
     await expect(menu.getByRole('menuitem')).toHaveCount(1)
     const leaveItem = menu.getByRole('menuitem', { name: '离开服务器', exact: true })
     await expect(leaveItem).toHaveClass(/danger/)
@@ -563,7 +563,7 @@ test('普通成员离开服务器前看到明确后果且失败时保留对话�
     await dialog.getByRole('button', { name: '取消', exact: true }).click()
     await expect(dialog).toBeHidden()
     await targetPage.unroute(`**/api/guilds/${serverID}/leave`)
-    const reopenedMenu = await openCurrentServerActions(targetPage)
+    const reopenedMenu = await openCurrentGuildActions(targetPage)
     await reopenedMenu.getByRole('menuitem', { name: '离开服务器', exact: true }).click()
     await targetPage.getByRole('alertdialog').getByRole('button', { name: '离开服务器', exact: true }).click()
     await expect(targetPage.getByRole('alertdialog')).toBeHidden()
@@ -1438,7 +1438,7 @@ async function setSyntheticVoiceConnection(page: Page, options: {
     type VoiceStoreTestState = {
       status: 'connecting' | 'connected' | 'reconnecting'
       connectedChannelId: number | null
-      connectedServerName: string
+      connectedGuildName: string
       connectedChannelName: string
       updateConnectedChannelSettings: (channel: { id: number; audioBitrateKbps?: number }) => unknown
     }
@@ -1448,7 +1448,7 @@ async function setSyntheticVoiceConnection(page: Page, options: {
     const voice = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('voice')
     if (!voice) throw new Error('未找到语音 store')
     voice.status = summary.status ?? 'connected'
-    voice.connectedServerName = summary.serverName ?? '测试服务器'
+    voice.connectedGuildName = summary.serverName ?? '测试服务器'
     voice.connectedChannelName = summary.channelName ?? '测试语音频道'
     if (summary.audioBitrateKbps !== undefined) {
       voice.connectedChannelId = 99_999
