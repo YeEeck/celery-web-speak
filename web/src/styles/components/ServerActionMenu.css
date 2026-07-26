@@ -1,0 +1,7 @@
+.server-action-menu { position: fixed; z-index: 70; width: 218px; padding: 6px; border: 1px solid var(--border-strong); border-radius: 6px; display: grid; gap: 2px; visibility: hidden; background: var(--elevated); box-shadow: 0 12px 32px rgba(0,0,0,.46); }
+.server-action-menu.positioned { visibility: visible; }
+.server-action-menu button { width: 100%; min-height: 38px; padding: 0 10px; border: 0; border-radius: 4px; display: flex; align-items: center; gap: 9px; background: transparent; color: var(--muted); text-align: left; cursor: pointer; transition: var(--t-colors); }
+.server-action-menu button:hover, .server-action-menu button:focus-visible { outline: none; color: var(--text); background: var(--hover); }
+.server-action-menu button.danger { color: var(--danger-fg); }
+.server-action-menu button.danger:hover, .server-action-menu button.danger:focus-visible { color: var(--danger-fg); background: rgba(218,55,60,.14); }
+.server-action-divider { height: 1px; margin: 4px 6px; background: var(--line); }

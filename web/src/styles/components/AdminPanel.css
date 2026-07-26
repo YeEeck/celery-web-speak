@@ -1,0 +1,57 @@
+.admin-panel { position: relative; width: 980px; height: 820px; max-width: none; max-height: none; grid-template-rows: auto auto minmax(0,1fr) auto; }
+
+.admin-content.users-content { overflow: hidden; }
+
+.admin-tabs { display: flex; gap: 2px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: var(--tab-bar); }
+.admin-tabs button { min-height: 34px; border: 0; border-radius: 4px; padding: 0 12px; display: flex; align-items: center; gap: 7px; color: var(--muted); background: transparent; cursor: pointer; transition: var(--t-colors); }
+.admin-tabs button:hover { color: var(--text); background: var(--hover); }.admin-tabs button.active { color: var(--text); background: var(--active); }
+
+.channel-settings { max-width: 620px; border: 0; }
+.server-rename-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.channel-create-row { display: grid; grid-template-columns: 132px minmax(0,1fr) auto; gap: 8px; align-items: end; }
+.channel-create-row .primary-button { min-width: 92px; }
+.channel-admin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.range-setting { gap: 10px; }.range-setting > span:first-child { display: flex; justify-content: space-between; }.range-setting input { padding: 0; accent-color: var(--brand); }
+.range-labels { display: flex; justify-content: space-between; color: var(--faint); font-weight: 500; }
+
+.user-admin-layout { height: 100%; min-height: 0; display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 20px; }
+.admin-user-list { min-height: 0; padding-right: 10px; border-right: 1px solid var(--line); overflow-y: auto; overscroll-behavior-y: contain; }
+.member-add-form { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 6px; margin: 0 0 10px; }
+.member-add-form input { min-width: 0; padding: 8px; }
+.member-add-form .icon-button { min-height: 34px; }
+.admin-user-list button { width: 100%; min-height: 46px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; display: flex; align-items: center; gap: 9px; color: var(--muted); text-align: left; cursor: pointer; transition: var(--t-colors); }
+.admin-user-list button:hover, .admin-user-list button.active { background: var(--hover); color: var(--text); }
+.admin-user-list span { min-width: 0; display: grid; }.admin-user-list strong, .admin-user-list small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.admin-user-list small { color: var(--faint); font-size: 10px; }
+.user-admin-detail { min-width: 0; min-height: 0; padding-right: 8px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overscroll-behavior-y: contain; }
+.user-admin-detail > header { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }.user-admin-detail h3 { font-size: 17px; }.user-admin-detail p { color: var(--faint); }
+
+.inline-actions { display: flex; gap: 8px; }.inline-actions > input, .inline-actions > select { flex: 1; }.inline-actions button { flex: 0 0 auto; }
+.permission-note { display: flex; align-items: center; gap: 8px; padding: 12px; color: var(--yellow) !important; background: var(--warning-bg); border-radius: 4px; }
+.account-danger-zone { padding: 14px; border: 1px solid rgba(218,55,60,.55); border-radius: 4px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(218,55,60,.08); }
+.account-danger-zone > div { min-width: 0; }.account-danger-zone strong { font-size: 13px; }.account-danger-zone p { margin-top: 4px; font-size: 11px; line-height: 1.45; }
+.account-danger-zone button { flex: 0 0 auto; }
+.account-delete-backdrop { position: absolute; z-index: 4; inset: 0; padding: 18px; display: grid; place-items: center; background: rgba(0,0,0,.72); }
+.account-delete-dialog { width: min(460px, 100%); padding: 20px; border: 1px solid var(--border-strong); border-radius: 6px; display: grid; gap: 18px; background: var(--panel); box-shadow: 0 18px 48px rgba(0,0,0,.48); }
+.account-delete-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }.account-delete-dialog h3 { font-size: 17px; }.account-delete-dialog header p { margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.account-delete-dialog label code { color: var(--danger-fg); font-size: 12px; }
+.account-delete-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.account-delete-confirm { min-height: 38px; padding: 0 16px; border: 0; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--red); color: white; font-weight: 650; cursor: pointer; }
+.account-delete-confirm:hover:not(:disabled) { background: var(--red-hover); }.account-delete-confirm:disabled { cursor: not-allowed; opacity: .52; }
+.account-delete-confirm { transition: var(--t-colors); }
+.account-admin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }.account-admin-grid .settings-section { border: 0; }
+.generated-code { min-height: 42px; padding: 5px 7px 5px 11px; border: 1px solid var(--line); border-radius: 4px; display: flex; align-items: center; gap: 8px; background: var(--input); }.generated-code code { flex: 1; overflow-wrap: anywhere; color: var(--code-fg); }
+.invite-list { display: grid; gap: 6px; max-height: 320px; padding-right: 3px; overflow-y: auto; overscroll-behavior-y: contain; }
+.invite-row { min-width: 0; padding: 9px 8px; border-radius: 4px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 8px; background: var(--main); transition: var(--t-colors); }
+.invite-row:hover { background: var(--hover); }
+.invite-row.inactive { opacity: .62; }
+.invite-row-heading { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.invite-row-heading code, .legacy-invite { min-width: 0; overflow: hidden; color: var(--code-fg); text-overflow: ellipsis; white-space: nowrap; }
+.legacy-invite { color: var(--faint); font-size: 11px; }
+.invite-status { flex: 0 0 auto; padding: 2px 5px; border-radius: 3px; color: var(--muted); background: var(--elevated); font-size: 9px; font-weight: 750; }
+.invite-status.active { color: var(--invite-active-fg); background: var(--invite-active-bg); }
+.invite-status.exhausted { color: var(--invite-exhausted-fg); background: var(--invite-exhausted-bg); }
+.invite-status.expired, .invite-status.revoked { color: var(--invite-expired-fg); background: var(--invite-expired-bg); }
+.invite-row-details { min-width: 0; display: flex; flex-wrap: wrap; gap: 3px 10px; color: var(--faint); font-size: 10px; }
+.invite-actions { grid-row: 1 / span 2; grid-column: 2; display: flex; align-items: center; }
+.invite-empty { padding: 16px 8px; color: var(--faint); text-align: center; }
+.invite-load-more { width: 100%; }

@@ -1,0 +1,4 @@
+.boot-screen { height: 100%; display: grid; place-content: center; justify-items: center; gap: 16px; background: var(--main); color: var(--muted); }
+.boot-screen.error-state strong { color: var(--text); font-size: 20px; }
+.brand-mark { display: block; width: 46px; height: 46px; flex: 0 0 auto; }
+.brand-mark.large { width: 58px; height: 58px; }

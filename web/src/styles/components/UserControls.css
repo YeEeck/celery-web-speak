@@ -1,0 +1,31 @@
+.user-controls { position: relative; min-height: 54px; padding: 7px 8px; display: flex; align-items: center; gap: 8px; background: var(--surface); }
+.transmission-mode-control { position: relative; flex: 0 0 auto; }
+.transmission-mode-button { position: relative; width: auto; height: 44px; padding: 0 8px; border: 0; border-radius: 4px; display: inline-flex; align-items: center; justify-content: flex-start; gap: 7px; background: transparent; color: var(--text); font-size: 11px; font-weight: 650; cursor: pointer; }
+.transmission-mode-button::before { position: absolute; z-index: 0; inset: 5px 0; border-radius: 4px; background: var(--hover); opacity: 0; content: ''; transition: opacity var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease); }
+.transmission-mode-button:focus-visible::before { opacity: 1; }
+.transmission-mode-button:active:not(:disabled)::before { background: var(--active); opacity: 1; }
+.transmission-mode-button > svg, .transmission-mode-button > span { position: relative; z-index: 1; }
+.transmission-mode-button span { white-space: nowrap; }
+.transmission-mode-tooltip { position: absolute; z-index: 20; left: 0; bottom: calc(100% + 6px); padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; visibility: hidden; opacity: 0; transform: translateY(2px); background: var(--elevated); color: var(--text); font-size: 11px; font-weight: 600; line-height: 1.2; white-space: nowrap; pointer-events: none; transition: opacity var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease), visibility var(--dur-fast) var(--ease); }
+.transmission-mode-button:focus-visible + .transmission-mode-tooltip { visibility: visible; opacity: 1; transform: translateY(0); }
+.control-buttons { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.voice-control-divider { width: 1px; height: 22px; margin: 0 4px; flex: 0 0 auto; background: var(--line); }
+.icon-button.active { color: var(--success-fg); background: var(--hover); }
+.icon-button.active:hover:not(:disabled), .icon-button.active:focus-visible { color: var(--success-fg); background: var(--active); }
+@media (hover: hover) and (pointer: fine) {
+  .transmission-mode-button:hover:not(:disabled)::before { opacity: 1; }
+  .transmission-mode-control:hover .transmission-mode-tooltip { visibility: visible; opacity: 1; transform: translateY(0); }
+}
+.application-audio-popover { position: absolute; z-index: 8; right: 8px; bottom: calc(100% + 8px); width: min(264px, calc(100vw - 16px)); padding: 12px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--elevated); box-shadow: 0 10px 28px rgba(0,0,0,.42); }
+.application-audio-popover::after { position: absolute; right: 80px; bottom: -6px; width: 10px; height: 10px; border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); background: var(--elevated); content: ''; transform: rotate(45deg); }
+.application-audio-popover header { display: flex; align-items: center; gap: 7px; min-height: 26px; }
+.application-audio-popover header strong { font-size: 13px; }
+.application-audio-actions { position: absolute; top: 8px; right: 8px; display: flex; }
+.application-audio-error { margin-top: 6px; padding-right: 4px; color: var(--danger-fg); font-size: 11px; line-height: 1.4; }
+.application-audio-retry { position: absolute; top: 8px; right: 8px; }
+.application-audio-volume { margin-top: 10px; display: grid; grid-template-columns: 78px minmax(0, 1fr) 34px; align-items: center; gap: 7px; }
+.application-audio-volume > span { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 650; }
+.application-audio-volume input { min-width: 0; padding: 0; accent-color: var(--brand); }
+.application-audio-volume output { color: var(--muted); font-size: 10px; text-align: right; }
+.spin { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

@@ -1,0 +1,12 @@
+.auth-screen { min-height: 100%; display: grid; grid-template-columns: minmax(320px, 1.05fr) minmax(420px, .95fr); background: var(--main); }
+.auth-brand { display: flex; align-items: flex-end; gap: 18px; padding: 64px; background: var(--rail); border-right: 1px solid var(--auth-border); }
+.auth-brand h1 { font-size: 34px; line-height: 1.15; }
+.auth-brand p { margin-top: 9px; color: var(--muted); font-size: 16px; }
+.auth-panel { width: min(420px, calc(100% - 48px)); align-self: center; justify-self: center; }
+.auth-panel header { margin: 28px 0 24px; }
+.auth-panel h2 { font-size: 25px; }
+.auth-panel header p { margin-top: 8px; color: var(--muted); }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--line); }
+.auth-tabs button { border: 0; padding: 12px 6px; background: transparent; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: var(--t-colors); }
+.auth-tabs button:hover { color: var(--text); }
+.auth-tabs button.active { color: var(--text); border-color: var(--brand); }
