@@ -4,3 +4,4 @@ web/playwright-report/
 web/*.tsbuildinfo
 data/
 .env
+.scratch/
