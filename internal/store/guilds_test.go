@@ -121,7 +121,7 @@ func TestGuildMembershipIsolation(t *testing.T) {
 	}
 }
 
-func TestGuildMessagesUseEffectiveServerRoles(t *testing.T) {
+func TestGuildMessagesUseEffectiveGuildRoles(t *testing.T) {
 	db := newTestStore(t)
 	platformAdmin := bootstrapAdmin(t, db)
 	ctx := context.Background()
@@ -215,7 +215,7 @@ func TestTransferGuildOwnershipRequiresActiveAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.TransferGuildOwnership(ctx, guildID, admin.ID, banned.ID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("transfer to server-banned account error = %v, want ErrNotFound", err)
+		t.Fatalf("transfer to guild-banned account error = %v, want ErrNotFound", err)
 	}
 
 	active, err := db.CreateUser(ctx, "active_owner_candidate", "有效候选", "another-secure-password", RoleMember)

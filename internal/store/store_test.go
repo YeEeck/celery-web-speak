@@ -245,7 +245,7 @@ func inviteIDs(invites []Invite) []int64 {
 	return ids
 }
 
-func TestServerTemporaryBanDoesNotInvalidatePlatformSession(t *testing.T) {
+func TestGuildTemporaryBanDoesNotInvalidatePlatformSession(t *testing.T) {
 	db := newTestStore(t)
 	admin := bootstrapAdmin(t, db)
 	ctx := context.Background()
@@ -272,10 +272,10 @@ func TestServerTemporaryBanDoesNotInvalidatePlatformSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.UserBySession(ctx, token); err != nil {
-		t.Fatalf("platform session after server ban: %v", err)
+		t.Fatalf("platform session after guild ban: %v", err)
 	}
 	if _, err := db.Authenticate(ctx, member.Username, "another-secure-password"); err != nil {
-		t.Fatalf("platform login during server ban: %v", err)
+		t.Fatalf("platform login during guild ban: %v", err)
 	}
 }
 

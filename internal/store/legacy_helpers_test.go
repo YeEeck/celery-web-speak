@@ -3,7 +3,7 @@ package store
 import "context"
 
 // These helpers keep older storage tests concise while production code only
-// exposes server-scoped mutations.
+// exposes guild-scoped mutations.
 func (s *Store) FirstChannel(ctx context.Context, channelType ChannelType) (Channel, error) {
 	guildID, err := s.DefaultGuildID(ctx)
 	if err != nil {

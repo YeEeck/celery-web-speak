@@ -133,7 +133,7 @@ func TestHubDisconnectUserStopsAndUnsubscribesEveryClient(t *testing.T) {
 	}
 	assertOnlineUserIDs(t, hub, []int64{6})
 	if got := hub.OnlineGuildClients(20); len(got) != 0 {
-		t.Fatalf("revoked server subscriptions = %v", got)
+		t.Fatalf("revoked guild subscriptions = %v", got)
 	}
 
 	// The connection handlers may still race to unregister after the Hub has
@@ -165,13 +165,13 @@ func TestHubGuildBroadcastIsIsolated(t *testing.T) {
 	}
 }
 
-func TestHubGuildBroadcastExcludesClientsWithoutServerMembership(t *testing.T) {
+func TestHubGuildBroadcastExcludesClientsWithoutGuildMembership(t *testing.T) {
 	hub := newHub(15 * time.Second)
 	member := newClient(store.User{ID: 1})
 	member.guilds[10] = struct{}{}
-	noServers := newClient(store.User{ID: 2})
+	noGuildMembership := newClient(store.User{ID: 2})
 	hub.register(member)
-	hub.register(noServers)
+	hub.register(noGuildMembership)
 
 	hub.BroadcastGuild(10, "message_created", map[string]int64{"id": 1})
 	select {
@@ -180,14 +180,14 @@ func TestHubGuildBroadcastExcludesClientsWithoutServerMembership(t *testing.T) {
 		t.Fatal("guild member did not receive event")
 	}
 	select {
-	case <-noServers.send:
-		t.Fatal("client without a server membership received event")
+	case <-noGuildMembership.send:
+		t.Fatal("client without a guild membership received event")
 	default:
 	}
-	assertPresenceSnapshot(t, noServers, nil)
+	assertPresenceSnapshot(t, noGuildMembership, nil)
 }
 
-func TestHubUserBroadcastRequiresSharedServer(t *testing.T) {
+func TestHubUserBroadcastRequiresSharedGuild(t *testing.T) {
 	hub := newHub(15 * time.Second)
 	target := newClient(store.User{ID: 1})
 	target.guilds[10] = struct{}{}
@@ -204,12 +204,12 @@ func TestHubUserBroadcastRequiresSharedServer(t *testing.T) {
 		select {
 		case <-client.send:
 		case <-time.After(time.Second):
-			t.Fatal("shared server client did not receive account event")
+			t.Fatal("shared guild client did not receive account event")
 		}
 	}
 	select {
 	case <-other.send:
-		t.Fatal("unrelated server client received account event")
+		t.Fatal("unrelated guild client received account event")
 	default:
 	}
 }
