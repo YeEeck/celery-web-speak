@@ -4,6 +4,7 @@
 .channel-admin-layout { height: 100%; min-height: 0; display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 20px; }
 .channel-admin-list { min-height: 0; padding-right: 10px; border-right: 1px solid var(--line); overflow-y: auto; overscroll-behavior-y: contain; }
 .channel-admin-list button { width: 100%; min-height: 40px; padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; display: flex; align-items: center; gap: 9px; color: var(--muted); text-align: left; cursor: pointer; transition: var(--t-colors); }
+.channel-admin-item + .channel-admin-item { margin-top: 4px; }
 .channel-admin-list button:hover, .channel-admin-list button.active { background: var(--hover); color: var(--text); }
 .channel-admin-list button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .channel-admin-detail { min-width: 0; min-height: 0; padding-right: 8px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; overscroll-behavior-y: contain; }

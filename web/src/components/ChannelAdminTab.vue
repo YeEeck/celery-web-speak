@@ -136,6 +136,7 @@ async function deleteChannel() {
         v-for="channel in app.voiceChannels"
         :key="channel.id"
         type="button"
+        class="channel-admin-item"
         :class="{ active: channel.id === selectedChannelId }"
         @click="selectedChannelId = channel.id"
       >
@@ -146,6 +147,7 @@ async function deleteChannel() {
         v-for="channel in app.textChannels"
         :key="channel.id"
         type="button"
+        class="channel-admin-item"
         :class="{ active: channel.id === selectedChannelId }"
         @click="selectedChannelId = channel.id"
       >
