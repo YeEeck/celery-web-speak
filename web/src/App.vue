@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import AuthScreen from './components/AuthScreen.vue'
 import AppShell from './components/AppShell.vue'
+import { shouldSuppressNativeContextMenu } from './contextMenuPolicy'
 import { useAppStore } from './stores/app'
 import { useSoundStore } from './stores/sounds'
 
@@ -10,6 +11,7 @@ const sounds = useSoundStore()
 const startupError = ref('')
 
 onMounted(async () => {
+  document.addEventListener('contextmenu', handleContextMenu)
   sounds.installInteractionUnlock()
   try {
     await app.initialize()
@@ -18,7 +20,14 @@ onMounted(async () => {
   }
 })
 
-onBeforeUnmount(() => sounds.removeInteractionUnlock())
+onBeforeUnmount(() => {
+  document.removeEventListener('contextmenu', handleContextMenu)
+  sounds.removeInteractionUnlock()
+})
+
+function handleContextMenu(event: MouseEvent) {
+  if (shouldSuppressNativeContextMenu(event)) event.preventDefault()
+}
 
 function reload() {
   window.location.reload()

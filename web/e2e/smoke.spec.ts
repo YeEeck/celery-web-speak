@@ -112,6 +112,146 @@ test.beforeEach(async ({ page }) => {
   if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
 })
 
+test('WebUI 仅在有效原生场景保留鼠标右键菜单', async ({ page, isMobile }) => {
+  const result = await page.evaluate(() => {
+    const dispatch = (target: Element, init: PointerEventInit = {}) => {
+      const event = new PointerEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        clientX: 1,
+        clientY: 1,
+        pointerType: 'mouse',
+        ...init,
+      })
+      target.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+
+    const fixture = document.createElement('div')
+    fixture.style.cssText = 'position:fixed;inset:0 auto auto 0;z-index:99999;width:420px;padding:12px;background:white;color:black'
+    fixture.innerHTML = `
+      <button data-target="button">普通操作</button>
+      <input data-target="text" value="可编辑文本">
+      <input data-target="readonly" value="只读文本" readonly>
+      <input data-target="disabled" value="禁用文本" disabled>
+      <input data-target="range" type="range">
+      <div data-target="editable" contenteditable="true">可编辑区域</div>
+      <div contenteditable="true"><span data-target="editable-off" contenteditable="false">不可编辑子区</span></div>
+      <a data-target="link" href="/help"><span>真实链接</span></a>
+      <img data-target="chrome-image" alt="界面素材">
+      <img data-target="user-media" data-native-context-menu alt="用户内容">
+      <p data-target="selection">选中的只读文本和选区外文本</p>
+    `
+    document.body.append(fixture)
+
+    const find = (name: string) => fixture.querySelector(`[data-target="${name}"]`)!
+    const paragraph = find('selection')
+    const text = paragraph.firstChild!
+    const selection = document.getSelection()!
+    const selectedRange = document.createRange()
+    selectedRange.setStart(text, 0)
+    selectedRange.setEnd(text, 7)
+    selection.removeAllRanges()
+    selection.addRange(selectedRange)
+    const selectedBounds = selectedRange.getBoundingClientRect()
+
+    const outsideRange = document.createRange()
+    outsideRange.setStart(text, 10)
+    outsideRange.setEnd(text, 11)
+    const outsideBounds = outsideRange.getBoundingClientRect()
+
+    const checks = {
+      button: dispatch(find('button')),
+      text: dispatch(find('text')),
+      readonly: dispatch(find('readonly')),
+      disabled: dispatch(find('disabled')),
+      range: dispatch(find('range')),
+      editable: dispatch(find('editable')),
+      editableOff: dispatch(find('editable-off')),
+      linkChild: dispatch(find('link').firstElementChild!),
+      chromeImage: dispatch(find('chrome-image')),
+      userMedia: dispatch(find('user-media')),
+      selectedText: dispatch(paragraph, {
+        clientX: selectedBounds.left + selectedBounds.width / 2,
+        clientY: selectedBounds.top + selectedBounds.height / 2,
+      }),
+      outsideSelection: dispatch(paragraph, {
+        clientX: outsideBounds.left + outsideBounds.width / 2,
+        clientY: outsideBounds.top + outsideBounds.height / 2,
+      }),
+      touch: dispatch(find('button'), { pointerType: 'touch', button: 0 }),
+      pen: dispatch(find('button'), { pointerType: 'pen', button: 2 }),
+    }
+
+    const keyboardEvent = new PointerEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      pointerType: 'mouse',
+    })
+    find('button').dispatchEvent(keyboardEvent)
+    selection.removeAllRanges()
+    fixture.remove()
+
+    return { ...checks, keyboard: keyboardEvent.defaultPrevented }
+  })
+
+  expect(result).toEqual({
+    button: true,
+    text: false,
+    readonly: false,
+    disabled: false,
+    range: true,
+    editable: false,
+    editableOff: true,
+    linkChild: false,
+    chromeImage: true,
+    userMedia: false,
+    selectedText: false,
+    outsideSelection: true,
+    touch: false,
+    pen: false,
+    keyboard: false,
+  })
+
+  if (!isMobile) {
+    const channel = page.locator('.channel-scroll > .channel-row').first()
+    await channel.click({ button: 'right' })
+    await expect(page.getByRole('menu', { name: /的频道操作$/ })).toBeVisible()
+  }
+
+  await page.request.post('/api/auth/logout')
+  await page.reload()
+  await expect(page.getByLabel('密码')).toBeVisible()
+  const authResult = await page.evaluate(() => {
+    const dispatch = (target: Element) => {
+      const event = new PointerEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        button: 2,
+        pointerType: 'mouse',
+      })
+      target.dispatchEvent(event)
+      return event.defaultPrevented
+    }
+    return {
+      submit: dispatch(document.querySelector('.submit-button')!),
+      password: dispatch(document.querySelector('input[type="password"]')!),
+    }
+  })
+  expect(authResult).toEqual({ submit: true, password: false })
+
+  const keyboardResult = page.evaluate(() => new Promise<boolean>((resolve) => {
+    document.addEventListener('contextmenu', (event) => {
+      window.setTimeout(() => resolve(event.defaultPrevented), 0)
+    }, { once: true })
+  }))
+  await page.locator('.submit-button').focus()
+  await page.keyboard.press('Shift+F10')
+  expect(await keyboardResult).toBe(false)
+})
+
 test('浏览器图标与服务器切换栏可用', async ({ page, isMobile }) => {
   const favicon = page.locator('link[rel="icon"]')
   await expect(favicon).toHaveAttribute('href', '/favicon.svg')
