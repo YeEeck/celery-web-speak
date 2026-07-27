@@ -389,7 +389,7 @@ function closeChangelog() {
 
     <aside :class="['channel-sidebar', { 'mobile-drawer-open': channelsOpen }]">
       <header class="guild-title">
-        <span><strong>{{ app.activeGuild?.name ?? '尚未加入服务器' }}</strong><small>{{ app.activeGuild ? '服务器频道' : '请联系服务器管理员' }}</small></span>
+        <span><strong>{{ app.activeGuild?.name ?? '尚未加入服务器' }}</strong><small v-if="!app.activeGuild">请联系服务器管理员</small></span>
         <button v-if="app.activeGuild" ref="guildActionTrigger" class="icon-button guild-actions-trigger" type="button" title="服务器操作" aria-label="服务器操作" :aria-expanded="guildActionMenu?.trigger === guildActionTrigger" @click="openHeaderGuildActions"><EllipsisVertical :size="20" /></button>
         <button v-if="app.isPlatformAdmin && !app.activeGuild" class="icon-button mobile-only" title="平台服务器管理" @click="openPlatformGuilds(); channelsOpen = false"><ServerCog :size="19" /></button>
         <button class="icon-button mobile-only" title="关闭" @click="channelsOpen = false"><X :size="19" /></button>

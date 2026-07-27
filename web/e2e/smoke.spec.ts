@@ -472,6 +472,19 @@ test('服务器操作菜单集中展示当前角色可用操作', async ({ page,
   await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
 
   if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+  const guildTitle = page.locator('.guild-title')
+  await expect(guildTitle.locator('small')).toHaveCount(0)
+  const guildTitleLayout = await guildTitle.evaluate((element) => {
+    const titleBounds = element.getBoundingClientRect()
+    const textBounds = element.querySelector('strong')!.getBoundingClientRect()
+    return {
+      fontSize: getComputedStyle(element.querySelector('strong')!).fontSize,
+      verticallyCentered: Math.abs(
+        (textBounds.top + textBounds.bottom) / 2 - (titleBounds.top + titleBounds.bottom) / 2,
+      ) < 1,
+    }
+  })
+  expect(guildTitleLayout).toEqual({ fontSize: '16px', verticallyCentered: true })
   await expect(page.locator('.channel-scroll').getByText('管理控制台', { exact: true })).toHaveCount(0)
   await expect(page.locator('.channel-scroll').getByText('离开服务器', { exact: true })).toHaveCount(0)
 
