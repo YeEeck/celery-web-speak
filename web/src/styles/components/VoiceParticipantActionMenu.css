@@ -10,7 +10,7 @@
 .voice-participant-audio-toggle { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 4px; display: inline-grid; place-items: center; background: transparent; color: var(--muted); cursor: pointer; transition: var(--t-colors); }
 .voice-participant-audio-toggle:hover { color: var(--text); background: var(--hover); }
 .voice-participant-audio-toggle.muted { color: var(--danger-fg); }
-.voice-participant-volume-value { min-width: 46px; height: 28px; padding: 0 2px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; cursor: pointer; transition: var(--t-colors); }
+.voice-participant-volume-value { width: max-content; height: 28px; padding: 0 3px; border: 0; border-radius: 4px; justify-self: end; background: transparent; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; cursor: pointer; transition: var(--t-colors); }
 .voice-participant-volume-value:hover { color: var(--text); background: var(--hover); }
 .voice-participant-volume-value.muted { color: var(--danger-fg); }
 .voice-participant-action-divider { display: block; height: 1px; margin: 4px 6px; background: var(--line); }
