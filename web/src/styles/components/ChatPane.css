@@ -18,13 +18,16 @@
 .intro-icon { width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; background: var(--active); margin-bottom: 12px; }
 .channel-intro .intro-title { font-size: 24px; }.channel-intro p { margin-top: 6px; color: var(--muted); }
 .message-row { position: relative; display: grid; grid-template-columns: 40px minmax(0,1fr) 34px; column-gap: 12px; padding: 4px 12px 4px 16px; }
-.message-date-divider { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding: 7px 0 3px; color: var(--faint); font-size: 10px; line-height: 16px; }
+.message-date-divider { display: flex; align-items: center; gap: 12px; padding: 7px 16px 3px; color: var(--faint); font-size: 10px; line-height: 16px; }
 .message-date-divider::before, .message-date-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
 .message-date-divider span { flex: 0 0 auto; }
 .message-row:hover { background: var(--row-hover-bg); }
 .message-body { min-width: 0; }
 .message-body header { min-height: 20px; display: flex; align-items: center; gap: 7px; }
 .message-body header strong { color: var(--text); }.message-body time { color: var(--faint); font-size: 10px; }
+.time-full { display: none; }
+.message-row:hover .time-short { display: none; }
+.message-row:hover .time-full { display: inline; }
 .message-body p { color: var(--text); line-height: 1.42; white-space: pre-wrap; overflow-wrap: anywhere; }
 .role-chip { padding: 1px 5px; border-radius: 3px; font-size: 9px; color: white; background: #3f844f; }
 .role-chip.owner { background: #a55f13; }.role-chip.admin { background: #3f6fa8; }

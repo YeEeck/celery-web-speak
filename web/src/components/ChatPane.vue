@@ -244,6 +244,12 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 }
 
+function formatFullTime(value: string) {
+  const d = new Date(value)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 function roleLabel(role: string) {
   if (role === 'owner') return '服务器所有者'
   if (role === 'admin') return '服务器管理员'
@@ -292,21 +298,23 @@ function roleLabel(role: string) {
                 <p>这是 #{{ app.activeTextChannel?.name }} 的开始。</p>
               </div>
             </template>
-            <article v-else-if="row.message" class="message-row">
+            <template v-else-if="row.message">
               <div v-if="row.dateLabel" class="message-date-divider" role="separator" :aria-label="row.dateLabel">
                 <span>{{ row.dateLabel }}</span>
               </div>
-              <UserAvatar :name="row.message.displayName" :size="40" />
-              <div class="message-body">
-                <header>
-                  <strong>{{ row.message.displayName }}</strong>
-                  <span v-if="roleLabel(row.message.role)" :class="['role-chip', row.message.role]">{{ roleLabel(row.message.role) }}</span>
-                  <time>{{ formatTime(row.message.createdAt) }}</time>
-                </header>
-                <p>{{ row.message.content }}</p>
-              </div>
-              <button v-if="app.isAdmin" class="message-action" title="删除消息" @click="removeMessage(row.message.id)"><Trash2 :size="16" /></button>
-            </article>
+              <article class="message-row">
+                <UserAvatar :name="row.message.displayName" :size="40" />
+                <div class="message-body">
+                  <header>
+                    <strong>{{ row.message.displayName }}</strong>
+                    <span v-if="roleLabel(row.message.role)" :class="['role-chip', row.message.role]">{{ roleLabel(row.message.role) }}</span>
+                    <time><span class="time-short">{{ formatTime(row.message.createdAt) }}</span><span class="time-full">{{ formatFullTime(row.message.createdAt) }}</span></time>
+                  </header>
+                  <p>{{ row.message.content }}</p>
+                </div>
+                <button v-if="app.isAdmin" class="message-action" title="删除消息" @click="removeMessage(row.message.id)"><Trash2 :size="16" /></button>
+              </article>
+            </template>
           </div>
         </div>
       </div>
