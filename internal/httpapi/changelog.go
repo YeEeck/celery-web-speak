@@ -9,7 +9,7 @@ import (
 
 // appVersion 是当前应用版本号。
 // 发版时需同步更新此常量与 web/package.json 的 version 字段。
-const appVersion = "0.4.9"
+const appVersion = "0.4.10"
 
 //go:embed CHANGELOG.json
 var changelogJSON []byte
