@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EllipsisVertical, Hash, LogOut, Plus, Radio, ServerCog, X } from '@lucide/vue'
 import AccountMenu from './AccountMenu.vue'
+import ChannelActionMenu from './ChannelActionMenu.vue'
 import GuildAdminPanel from './GuildAdminPanel.vue'
 import PlatformAdminPanel from './PlatformAdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
@@ -18,7 +19,7 @@ import VoiceChannel from './VoiceChannel.vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
-import type { GuildSummary, VersionResponse } from '../types'
+import type { Channel, GuildSummary, VersionResponse } from '../types'
 
 const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
 
@@ -33,6 +34,8 @@ const profileInitialTab = ref<'account' | 'audio'>('account')
 const profileInitialAudioSubNav = ref<'input' | 'output'>('input')
 const profileFocusReturn = ref<HTMLElement | null>(null)
 const adminOpen = ref(false)
+const adminInitialTab = ref<'guild' | 'channel' | 'users' | undefined>()
+const adminInitialChannelId = ref<number | null>(null)
 const changelogOpen = ref(false)
 const platformOpen = ref(false)
 const platformInitialGuildId = ref<number | null>(null)
@@ -50,6 +53,13 @@ const guildActionMenu = ref<{
   trigger: HTMLElement | null
 } | null>(null)
 const guildActionTrigger = ref<HTMLButtonElement | null>(null)
+const channelActionMenu = ref<{
+  channel: Channel
+  x: number
+  y: number
+  trigger: HTMLElement | null
+} | null>(null)
+const actionToast = ref<{ message: string; type: 'success' | 'error' } | null>(null)
 const accountTrigger = ref<HTMLButtonElement | null>(null)
 const accountMenuOpen = ref(false)
 const logoutOpen = ref(false)
@@ -58,6 +68,7 @@ const logoutError = ref('')
 const currentVersion = ref('')
 let wideMemberQuery: MediaQueryList | null = null
 let mobileQuery: MediaQueryList | null = null
+let actionToastTimer: number | null = null
 
 const membersVisible = computed(() => wideMemberLayout.value ? desktopMembersVisible.value : membersOpen.value)
 
@@ -85,7 +96,13 @@ watch(() => app.activeGuildId === voice.connectedGuildId ? app.user?.voiceMuted 
 watch(() => app.socketStatus, (value) => {
   if (value === 'online') voice.retryDeafenedSync()
 })
-watch(() => app.activeGuildId, () => closeGuildActionMenu())
+watch(() => app.activeGuildId, () => {
+  closeGuildActionMenu()
+  closeChannelActionMenu()
+})
+watch(() => channelActionMenu.value === null || app.channels.some((channel) => channel.id === channelActionMenu.value?.channel.id), (exists) => {
+  if (!exists) closeChannelActionMenu()
+})
 watch(() => leaveTarget.value === null || app.guilds.some((guild) => guild.id === leaveTarget.value?.id && guild.joined), (hasMembership) => {
   if (!hasMembership && !leavingGuild.value) closeLeaveGuildDialog()
 })
@@ -100,6 +117,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   wideMemberQuery?.removeEventListener('change', handleWideMemberLayout)
   mobileQuery?.removeEventListener('change', closeTemporaryDrawers)
+  if (actionToastTimer !== null) window.clearTimeout(actionToastTimer)
   void voice.leave()
 })
 
@@ -220,6 +238,7 @@ async function logout() {
 }
 
 function openGuildActionMenu(guild: GuildSummary, trigger: HTMLElement, x: number, y: number, align: 'start' | 'end') {
+  closeChannelActionMenu()
   guildActionMenu.value = { guild, trigger, x, y, align }
 }
 
@@ -271,8 +290,76 @@ async function openGuildAdmin(guild: GuildSummary) {
     void nextTick(() => trigger?.focus())
     return
   }
+  adminInitialTab.value = undefined
+  adminInitialChannelId.value = null
   adminOpen.value = true
   channelsOpen.value = false
+}
+
+function openChannelActionMenu(channel: Channel, trigger: HTMLElement, x: number, y: number) {
+  closeAccountMenu()
+  closeGuildActionMenu()
+  channelActionMenu.value = { channel, trigger, x, y }
+}
+
+function openTextChannelContextMenu(channel: Channel, event: MouseEvent) {
+  openChannelActionMenu(channel, event.currentTarget as HTMLElement, event.clientX, event.clientY)
+}
+
+function openTextChannelKeyboardMenu(channel: Channel, event: KeyboardEvent) {
+  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+  event.preventDefault()
+  const trigger = event.currentTarget as HTMLElement
+  const bounds = trigger.getBoundingClientRect()
+  openChannelActionMenu(channel, trigger, bounds.right + 4, bounds.top)
+}
+
+function closeChannelActionMenu(restoreFocus = false) {
+  const trigger = channelActionMenu.value?.trigger
+  channelActionMenu.value = null
+  if (restoreFocus) void nextTick(() => trigger?.focus())
+}
+
+function showActionToast(message: string, type: 'success' | 'error') {
+  if (actionToastTimer !== null) window.clearTimeout(actionToastTimer)
+  actionToast.value = { message, type }
+  actionToastTimer = window.setTimeout(() => {
+    actionToast.value = null
+    actionToastTimer = null
+  }, 2000)
+}
+
+async function copyChannelName(channel: Channel) {
+  closeChannelActionMenu(true)
+  try {
+    await navigator.clipboard.writeText(channel.name)
+    showActionToast('频道名称已复制', 'success')
+  } catch {
+    showActionToast('复制失败，请重试', 'error')
+  }
+}
+
+async function markChannelRead(channel: Channel) {
+  closeChannelActionMenu(true)
+  try {
+    await app.markChannelRead(channel.id)
+  } catch (error) {
+    showActionToast(error instanceof Error ? error.message : '标记为已读失败，请重试', 'error')
+  }
+}
+
+function editChannel(channel: Channel) {
+  closeChannelActionMenu()
+  adminInitialTab.value = 'channel'
+  adminInitialChannelId.value = channel.id
+  adminOpen.value = true
+  channelsOpen.value = false
+}
+
+function closeGuildAdmin() {
+  adminOpen.value = false
+  adminInitialTab.value = undefined
+  adminInitialChannelId.value = null
 }
 
 function openGuildPlatformManagement(guild: GuildSummary) {
@@ -397,13 +484,15 @@ function closeChangelog() {
       <div class="channel-scroll">
         <p v-if="!app.activeGuild" class="guild-empty">尚未加入任何服务器，请联系服务器管理员将你加入服务器。</p>
         <div v-if="app.activeGuild" class="category-heading"><span>语音频道</span></div>
-        <VoiceChannel v-for="channel in app.voiceChannels" :key="channel.id" :channel="channel" />
+        <VoiceChannel v-for="channel in app.voiceChannels" :key="channel.id" :channel="channel" @channel-menu="openChannelActionMenu" />
         <div v-if="app.activeGuild" class="category-heading"><span>文字频道</span></div>
         <button
           v-for="channel in app.textChannels"
           :key="channel.id"
           :class="['channel-row', { active: app.activeTextChannelId === channel.id }]"
           @click="selectTextChannel(channel.id)"
+          @contextmenu.prevent="openTextChannelContextMenu(channel, $event)"
+          @keydown="openTextChannelKeyboardMenu(channel, $event)"
         >
           <Hash :size="18" />
           <span class="channel-label"><strong>{{ channel.name }}</strong><small>最近 {{ channel.messageRetention }} 条</small></span>
@@ -455,6 +544,20 @@ function closeChangelog() {
       @platform="openGuildPlatformManagement"
       @leave="confirmLeaveGuild"
     />
+    <ChannelActionMenu
+      v-if="channelActionMenu"
+      :channel="channelActionMenu.channel"
+      :unread-count="app.channelReadStates[channelActionMenu.channel.id]?.unreadCount ?? 0"
+      :can-manage="app.isGuildAdmin"
+      :x="channelActionMenu.x"
+      :y="channelActionMenu.y"
+      :trigger="channelActionMenu.trigger"
+      @close="closeChannelActionMenu"
+      @copy="copyChannelName"
+      @mark-read="markChannelRead"
+      @edit="editChannel"
+    />
+    <div v-if="actionToast" class="action-toast" :class="actionToast.type" role="status" aria-live="polite">{{ actionToast.message }}</div>
     <AccountMenu v-if="accountMenuOpen" :trigger="accountTrigger" @close="closeAccountMenu" @settings="openProfile" @logout="openLogoutDialog" />
     <LeaveGuildDialog v-if="leaveTarget" :guild="leaveTarget" :busy="leavingGuild" :error="leaveGuildError" @cancel="closeLeaveGuildDialog" @confirm="leaveGuild" />
     <LogoutDialog v-if="logoutOpen" :busy="loggingOut" :error="logoutError" :voice-joined="voice.joined" @cancel="closeLogoutDialog" @confirm="logout" />
@@ -465,7 +568,7 @@ function closeChangelog() {
       @close="closeProfile"
       @changelog="changelogOpen = true"
     />
-    <GuildAdminPanel v-if="adminOpen" @close="adminOpen = false" />
+    <GuildAdminPanel v-if="adminOpen" :initial-tab="adminInitialTab" :initial-channel-id="adminInitialChannelId" @close="closeGuildAdmin" />
     <PlatformAdminPanel v-if="platformAdminOpen" @close="platformAdminOpen = false" />
     <PlatformGuildsPanel v-if="platformOpen" :initial-guild-id="platformInitialGuildId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
     <ChangelogModal v-if="changelogOpen" @close="closeChangelog" />

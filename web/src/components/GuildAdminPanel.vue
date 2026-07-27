@@ -7,10 +7,15 @@ import ChannelAdminTab from './ChannelAdminTab.vue'
 import GuildSettingsTab from './GuildSettingsTab.vue'
 import MemberAdminTab from './MemberAdminTab.vue'
 
+const props = defineProps<{
+  initialTab?: 'guild' | 'channel' | 'users'
+  initialChannelId?: number | null
+}>()
 defineEmits<{ close: [] }>()
 const app = useAppStore()
 const canSeeGuildTab = computed(() => app.isPlatformAdmin || app.activeGuild?.role === 'owner')
-const tab = ref<'guild' | 'channel' | 'users'>(canSeeGuildTab.value ? 'guild' : 'channel')
+const defaultTab = canSeeGuildTab.value ? 'guild' : 'channel'
+const tab = ref<'guild' | 'channel' | 'users'>(props.initialTab ?? defaultTab)
 const message = ref('')
 const errorMessage = ref('')
 const busy = ref(false)
@@ -60,7 +65,7 @@ function selectTab(nextTab: 'guild' | 'channel' | 'users') {
 
       <div ref="adminContent" :class="['admin-content', { contained: tab !== 'guild' }]">
         <GuildSettingsTab v-if="tab === 'guild'" />
-        <ChannelAdminTab v-else-if="tab === 'channel'" />
+        <ChannelAdminTab v-else-if="tab === 'channel'" :initial-channel-id="initialChannelId" />
         <MemberAdminTab v-else />
       </div>
       <footer class="panel-footer"><span v-if="errorMessage" class="form-error">{{ errorMessage }}</span><span v-else class="form-success">{{ message }}</span></footer>

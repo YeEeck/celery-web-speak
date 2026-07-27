@@ -9,6 +9,9 @@ import type { Channel } from '../types'
 import { rangeProgressStyle } from '../utils/range'
 
 const props = defineProps<{ channel: Channel }>()
+const emit = defineEmits<{
+  channelMenu: [channel: Channel, trigger: HTMLElement, x: number, y: number]
+}>()
 const app = useAppStore()
 const voice = useVoiceStore()
 const expandedVolume = ref<number | null>(null)
@@ -35,6 +38,18 @@ function qualityBars(quality: ConnectionQuality) {
 function userFor(participant: VoiceParticipant | { userId: number }) {
   return app.users.find((user) => user.id === participant.userId)
 }
+
+function openContextMenu(event: MouseEvent) {
+  emit('channelMenu', props.channel, event.currentTarget as HTMLElement, event.clientX, event.clientY)
+}
+
+function openKeyboardMenu(event: KeyboardEvent) {
+  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+  event.preventDefault()
+  const trigger = event.currentTarget as HTMLElement
+  const bounds = trigger.getBoundingClientRect()
+  emit('channelMenu', props.channel, trigger, bounds.right + 4, bounds.top)
+}
 </script>
 
 <template>
@@ -43,6 +58,8 @@ function userFor(participant: VoiceParticipant | { userId: number }) {
       :class="['channel-row', { active: connected }]"
       :disabled="voice.status === 'connecting'"
       @click="voice.join(channel.id)"
+      @contextmenu.prevent="openContextMenu"
+      @keydown="openKeyboardMenu"
     >
       <Volume2 :size="18" />
       <span class="channel-label">

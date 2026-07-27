@@ -138,6 +138,121 @@ test('浏览器图标与服务器切换栏可用', async ({ page, isMobile }) =>
   }
 })
 
+test('频道右键菜单支持复制、键盘操作和定向编辑', async ({ page, isMobile }) => {
+  test.skip(isMobile, '频道右键菜单仅在桌面布局验证')
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+
+  const voiceRow = page.locator('.voice-channel-block > .channel-row').first()
+  const voiceName = (await voiceRow.locator('.channel-label strong').textContent())?.trim() ?? ''
+  await voiceRow.click({ button: 'right' })
+  let menu = page.getByRole('menu', { name: `${voiceName}的频道操作` })
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '复制频道名称', exact: true })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '标记为已读', exact: true })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: '编辑频道', exact: true })).toBeVisible()
+  await expect(menu.getByText(/加入|断开|切换|删除/)).toHaveCount(0)
+
+  await menu.getByRole('menuitem', { name: '复制频道名称', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: '频道名称已复制' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(voiceName)
+  await expect(menu).toHaveCount(0)
+
+  await voiceRow.focus()
+  await page.keyboard.press('Shift+F10')
+  menu = page.getByRole('menu', { name: `${voiceName}的频道操作` })
+  await expect(menu.getByRole('menuitem', { name: '复制频道名称', exact: true })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(voiceRow).toBeFocused()
+
+  await voiceRow.click({ button: 'right' })
+  await page.getByRole('menu', { name: `${voiceName}的频道操作` }).getByRole('menuitem', { name: '编辑频道', exact: true }).click()
+  const admin = page.getByRole('dialog', { name: '服务器管理' })
+  await expect(admin).toBeVisible()
+  await expect(admin.locator('.admin-tabs').getByRole('button', { name: '频道', exact: true })).toHaveClass(/active/)
+  await expect(admin.locator('.channel-admin-detail > header h3')).toHaveText(voiceName)
+})
+
+test('平台管理员作为服务器普通成员时没有频道编辑入口', async ({ page, isMobile }) => {
+  test.skip(isMobile, '频道右键菜单仅在桌面布局验证')
+  await page.routeWebSocket(/\/api\/ws\?/, () => {})
+  await page.route('**/api/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    await route.fulfill({
+      response,
+      json: {
+        ...payload,
+        user: { ...payload.user, isPlatformAdmin: true },
+        guilds: payload.guilds.map((guild: { joined: boolean }) => guild.joined ? { ...guild, role: 'member' } : guild),
+      },
+    })
+  })
+  await page.route('**/api/guilds/*/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    await route.fulfill({ response, json: { ...payload, membership: { ...payload.membership, role: 'member' } } })
+  })
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+
+  const voiceRow = page.locator('.voice-channel-block > .channel-row').first()
+  const voiceName = (await voiceRow.locator('.channel-label strong').textContent())?.trim() ?? ''
+  await voiceRow.click({ button: 'right' })
+  const menu = page.getByRole('menu', { name: `${voiceName}的频道操作` })
+  await expect(menu.getByRole('menuitem', { name: '复制频道名称', exact: true })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: '编辑频道', exact: true })).toHaveCount(0)
+})
+
+test('文字频道菜单保持已读项并可在不切换频道时清除未读', async ({ page, isMobile }) => {
+  test.skip(isMobile, '频道右键菜单仅在桌面布局验证')
+  const channelID = 9_900_001
+  const channelName = '右键未读测试频道'
+  let markReadRequests = 0
+  await page.routeWebSocket(/\/api\/ws\?/, () => {})
+  await page.route('**/api/guilds/*/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    const template = payload.channels.find((channel: { type: string }) => channel.type === 'text')
+    await route.fulfill({
+      response,
+      json: {
+        ...payload,
+        channels: [...payload.channels, { ...template, id: channelID, name: channelName }],
+        channelReadStates: [
+          ...payload.channelReadStates,
+          { channelId: channelID, lastReadMessageId: 10, latestMessageId: 12, unreadCount: 2 },
+        ],
+      },
+    })
+  })
+  await page.route(`**/api/guilds/*/channels/${channelID}/read`, async (route) => {
+    markReadRequests += 1
+    await route.fulfill({
+      status: 200,
+      json: { readState: { channelId: channelID, lastReadMessageId: 12, latestMessageId: 12, unreadCount: 0 } },
+    })
+  })
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+
+  const originalHeading = await page.locator('.channel-title').textContent()
+  const targetRow = page.locator('.channel-scroll > .channel-row').filter({ hasText: channelName })
+  await expect(targetRow.locator('.channel-unread')).toHaveText('2')
+  await targetRow.click({ button: 'right' })
+  let menu = page.getByRole('menu', { name: `${channelName}的频道操作` })
+  const markRead = menu.getByRole('menuitem', { name: '标记为已读', exact: true })
+  await expect(markRead).toBeEnabled()
+  await markRead.click()
+  await expect.poll(() => markReadRequests).toBe(1)
+  await expect(page.locator('.channel-title')).toHaveText(originalHeading ?? '')
+  await expect(targetRow.locator('.channel-unread')).toHaveCount(0)
+
+  await targetRow.click({ button: 'right' })
+  menu = page.getByRole('menu', { name: `${channelName}的频道操作` })
+  await expect(menu.getByRole('menuitem', { name: '标记为已读', exact: true })).toBeDisabled()
+})
+
 test('移动端切换其他服务器后自动打开频道抽屉', async ({ page, request, isMobile }) => {
   test.skip(!isMobile, '仅在移动端项目运行')
   await request.post('/api/auth/login', { data: { username, password } })

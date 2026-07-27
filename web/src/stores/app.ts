@@ -208,12 +208,16 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  async function markActiveChannelRead() {
-    const channelId = activeTextChannelId.value
+  async function markChannelRead(channelId: number) {
     const guildId = activeGuildId.value
-    if (channelId === null || guildId === null) return
+    if (guildId === null || !textChannels.value.some((channel) => channel.id === channelId)) return
     const result = await request<{ readState: ChannelReadState }>(`/api/guilds/${guildId}/channels/${channelId}/read`, { method: 'POST' })
-    if (activeGuildId.value === guildId && activeTextChannelId.value === channelId) applyReadState(result.readState)
+    if (activeGuildId.value === guildId && textChannels.value.some((channel) => channel.id === channelId)) applyReadState(result.readState)
+  }
+
+  async function markActiveChannelRead() {
+    if (activeTextChannelId.value === null) return
+    await markChannelRead(activeTextChannelId.value)
   }
 
   async function updateProfile(payload: { displayName: string; currentPassword?: string; newPassword?: string }) {
@@ -443,7 +447,7 @@ export const useAppStore = defineStore('app', () => {
     voiceRooms, messages, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
     channelReadStates, onlineIds, onlineClients, socketStatus, isAdmin, isGuildAdmin, isPlatformAdmin,
     initialize, bootstrap, loadGuildBootstrap, selectGuild, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh: socket.requestVoiceRoomsRefresh,
-    sendMessage, loadEarlier, markActiveChannelRead, updateProfile, getChannelDraft, setChannelDraft,
+    sendMessage, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,
   }
 })

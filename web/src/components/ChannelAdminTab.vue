@@ -9,6 +9,7 @@ import { rangeProgressStyle } from '../utils/range'
 
 const app = useAppStore()
 const { busy, run } = inject(guildAdminContextKey)!
+const props = defineProps<{ initialChannelId?: number | null }>()
 
 interface ChannelSettingsDraft {
   name: string
@@ -45,7 +46,7 @@ function settingsDraft(channel?: Channel | null): ChannelSettingsDraft {
   }
 }
 
-const selectedChannelId = ref<number | null>(firstDisplayedChannelId())
+const selectedChannelId = ref<number | null>(app.channels.some((channel) => channel.id === props.initialChannelId) ? props.initialChannelId! : firstDisplayedChannelId())
 const selectedChannel = computed(() => app.channels.find((channel) => channel.id === selectedChannelId.value) ?? null)
 const selectedChannelTypeDetails = computed(() => selectedChannel.value ? channelTypeDetails[selectedChannel.value.type] : null)
 const draft = reactive(settingsDraft(selectedChannel.value))
