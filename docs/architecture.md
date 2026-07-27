@@ -117,7 +117,7 @@ SQLite 启用 WAL、外键和 5 秒 busy timeout，并将连接池限制为单�
 - 登录会话通过 30 天有效的 HttpOnly Cookie 传递，生产默认启用 Secure，SameSite 为 Lax；服务端只保存令牌哈希。
 - WebSocket 必须携带有效会话，并校验 `Origin` 是否命中 `TRUSTED_ORIGINS`；未配置列表时仅接受同主机来源。
 - JSON 请求体上限 64 KiB，拒绝未知字段和同一请求体中的额外 JSON 对象。
-- HTTP 服务配置请求头、读写和空闲超时，并设置 CSP、Permissions-Policy、Referrer-Policy 与 `X-Content-Type-Options`。
+- HTTP 服务配置请求头、读写和空闲超时，并设置 CSP、Permissions-Policy、Referrer-Policy 与 `X-Content-Type-Options`。CSP 的 `script-src` 仅允许同源脚本及 WebAssembly 编译所需的 `'wasm-unsafe-eval'`，不开放 JavaScript 字符串求值所需的 `'unsafe-eval'`。
 - 日志使用 Go `slog` JSON 输出；应用不记录密码、会话原始令牌或邀请码哈希。
 
 ## 构建、发布与部署
