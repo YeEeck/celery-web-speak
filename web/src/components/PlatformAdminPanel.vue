@@ -239,7 +239,7 @@ function selectTab(nextTab: 'users' | 'invites') {
         <button :class="{ active: tab === 'invites' }" @click="selectTab('invites')"><Ticket :size="17" />创建与邀请</button>
       </nav>
 
-      <div ref="adminContent" :class="['admin-content', { 'users-content': tab === 'users' }]">
+      <div ref="adminContent" :class="['admin-content', { contained: tab === 'users' }]">
         <section v-if="tab === 'users'" class="user-admin-layout">
           <aside class="admin-user-list">
             <button

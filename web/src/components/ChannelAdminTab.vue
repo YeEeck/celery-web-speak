@@ -1,22 +1,54 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, ref, watch } from 'vue'
+import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
 import { Hash, Plus, Radio, Save, Trash2, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
-import type { ChannelType } from '../types'
+import type { Channel, ChannelType } from '../types'
 import { guildAdminContextKey } from './guild-admin-context'
 import { rangeProgressStyle } from '../utils/range'
 
 const app = useAppStore()
 const { busy, run } = inject(guildAdminContextKey)!
-const selectedChannelId = ref<number | null>(app.channels[0]?.id ?? null)
+
+interface ChannelSettingsDraft {
+  name: string
+  audioBitrateKbps: number
+  backgroundAudioBitrateKbps: number
+  audioRedEnabled: boolean
+  backgroundAudioRedEnabled: boolean
+  messageRetention: number
+}
+
+const channelTypeDetails: Record<ChannelType, { label: string; deletionWarning: string }> = {
+  text: {
+    label: '文字频道',
+    deletionWarning: '频道内所有消息将被永久删除，此操作无法恢复。',
+  },
+  voice: {
+    label: '语音频道',
+    deletionWarning: '语音房间及其通话记录将被永久移除，此操作无法恢复。',
+  },
+}
+
+function firstDisplayedChannelId() {
+  return app.voiceChannels[0]?.id ?? app.textChannels[0]?.id ?? null
+}
+
+function settingsDraft(channel?: Channel | null): ChannelSettingsDraft {
+  return {
+    name: channel?.name ?? '',
+    audioBitrateKbps: channel?.audioBitrateKbps ?? 64,
+    backgroundAudioBitrateKbps: channel?.backgroundAudioBitrateKbps ?? 128,
+    audioRedEnabled: channel?.audioRedEnabled ?? true,
+    backgroundAudioRedEnabled: channel?.backgroundAudioRedEnabled ?? false,
+    messageRetention: channel?.messageRetention ?? 500,
+  }
+}
+
+const selectedChannelId = ref<number | null>(firstDisplayedChannelId())
 const selectedChannel = computed(() => app.channels.find((channel) => channel.id === selectedChannelId.value) ?? null)
-const channelName = ref(selectedChannel.value?.name ?? '')
-const bitrate = ref(selectedChannel.value?.audioBitrateKbps ?? 64)
-const backgroundBitrate = ref(selectedChannel.value?.backgroundAudioBitrateKbps ?? 128)
-const audioRedEnabled = ref(selectedChannel.value?.audioRedEnabled ?? true)
-const backgroundAudioRedEnabled = ref(selectedChannel.value?.backgroundAudioRedEnabled ?? false)
-const retention = ref(selectedChannel.value?.messageRetention ?? 500)
+const selectedChannelTypeDetails = computed(() => selectedChannel.value ? channelTypeDetails[selectedChannel.value.type] : null)
+const draft = reactive(settingsDraft(selectedChannel.value))
 const newChannelType = ref<ChannelType>('text')
 const newChannelName = ref('')
 const showCreateDialog = ref(false)
@@ -31,12 +63,7 @@ const voiceOnlineCount = computed(() => {
 })
 
 watch(selectedChannel, (channel) => {
-  channelName.value = channel?.name ?? ''
-  bitrate.value = channel?.audioBitrateKbps ?? 64
-  backgroundBitrate.value = channel?.backgroundAudioBitrateKbps ?? 128
-  audioRedEnabled.value = channel?.audioRedEnabled ?? true
-  backgroundAudioRedEnabled.value = channel?.backgroundAudioRedEnabled ?? false
-  retention.value = channel?.messageRetention ?? 500
+  Object.assign(draft, settingsDraft(channel))
   showDeleteConfirmation.value = false
   deleteConfirmation.value = ''
 })
@@ -61,12 +88,12 @@ async function saveSettings() {
     await request(`/api/guilds/${app.activeGuildId}/channels/${channel.id}`, {
       method: 'PATCH',
       body: JSON.stringify({
-        name: channelName.value,
-        audioBitrateKbps: channel.type === 'voice' ? bitrate.value : 0,
-        backgroundAudioBitrateKbps: channel.type === 'voice' ? backgroundBitrate.value : 0,
-        audioRedEnabled: channel.type === 'voice' && audioRedEnabled.value,
-        backgroundAudioRedEnabled: channel.type === 'voice' && backgroundAudioRedEnabled.value,
-        messageRetention: channel.type === 'text' ? retention.value : 0,
+        name: draft.name,
+        audioBitrateKbps: channel.type === 'voice' ? draft.audioBitrateKbps : 0,
+        backgroundAudioBitrateKbps: channel.type === 'voice' ? draft.backgroundAudioBitrateKbps : 0,
+        audioRedEnabled: channel.type === 'voice' && draft.audioRedEnabled,
+        backgroundAudioRedEnabled: channel.type === 'voice' && draft.backgroundAudioRedEnabled,
+        messageRetention: channel.type === 'text' ? draft.messageRetention : 0,
       }),
     })
     await app.bootstrap()
@@ -95,7 +122,7 @@ async function deleteChannel() {
     showDeleteConfirmation.value = false
     deleteConfirmation.value = ''
     await app.bootstrap()
-    selectedChannelId.value = app.channels[0]?.id ?? null
+    selectedChannelId.value = firstDisplayedChannelId()
   }, '频道已永久删除')
 }
 </script>
@@ -129,43 +156,43 @@ async function deleteChannel() {
     <div v-if="selectedChannel" class="channel-admin-detail">
       <header>
         <span class="channel-admin-mark"><Hash v-if="selectedChannel.type === 'text'" :size="22" /><Radio v-else :size="22" /></span>
-        <div><h3>{{ selectedChannel.name }}</h3><p>{{ selectedChannel.type === 'text' ? '文字频道' : '语音频道' }}</p></div>
+        <div><h3>{{ selectedChannel.name }}</h3><p>{{ selectedChannelTypeDetails?.label }}</p></div>
       </header>
       <dl class="guild-metadata">
-        <div><dt>频道类型</dt><dd>{{ selectedChannel.type === 'text' ? '文字频道' : '语音频道' }}</dd></div>
+        <div><dt>频道类型</dt><dd>{{ selectedChannelTypeDetails?.label }}</dd></div>
         <div><dt>创建时间</dt><dd>{{ new Date(selectedChannel.createdAt).toLocaleString('zh-CN') }}</dd></div>
         <div v-if="selectedChannel.type === 'voice'"><dt>语音在线</dt><dd>{{ voiceOnlineCount }} 人</dd></div>
       </dl>
 
       <section class="settings-section channel-settings">
         <h3>频道设置</h3>
-        <label><span>频道名称</span><input v-model.trim="channelName" maxlength="32" /></label>
+        <label><span>频道名称</span><input v-model.trim="draft.name" maxlength="32" /></label>
         <label v-if="selectedChannel.type === 'voice'" class="range-setting">
-          <span>Opus 发送码率 <strong>{{ bitrate }} kbps</strong></span>
-          <input v-model.number="bitrate" type="range" min="32" max="128" step="8" :style="rangeProgressStyle(bitrate, 32, 128)" />
+          <span>Opus 发送码率 <strong>{{ draft.audioBitrateKbps }} kbps</strong></span>
+          <input v-model.number="draft.audioBitrateKbps" type="range" min="32" max="128" step="8" :style="rangeProgressStyle(draft.audioBitrateKbps, 32, 128)" />
           <span class="range-labels"><small>32 kbps</small><small>128 kbps</small></span>
         </label>
         <label v-if="selectedChannel.type === 'voice'" class="range-setting">
-          <span>背景音码率 <strong>{{ backgroundBitrate }} kbps</strong></span>
-          <input v-model.number="backgroundBitrate" type="range" min="64" max="256" step="16" :style="rangeProgressStyle(backgroundBitrate, 64, 256)" />
+          <span>背景音码率 <strong>{{ draft.backgroundAudioBitrateKbps }} kbps</strong></span>
+          <input v-model.number="draft.backgroundAudioBitrateKbps" type="range" min="64" max="256" step="16" :style="rangeProgressStyle(draft.backgroundAudioBitrateKbps, 64, 256)" />
           <span class="range-labels"><small>64 kbps</small><small>256 kbps</small></span>
         </label>
         <label v-if="selectedChannel.type === 'voice'" class="setting-toggle">
           <span>语音 RED 丢包冗余</span>
-          <input v-model="audioRedEnabled" type="checkbox" aria-label="语音 RED 丢包冗余" />
+          <input v-model="draft.audioRedEnabled" type="checkbox" aria-label="语音 RED 丢包冗余" />
         </label>
         <label v-if="selectedChannel.type === 'voice'" class="setting-toggle">
           <span>背景音 RED 丢包冗余</span>
-          <input v-model="backgroundAudioRedEnabled" type="checkbox" aria-label="背景音 RED 丢包冗余" />
+          <input v-model="draft.backgroundAudioRedEnabled" type="checkbox" aria-label="背景音 RED 丢包冗余" />
         </label>
-        <label v-else><span>保留消息数量</span><input v-model.number="retention" type="number" min="100" max="5000" step="100" /></label>
+        <label v-else><span>保留消息数量</span><input v-model.number="draft.messageRetention" type="number" min="100" max="5000" step="100" /></label>
         <div class="channel-admin-actions">
-          <button class="primary-button" :disabled="busy || !channelName" @click="saveSettings"><Save :size="17" />保存频道设置</button>
+          <button class="primary-button" :disabled="busy || !draft.name" @click="saveSettings"><Save :size="17" />保存频道设置</button>
         </div>
       </section>
 
       <section class="channel-admin-danger">
-        <div><h3><Trash2 :size="18" />删除频道</h3><p>{{ selectedChannel.type === 'text' ? '频道内所有消息将被永久删除，此操作无法恢复。' : '语音房间及其通话记录将被永久移除，此操作无法恢复。' }}</p></div>
+        <div><h3><Trash2 :size="18" />删除频道</h3><p>{{ selectedChannelTypeDetails?.deletionWarning }}</p></div>
         <button v-if="!showDeleteConfirmation" class="secondary-button danger-text" type="button" @click="showDeleteConfirmation = true">删除</button>
         <div v-else class="channel-delete-confirmation">
           <input v-model="deleteConfirmation" :placeholder="selectedChannel.name" aria-label="输入频道名称确认删除" />
