@@ -232,7 +232,7 @@ Android 壳内不应静默退回 Web LiveKit 并继续宣称支持后台通话�
 | `voice.set_deafened` | 联动麦克风与远端播放 | `deafened` |
 | `voice.set_participant_volume` | 设置远端用户音量 | user ID、0-3 音量 |
 | `voice.set_output_volume` | 设置全局输出音量 | 0-3 音量 |
-| `voice.set_audio_processing` | 设置音频处理偏好 | 回声消除、降噪、自动增益 |
+| `voice.set_audio_processing` | 设置音频处理偏好 | 回声消除、降噪 |
 | `voice.set_input_device` | 切换输入设备 | 设备 ID；不支持时返回能力错误 |
 | `voice.set_output_route` | 切换输出路由 | 路由 ID |
 | `voice.get_snapshot` | 获取完整语音快照 | 无 |
@@ -508,9 +508,9 @@ voice.leave 或通知栏退出
 | 麦克风 0%-300% 增益 | 原生/WebRTC 音频处理器 | 高风险，不能复用 Web Audio |
 | 回声消除 | Android/WebRTC 音频配置 | 设备实现存在差异 |
 | 降噪 | Android/WebRTC 音频配置 | 设备实现存在差异 |
-| 自动增益 | Android/WebRTC 音频配置 | 与手动麦克风增益可能冲突 |
+| 自动增益关闭 | Android/WebRTC 音频配置 | 设备实现可能不落实该约束 |
 
-麦克风增益与自动增益的组合必须通过录音和真实通话验证。若无法稳定达到 Web 版 300%，首期应明确暴露能力差异，不能仅修改 UI 数值而实际无效。
+Android 发布麦克风时必须尽力关闭自动增益，使麦克风增益保持固定倍率语义。若无法稳定达到 Web 版 300%，首期应明确暴露能力差异，不能仅修改 UI 数值而实际无效。
 
 ## WebView 设计
 
@@ -697,7 +697,7 @@ Android 原生语音原型必须同时满足：
 - 实现 AudioFocus 和音频路由。
 - 实现每用户音量和全局音量。
 - 实现或明确收敛麦克风增益能力。
-- 映射回声消除、降噪和自动增益选项。
+- 映射回声消除与降噪选项，并尽力关闭自动增益。
 - 覆盖管理员禁言、耳机静音和设备变化。
 
 ### 阶段 5：Electron 薄壳
