@@ -15,6 +15,7 @@ export const DEFAULT_DEVICE_ID = 'default'
 export const DEAFENED_ATTRIBUTE = 'deafened'
 export const ECHO_CANCELLATION_KEY = 'cws.echoCancellation'
 export const NOISE_SUPPRESSION_KEY = 'cws.noiseSuppression'
+export const MUTED_SPEAKING_REMINDER_KEY = 'cws.mutedSpeakingReminder.enabled'
 export const TRANSMISSION_MODE_KEY = 'cws.voiceTransmissionMode'
 export const APPLICATION_AUDIO_VOLUME_KEY = 'cws.applicationAudioVolume'
 export const APPLICATION_AUDIO_DEFAULT_VOLUME = 0.5

@@ -1,4 +1,4 @@
-import { computed, markRaw, ref } from 'vue'
+import { computed, markRaw, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import {
   Participant,
@@ -14,6 +14,7 @@ import {
 import { request } from '../api'
 import { MicrophoneActivityMonitor } from '../audio/MicrophoneActivityMonitor'
 import { MicrophoneGainProcessor } from '../audio/MicrophoneGainProcessor'
+import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor'
 import type { Channel, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
 import { useSoundStore } from './sounds'
@@ -25,6 +26,7 @@ import {
   ECHO_CANCELLATION_KEY,
   MICROPHONE_ENABLED_KEY,
   MICROPHONE_GAIN_KEY,
+  MUTED_SPEAKING_REMINDER_KEY,
   NOISE_SUPPRESSION_KEY,
   OUTPUT_VOLUME_KEY,
   PREFERRED_INPUT_DEVICE_KEY,
@@ -102,6 +104,8 @@ export const useVoiceStore = defineStore('voice', () => {
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
   const echoCancellation = ref(getSavedBoolean(ECHO_CANCELLATION_KEY, true))
   const noiseSuppression = ref(getSavedBoolean(NOISE_SUPPRESSION_KEY, true))
+  const mutedSpeakingReminderEnabled = ref(getSavedBoolean(MUTED_SPEAKING_REMINDER_KEY, true))
+  const mutedSpeakingReminderVisible = ref(false)
   const transmissionMode = ref<VoiceTransmissionMode>(getSavedTransmissionMode())
   const transmissionModeChanging = ref(false)
   const transmissionModeError = ref('')
@@ -123,6 +127,7 @@ export const useVoiceStore = defineStore('voice', () => {
   let permissionRequestPromise: Promise<boolean> | null = null
   let deviceRefreshPromise: Promise<void> | null = null
   let preferenceFeedbackTimer: number | null = null
+  let mutedSpeakingReminderTimer: number | null = null
 
   if (!outputDeviceSelectionSupported && savedOutputDevice.deviceId !== DEFAULT_DEVICE_ID) {
     saveDevicePreference(PREFERRED_OUTPUT_DEVICE_KEY, { deviceId: DEFAULT_DEVICE_ID, label: '系统默认' })
@@ -147,6 +152,40 @@ export const useVoiceStore = defineStore('voice', () => {
     activeOutputId.value,
     joined.value,
   ))
+  const sounds = useSoundStore()
+  const mutedSpeakingReminderInputDeviceId = computed(() => resolvedPreferredDeviceId('input'))
+  const shouldRunMutedSpeakingReminder = computed(() => (
+    status.value === 'connected'
+    && !microphoneEnabledPreference.value
+    && !deafenedPreference.value
+    && !guildMuted.value
+    && mutedSpeakingReminderEnabled.value
+    && sounds.enabled
+    && sounds.volume > 0
+    && devicePermissionState.value === 'granted'
+  ))
+  const mutedSpeakingReminder = new MutedSpeakingReminderMonitor({
+    onReminder: showMutedSpeakingReminder,
+    onError: (error) => console.warn('静音说话检测已停用', error),
+  })
+
+  watch(
+    () => ({
+      enabled: shouldRunMutedSpeakingReminder.value,
+      deviceId: mutedSpeakingReminderInputDeviceId.value,
+    }),
+    (current, previous) => {
+      if (!current.enabled) {
+        mutedSpeakingReminder.stop()
+        clearMutedSpeakingReminder()
+        return
+      }
+      if (!previous?.enabled || current.deviceId !== previous.deviceId) {
+        void mutedSpeakingReminder.start(current.deviceId)
+      }
+    },
+    { flush: 'sync' },
+  )
 
   const appAudio = useApplicationAudio({
     room: () => room,
@@ -210,6 +249,28 @@ export const useVoiceStore = defineStore('voice', () => {
       voicePreferenceFeedback.value = ''
       preferenceFeedbackTimer = null
     }, 2400)
+  }
+
+  function showMutedSpeakingReminder() {
+    if (!shouldRunMutedSpeakingReminder.value) return
+    mutedSpeakingReminderVisible.value = true
+    if (mutedSpeakingReminderTimer !== null) window.clearTimeout(mutedSpeakingReminderTimer)
+    mutedSpeakingReminderTimer = window.setTimeout(() => {
+      mutedSpeakingReminderVisible.value = false
+      mutedSpeakingReminderTimer = null
+    }, 3_000)
+    sounds.playMutedSpeakingReminder()
+  }
+
+  function clearMutedSpeakingReminder() {
+    mutedSpeakingReminderVisible.value = false
+    if (mutedSpeakingReminderTimer !== null) window.clearTimeout(mutedSpeakingReminderTimer)
+    mutedSpeakingReminderTimer = null
+  }
+
+  function setMutedSpeakingReminderEnabled(value: boolean) {
+    mutedSpeakingReminderEnabled.value = value
+    saveBoolean(MUTED_SPEAKING_REMINDER_KEY, value)
   }
 
   function syncIdlePreferenceState() {
@@ -276,6 +337,8 @@ export const useVoiceStore = defineStore('voice', () => {
     if (status.value === 'connecting') return
     if (room) await leave({ playLeaveSound: true })
     voiceSession += 1
+    mutedSpeakingReminder.resetFailure()
+    clearMutedSpeakingReminder()
     const session = voiceSession
     const app = useAppStore()
     status.value = 'connecting'
@@ -363,6 +426,8 @@ export const useVoiceStore = defineStore('voice', () => {
     const targetRoom = room
     const wasDeafened = deafened.value
     const guildId = connectedGuildId.value
+    mutedSpeakingReminder.stop()
+    clearMutedSpeakingReminder()
     await appAudio.stopApplicationAudio()
     const wasJoined = targetRoom !== null && room === targetRoom
     voiceSession += 1
@@ -1026,6 +1091,8 @@ export const useVoiceStore = defineStore('voice', () => {
     outputVolume,
     echoCancellation,
     noiseSuppression,
+    mutedSpeakingReminderEnabled,
+    mutedSpeakingReminderVisible,
     transmissionMode,
     transmissionModeChanging,
     transmissionModeError,
@@ -1054,6 +1121,7 @@ export const useVoiceStore = defineStore('voice', () => {
     setOutputVolume,
     setEchoCancellation,
     setNoiseSuppression,
+    setMutedSpeakingReminderEnabled,
     toggleTransmissionMode,
     initializeApplicationAudio: appAudio.initializeApplicationAudio,
     startApplicationAudio: appAudio.startApplicationAudio,

@@ -15,6 +15,11 @@ export type SoundPresetId = 'rise-duo' | 'fall-duo' | 'bright-single' | 'low-pul
 
 interface NotePattern { delay: number; duration: number; from: number; to: number }
 
+const MUTED_SPEAKING_NOTES: NotePattern[] = [
+  { delay: 0, duration: 0.14, from: 540, to: 430 },
+  { delay: 0.2, duration: 0.16, from: 540, to: 400 },
+]
+
 export const SOUND_PRESETS: Record<SoundPresetId, { name: string; notes: NotePattern[] }> = {
   'rise-duo': {
     name: '上升双音',
@@ -100,8 +105,21 @@ export const useSoundStore = defineStore('sounds', () => {
     void ready.then(async () => {
       if (target.state !== 'running' || volume.value === 0 || suppressed.value || !enabled.value || !isSoundEnabled(sound)) return
       await applyOutputDevice(target)
-      scheduleSound(target, sound, volume.value, getSoundPreset(sound))
+      scheduleSound(target, volume.value, getSoundPreset(sound))
     }).catch(() => undefined)
+  }
+
+  function playMutedSpeakingReminder() {
+    if (!enabled.value || volume.value === 0 || suppressed.value) return
+    const target = getAudioContext()
+    const ready = target.state === 'running' ? Promise.resolve() : target.resume()
+    void ready.then(async () => {
+      if (target.state !== 'running' || volume.value === 0 || suppressed.value || !enabled.value) return
+      await applyOutputDevice(target)
+      scheduleNotes(target, MUTED_SPEAKING_NOTES, volume.value)
+    }).catch((error) => {
+      console.warn('静音说话提示音播放失败', error)
+    })
   }
 
   function setEnabled(value: boolean) {
@@ -167,13 +185,14 @@ export const useSoundStore = defineStore('sounds', () => {
     try {
       await routable.setSinkId(outputDeviceId)
       appliedOutputDeviceId = outputDeviceId
-    } catch {
+    } catch (error) {
+      console.warn('提示音输出设备切换失败，将回退到系统默认设备', error)
       if (!outputDeviceId) return
       try {
         await routable.setSinkId('')
         appliedOutputDeviceId = ''
-      } catch {
-        // The browser keeps its current or system-default output when routing is unavailable.
+      } catch (fallbackError) {
+        console.warn('提示音回退到系统默认设备失败', fallbackError)
       }
     }
   }
@@ -190,6 +209,7 @@ export const useSoundStore = defineStore('sounds', () => {
     installInteractionUnlock,
     removeInteractionUnlock,
     play,
+    playMutedSpeakingReminder,
     setEnabled,
     setVolume,
     setSoundEnabled,
@@ -199,13 +219,16 @@ export const useSoundStore = defineStore('sounds', () => {
   }
 })
 
-function scheduleSound(context: AudioContext, sound: NotificationSound, volume: number, preset: SoundPresetId) {
+function scheduleSound(context: AudioContext, volume: number, preset: SoundPresetId) {
+  scheduleNotes(context, SOUND_PRESETS[preset].notes, volume)
+}
+
+function scheduleNotes(context: AudioContext, notes: NotePattern[], volume: number) {
   const start = context.currentTime + 0.005
   const master = context.createGain()
   master.gain.setValueAtTime(volume * 0.18, start)
   master.connect(context.destination)
 
-  const notes = SOUND_PRESETS[preset].notes
   for (const [index, note] of notes.entries()) {
     const noteStart = start + note.delay
     const noteEnd = noteStart + note.duration
