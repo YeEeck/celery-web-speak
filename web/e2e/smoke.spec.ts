@@ -931,6 +931,52 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
   expect(Math.abs(verticalLayout.viewport - verticalLayout.composerBottom)).toBeLessThan(2)
 })
 
+test('消息编辑器使用全宽文本区和底部操作行', async ({ page, isMobile }) => {
+  const textarea = page.getByPlaceholder('发送消息到 #文字聊天')
+  const multiline = Array.from({ length: 80 }, (_, index) => `第 ${index + 1} 行`).join('\n')
+  await textarea.fill(multiline)
+
+  const layout = await page.locator('.composer').evaluate((element) => {
+    const composer = element.getBoundingClientRect()
+    const input = element.querySelector('textarea')!.getBoundingClientRect()
+    const actions = element.querySelector('.composer-actions')!.getBoundingClientRect()
+    const send = element.querySelector('.send-button')!.getBoundingClientRect()
+    const textarea = element.querySelector('textarea')!
+    const inputStyle = getComputedStyle(textarea)
+    return {
+      composerRight: composer.right,
+      composerBottom: composer.bottom,
+      inputRight: input.right,
+      inputBottom: input.bottom,
+      inputHeight: input.height,
+      inputClientHeight: (element.querySelector('textarea') as HTMLTextAreaElement).clientHeight,
+      inputScrollHeight: (element.querySelector('textarea') as HTMLTextAreaElement).scrollHeight,
+      actionsTop: actions.top,
+      sendBottom: send.bottom,
+      overflowY: inputStyle.overflowY,
+      scrollbarGutter: inputStyle.scrollbarGutter,
+      scrollbarWidth: getComputedStyle(textarea, '::-webkit-scrollbar').width,
+      scrollbarTrack: getComputedStyle(textarea, '::-webkit-scrollbar-track').backgroundColor,
+      scrollbarButton: getComputedStyle(textarea, '::-webkit-scrollbar-button').display,
+    }
+  })
+
+  expect(layout.inputHeight).toBeLessThanOrEqual(144)
+  expect(layout.inputScrollHeight).toBeGreaterThan(layout.inputClientHeight)
+  expect(layout.overflowY).toBe('auto')
+  expect(layout.scrollbarGutter).toContain('stable')
+  expect(layout.scrollbarWidth).toBe('6px')
+  expect(layout.scrollbarTrack).toBe('rgba(0, 0, 0, 0)')
+  expect(layout.scrollbarButton).toBe('none')
+  expect(layout.composerRight - layout.inputRight).toBeCloseTo(4, 0)
+  expect(layout.actionsTop).toBeGreaterThanOrEqual(layout.inputBottom)
+  expect(layout.composerBottom - layout.sendBottom).toBeCloseTo(2, 0)
+
+  const characterCount = page.locator('.character-count')
+  if (isMobile) await expect(characterCount).toBeHidden()
+  else await expect(characterCount).toBeVisible()
+})
+
 test('频道 master-detail 联动展示元数据并丢弃未保存修改', async ({ page }) => {
   const createdAt = '2026-07-27T01:02:03.000Z'
   let voiceChannelName = ''

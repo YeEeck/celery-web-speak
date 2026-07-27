@@ -327,8 +327,10 @@ function roleLabel(role: string) {
           @input="resizeComposer"
           @keydown="keydown"
         />
-        <span class="character-count" :class="{ near: content.length > 1800 }">{{ content.length }}/2000</span>
-        <button class="send-button" :disabled="!content.trim() || sending || app.user?.textMuted || !app.activeTextChannel" title="发送消息" @click="send"><Send :size="19" /></button>
+        <div class="composer-actions">
+          <span class="character-count" :class="{ near: content.length > 1800 }">{{ content.length }}/2000</span>
+          <button class="send-button" :disabled="!content.trim() || sending || app.user?.textMuted || !app.activeTextChannel" title="发送消息" @click="send"><Send :size="19" /></button>
+        </div>
       </div>
     </footer>
   </section>
