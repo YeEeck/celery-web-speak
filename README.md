@@ -2,7 +2,7 @@
 
 Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线语音与文字聊天工具。平台内的逻辑服务器隔离成员、频道、消息、在线和语音状态；前端使用 Vue 3，业务服务使用 Go 与 SQLite，语音通过 LiveKit SFU 集中转发。
 
-当前稳定版本为 `v0.4.11`，生产部署建议固定使用明确版本的预构建镜像。
+当前稳定版本为 `v0.4.12`，生产部署建议固定使用明确版本的预构建镜像。
 
 ## 功能
 
@@ -39,6 +39,7 @@ Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线
 - `v0.4.9` 恢复耳机音量弹层在控制按钮上方居中显示。
 - `v0.4.10` 重构服务器管理面板，按设置、成员和频道拆分页签，并将频道管理升级为主从布局与弹窗交互。
 - `v0.4.11` 关闭麦克风自动增益控制，避免与手动增益冲突；新增静音说话提醒，并修正管理列表间距。
+- `v0.4.12` 修复内容安全策略阻止静音说话提醒编译 WebAssembly。
 
 从 `v0.3.x` 升级时，应用会在启动阶段自动将原有单服务器数据迁移到默认服务器，并保留账号、频道、消息和设置。升级前仍应先备份 SQLite 数据，具体步骤见[更新与回滚](docs/deployment.md#更新与回滚)。
 
@@ -86,7 +87,7 @@ Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线
 部署文件与应用镜像必须使用同一版本：
 
 ```bash
-git clone --branch v0.4.11 --depth 1 https://github.com/YeEeck/celery-web-speak.git
+git clone --branch v0.4.12 --depth 1 https://github.com/YeEeck/celery-web-speak.git
 cd celery-web-speak
 ```
 
@@ -116,7 +117,7 @@ BOOTSTRAP_ADMIN_PASSWORD=一段足够长的随机密码
 LIVEKIT_API_KEY=生成的Key
 LIVEKIT_API_SECRET=生成的Secret
 
-APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.11
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.12
 COMPOSE_PROFILES=gateway
 HTTPS_PORT=443
 ```

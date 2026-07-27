@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.4.12",
+    "date": "2026-07-27",
+    "changes": [
+      "fix: 修复内容安全策略阻止静音说话提醒编译 WebAssembly"
+    ]
+  },
+  {
     "version": "0.4.11",
     "date": "2026-07-27",
     "changes": [
