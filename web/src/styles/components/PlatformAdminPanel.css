@@ -1,3 +1,4 @@
+.platform-user-item + .platform-user-item { margin-top: 4px; }
 .account-danger-zone { padding: 14px; border: 1px solid rgba(218,55,60,.55); border-radius: 4px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: rgba(218,55,60,.08); }
 .account-danger-zone > div { min-width: 0; }.account-danger-zone strong { font-size: 13px; }.account-danger-zone p { margin-top: 4px; font-size: 11px; line-height: 1.45; }
 .account-danger-zone button { flex: 0 0 auto; }

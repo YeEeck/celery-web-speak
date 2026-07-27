@@ -245,6 +245,7 @@ function selectTab(nextTab: 'users' | 'invites') {
             <button
               v-for="member in manageableUsers"
               :key="member.id"
+              class="platform-user-item"
               :class="{ active: selectedUserId === member.id }"
               @click="selectUser(member.id)"
             >
