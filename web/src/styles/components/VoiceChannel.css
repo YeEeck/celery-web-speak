@@ -2,6 +2,7 @@
 .voice-member { position: relative; }
 .voice-member-main { width: 100%; min-height: 38px; border: 0; border-radius: 4px; padding: 4px 6px; display: flex; gap: 8px; align-items: center; background: transparent; color: var(--muted); cursor: pointer; transition: var(--t-colors); }
 .voice-member-main:hover { background: var(--hover); color: var(--text); }
+.voice-member-main.local-participant { cursor: default; }
 .voice-members-preview .voice-member-main { cursor: default; }
 .voice-members-preview .voice-member-main:hover { background: transparent; color: var(--muted); }
 .voice-member-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -14,15 +15,6 @@
 .quality-bars i { width: 3px; background: var(--faint-icon); border-radius: 1px; }
 .quality-bars i:nth-child(1) { height: 5px; }.quality-bars i:nth-child(2) { height: 9px; }.quality-bars i:nth-child(3) { height: 13px; }
 .quality-bars i.lit { background: var(--green); }
-.participant-volume { display: grid; gap: 6px; padding: 4px 8px 8px 14px; color: var(--faint); font-size: 10px; }
-.participant-volume-control { display: grid; grid-template-columns: 20px minmax(0, 1fr) 38px; gap: 6px; align-items: center; }
-.participant-volume-icon { border: 0; padding: 0; background: transparent; display: inline-flex; justify-content: center; align-items: center; color: var(--faint); cursor: pointer; transition: var(--t-fast); }
-.participant-volume-icon:hover { color: var(--text); }
-.participant-volume-icon.muted { color: var(--danger-fg); }
-.participant-volume input { min-width: 0; padding: 0; accent-color: var(--brand); }
-.participant-volume-value { border: 0; padding: 0; background: transparent; color: var(--faint); font-size: 10px; text-align: right; cursor: pointer; transition: var(--t-fast); }
-.participant-volume-value:hover { color: var(--text); }
-.participant-volume-value.muted { color: var(--danger-fg); }
 .guild-muted { position: absolute; left: 46px; bottom: -3px; font-size: 9px; color: var(--danger-fg); }
 .voice-notice, .voice-error { margin: 5px 8px; color: var(--yellow); font-size: 11px; display: flex; align-items: center; gap: 5px; }
 .voice-error { color: var(--danger-fg); }

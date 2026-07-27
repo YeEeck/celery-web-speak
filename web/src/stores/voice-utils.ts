@@ -76,12 +76,6 @@ export function getSavedMuted(key: string) {
   return localStorage.getItem(key) === 'true'
 }
 
-export function getSavedPreMuteVolume(key: string) {
-  const saved = localStorage.getItem(key)
-  if (saved === null) return DEFAULT_VOLUME
-  return clampVolume(Number(saved))
-}
-
 export function getSavedBoolean(key: string, defaultValue: boolean) {
   const saved = localStorage.getItem(key)
   if (saved === null) return defaultValue

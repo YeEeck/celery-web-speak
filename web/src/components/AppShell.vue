@@ -16,9 +16,10 @@ import GuildActionMenu from './GuildActionMenu.vue'
 import UserControls from './UserControls.vue'
 import UserAvatar from './UserAvatar.vue'
 import VoiceChannel from './VoiceChannel.vue'
+import VoiceParticipantActionMenu from './VoiceParticipantActionMenu.vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
-import { useVoiceStore } from '../stores/voice'
+import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
 import type { Channel, GuildSummary, VersionResponse } from '../types'
 
 const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
@@ -59,7 +60,16 @@ const channelActionMenu = ref<{
   y: number
   trigger: HTMLElement | null
 } | null>(null)
-const actionToast = ref<{ message: string; type: 'success' | 'error' } | null>(null)
+const voiceParticipantActionMenu = ref<{
+  guildId: number
+  channelId: number
+  userId: number
+  x: number
+  y: number
+  trigger: HTMLElement | null
+} | null>(null)
+const participantManagementPending = ref(false)
+const actionToast = ref<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
 const accountTrigger = ref<HTMLButtonElement | null>(null)
 const accountMenuOpen = ref(false)
 const logoutOpen = ref(false)
@@ -71,6 +81,21 @@ let mobileQuery: MediaQueryList | null = null
 let actionToastTimer: number | null = null
 
 const membersVisible = computed(() => wideMemberLayout.value ? desktopMembersVisible.value : membersOpen.value)
+const voiceParticipantMenuTarget = computed(() => {
+  const menu = voiceParticipantActionMenu.value
+  if (!menu || voice.connectedGuildId !== menu.guildId || voice.connectedChannelId !== menu.channelId) return null
+  return voice.participants.find((participant) => !participant.isLocal && participant.userId === menu.userId) ?? null
+})
+const voiceParticipantMenuMember = computed(() => {
+  const target = voiceParticipantMenuTarget.value
+  return target ? app.users.find((member) => member.id === target.userId) ?? null : null
+})
+const canManageVoiceParticipant = computed(() => {
+  const target = voiceParticipantMenuMember.value
+  const guild = app.activeGuild
+  if (!target || !guild || !app.isGuildAdmin || target.id === app.user?.id || target.role === 'owner') return false
+  return target.role !== 'admin' || app.isPlatformAdmin || guild.role === 'owner'
+})
 
 watch(() => {
   if (app.activeGuildId !== voice.connectedGuildId) return null
@@ -99,9 +124,17 @@ watch(() => app.socketStatus, (value) => {
 watch(() => app.activeGuildId, () => {
   closeGuildActionMenu()
   closeChannelActionMenu()
+  closeVoiceParticipantActionMenu()
 })
 watch(() => channelActionMenu.value === null || app.channels.some((channel) => channel.id === channelActionMenu.value?.channel.id), (exists) => {
   if (!exists) closeChannelActionMenu()
+})
+watch(voiceParticipantMenuTarget, (target) => {
+  if (!target && voiceParticipantActionMenu.value) closeVoiceParticipantActionMenu()
+})
+watch(() => app.moderatorVoiceDisconnect, (event) => {
+  if (!event || !voice.handleModeratorDisconnect(event.guildId, event.channelId)) return
+  showActionToast('你已被服务器管理员断开语音', 'warning', 4_000)
 })
 watch(() => leaveTarget.value === null || app.guilds.some((guild) => guild.id === leaveTarget.value?.id && guild.joined), (hasMembership) => {
   if (!hasMembership && !leavingGuild.value) closeLeaveGuildDialog()
@@ -138,6 +171,7 @@ function closeTemporaryDrawers() {
   channelsOpen.value = false
   membersOpen.value = false
   closeAccountMenu()
+  closeVoiceParticipantActionMenu()
 }
 
 function selectTextChannel(channelId: number) {
@@ -179,6 +213,8 @@ function toggleAccountMenu() {
     return
   }
   closeGuildActionMenu()
+  closeChannelActionMenu()
+  closeVoiceParticipantActionMenu()
   channelsOpen.value = false
   accountMenuOpen.value = true
 }
@@ -239,6 +275,7 @@ async function logout() {
 
 function openGuildActionMenu(guild: GuildSummary, trigger: HTMLElement, x: number, y: number, align: 'start' | 'end') {
   closeChannelActionMenu()
+  closeVoiceParticipantActionMenu()
   guildActionMenu.value = { guild, trigger, x, y, align }
 }
 
@@ -299,6 +336,7 @@ async function openGuildAdmin(guild: GuildSummary) {
 function openChannelActionMenu(channel: Channel, trigger: HTMLElement, x: number, y: number) {
   closeAccountMenu()
   closeGuildActionMenu()
+  closeVoiceParticipantActionMenu()
   channelActionMenu.value = { channel, trigger, x, y }
 }
 
@@ -320,13 +358,72 @@ function closeChannelActionMenu(restoreFocus = false) {
   if (restoreFocus) void nextTick(() => trigger?.focus())
 }
 
-function showActionToast(message: string, type: 'success' | 'error') {
+function openVoiceParticipantActionMenu(channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number) {
+  if (participant.isLocal || voice.connectedGuildId === null || voice.connectedChannelId !== channel.id) return
+  if (voiceParticipantActionMenu.value?.userId === participant.userId) {
+    closeVoiceParticipantActionMenu(true)
+    return
+  }
+  closeAccountMenu()
+  closeGuildActionMenu()
+  closeChannelActionMenu()
+  voiceParticipantActionMenu.value = {
+    guildId: voice.connectedGuildId,
+    channelId: channel.id,
+    userId: participant.userId,
+    x,
+    y,
+    trigger,
+  }
+}
+
+function closeVoiceParticipantActionMenu(restoreFocus = false) {
+  const trigger = voiceParticipantActionMenu.value?.trigger
+  voiceParticipantActionMenu.value = null
+  if (restoreFocus) void nextTick(() => trigger?.focus())
+}
+
+async function setParticipantServerMute(participant: VoiceParticipant, muted: boolean) {
+  const menu = voiceParticipantActionMenu.value
+  const member = voiceParticipantMenuMember.value
+  if (!menu || !member || participantManagementPending.value) return
+  participantManagementPending.value = true
+  closeVoiceParticipantActionMenu(true)
+  try {
+    await request(`/api/guilds/${menu.guildId}/members/${participant.userId}/mute`, {
+      method: 'PATCH',
+      body: JSON.stringify({ voiceMuted: muted, textMuted: member.textMuted }),
+    })
+    showActionToast(muted ? `已对 ${participant.name} 启用服务器语音禁言` : `已解除 ${participant.name} 的服务器语音禁言`, 'success')
+  } catch (error) {
+    showActionToast(error instanceof Error ? error.message : '服务器语音禁言操作失败', 'error')
+  } finally {
+    participantManagementPending.value = false
+  }
+}
+
+async function disconnectVoiceParticipant(participant: VoiceParticipant) {
+  const menu = voiceParticipantActionMenu.value
+  if (!menu || participantManagementPending.value) return
+  participantManagementPending.value = true
+  closeVoiceParticipantActionMenu(true)
+  try {
+    await request(`/api/guilds/${menu.guildId}/channels/${menu.channelId}/voice/participants/${participant.userId}/disconnect`, { method: 'POST' })
+    showActionToast(`已断开 ${participant.name} 的语音`, 'success')
+  } catch (error) {
+    showActionToast(error instanceof Error ? error.message : '断开语音失败', 'error')
+  } finally {
+    participantManagementPending.value = false
+  }
+}
+
+function showActionToast(message: string, type: 'success' | 'error' | 'warning', duration = 2_000) {
   if (actionToastTimer !== null) window.clearTimeout(actionToastTimer)
   actionToast.value = { message, type }
   actionToastTimer = window.setTimeout(() => {
     actionToast.value = null
     actionToastTimer = null
-  }, 2000)
+  }, duration)
 }
 
 async function copyChannelName(channel: Channel) {
@@ -484,7 +581,14 @@ function closeChangelog() {
       <div class="channel-scroll">
         <p v-if="!app.activeGuild" class="guild-empty">尚未加入任何服务器，请联系服务器管理员将你加入服务器。</p>
         <div v-if="app.activeGuild" class="category-heading"><span>语音频道</span></div>
-        <VoiceChannel v-for="channel in app.voiceChannels" :key="channel.id" :channel="channel" @channel-menu="openChannelActionMenu" />
+        <VoiceChannel
+          v-for="channel in app.voiceChannels"
+          :key="channel.id"
+          :channel="channel"
+          :action-menu-user-id="voiceParticipantActionMenu?.channelId === channel.id ? voiceParticipantActionMenu.userId : null"
+          @channel-menu="openChannelActionMenu"
+          @participant-menu="openVoiceParticipantActionMenu"
+        />
         <div v-if="app.activeGuild" class="category-heading"><span>文字频道</span></div>
         <button
           v-for="channel in app.textChannels"
@@ -556,6 +660,19 @@ function closeChangelog() {
       @copy="copyChannelName"
       @mark-read="markChannelRead"
       @edit="editChannel"
+    />
+    <VoiceParticipantActionMenu
+      v-if="voiceParticipantActionMenu && voiceParticipantMenuTarget"
+      :participant="voiceParticipantMenuTarget"
+      :member="voiceParticipantMenuMember"
+      :can-manage="canManageVoiceParticipant"
+      :management-pending="participantManagementPending"
+      :x="voiceParticipantActionMenu.x"
+      :y="voiceParticipantActionMenu.y"
+      :trigger="voiceParticipantActionMenu.trigger"
+      @close="closeVoiceParticipantActionMenu"
+      @server-mute="setParticipantServerMute"
+      @disconnect="disconnectVoiceParticipant"
     />
     <div v-if="actionToast" class="action-toast" :class="actionToast.type" role="status" aria-live="polite">{{ actionToast.message }}</div>
     <AccountMenu v-if="accountMenuOpen" :trigger="accountTrigger" @close="closeAccountMenu" @settings="openProfile" @logout="openLogoutDialog" />

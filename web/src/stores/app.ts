@@ -22,6 +22,8 @@ export const useAppStore = defineStore('app', () => {
   const onlineIds = ref<number[]>([])
   const onlineClients = ref<Record<number, ClientType>>({})
   const socketStatus = ref<'offline' | 'connecting' | 'online'>('offline')
+  const moderatorVoiceDisconnect = ref<{ guildId: number; channelId: number; sequence: number } | null>(null)
+  let moderatorVoiceDisconnectSequence = 0
   let guildBootstrapVersion = 0
   const messageLoadVersions = new Map<number, number>()
 
@@ -149,6 +151,7 @@ export const useAppStore = defineStore('app', () => {
       onlineIds.value = []
       onlineClients.value = {}
       activeTextChannelId.value = null
+      moderatorVoiceDisconnect.value = null
     }
   }
 
@@ -256,6 +259,17 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function handleEvent(type: string, data: unknown, guildId?: number) {
+    if (type === 'voice_disconnected_by_moderator') {
+      const payload = data as { guildId?: number; channelId?: number }
+      if (typeof payload.guildId === 'number' && typeof payload.channelId === 'number') {
+        moderatorVoiceDisconnect.value = {
+          guildId: payload.guildId,
+          channelId: payload.channelId,
+          sequence: ++moderatorVoiceDisconnectSequence,
+        }
+      }
+      return
+    }
     if (guildId && (type === 'member_added' || type === 'member_updated')) {
       const member = data as GuildMemberPayload
       if (member.userId === user.value?.id) updateGuildMembershipRole(guildId, member.role)
@@ -445,7 +459,7 @@ export const useAppStore = defineStore('app', () => {
   return {
     ready, user, users, guilds, activeGuildId, activeGuild, channels, textChannels, voiceChannels, activeTextChannelId, activeTextChannel,
     voiceRooms, messages, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
-    channelReadStates, onlineIds, onlineClients, socketStatus, isAdmin, isGuildAdmin, isPlatformAdmin,
+    channelReadStates, onlineIds, onlineClients, socketStatus, moderatorVoiceDisconnect, isAdmin, isGuildAdmin, isPlatformAdmin,
     initialize, bootstrap, loadGuildBootstrap, selectGuild, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh: socket.requestVoiceRoomsRefresh,
     sendMessage, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,

@@ -66,6 +66,15 @@ interface LeaveOptions {
   playLeaveSound?: boolean
 }
 
+interface EndedVoiceSession {
+  guildId: number
+  channelId: number
+  deafened: boolean
+  endedAt: number
+}
+
+const MODERATOR_DISCONNECT_MATCH_WINDOW_MS = 5_000
+
 export const useVoiceStore = defineStore('voice', () => {
   const status = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'>('idle')
   const connectedChannelId = ref<number | null>(null)
@@ -129,6 +138,7 @@ export const useVoiceStore = defineStore('voice', () => {
   let deviceRefreshPromise: Promise<void> | null = null
   let preferenceFeedbackTimer: number | null = null
   let mutedSpeakingReminderTimer: number | null = null
+  let recentEndedSession: EndedVoiceSession | null = null
 
   if (!outputDeviceSelectionSupported && savedOutputDevice.deviceId !== DEFAULT_DEVICE_ID) {
     saveDevicePreference(PREFERRED_OUTPUT_DEVICE_KEY, { deviceId: DEFAULT_DEVICE_ID, label: '系统默认' })
@@ -341,6 +351,7 @@ export const useVoiceStore = defineStore('voice', () => {
     mutedSpeakingReminder.resetFailure()
     clearMutedSpeakingReminder()
     const session = voiceSession
+    recentEndedSession = null
     const app = useAppStore()
     status.value = 'connecting'
     errorMessage.value = ''
@@ -421,6 +432,7 @@ export const useVoiceStore = defineStore('voice', () => {
     const targetRoom = room
     const wasDeafened = deafened.value
     const guildId = connectedGuildId.value
+    rememberEndedSession()
     mutedSpeakingReminder.stop()
     clearMutedSpeakingReminder()
     await appAudio.stopApplicationAudio()
@@ -858,6 +870,7 @@ export const useVoiceStore = defineStore('voice', () => {
           void appAudio.stopApplicationAudio()
           voiceSession += 1
           participantSoundsReady = false
+          rememberEndedSession()
           room = null
           clearConnectedChannelSummary()
           status.value = 'idle'
@@ -1003,6 +1016,29 @@ export const useVoiceStore = defineStore('voice', () => {
     connectedPublishSettings.value = defaultConnectedPublishSettings()
   }
 
+  function rememberEndedSession() {
+    if (connectedGuildId.value === null || connectedChannelId.value === null) return
+    recentEndedSession = {
+      guildId: connectedGuildId.value,
+      channelId: connectedChannelId.value,
+      deafened: deafened.value,
+      endedAt: Date.now(),
+    }
+  }
+
+  function handleModeratorDisconnect(guildId: number, channelId: number) {
+    const matchesCurrent = connectedGuildId.value === guildId && connectedChannelId.value === channelId
+    const matchesRecent = recentEndedSession?.guildId === guildId
+      && recentEndedSession.channelId === channelId
+      && Date.now() - recentEndedSession.endedAt <= MODERATOR_DISCONNECT_MATCH_WINDOW_MS
+    if (!matchesCurrent && !matchesRecent) return false
+
+    const wasDeafened = matchesCurrent ? deafened.value : recentEndedSession?.deafened === true
+    recentEndedSession = null
+    if (!wasDeafened) useSoundStore().play('leave', { bypassRateLimit: true })
+    return true
+  }
+
   function publishOptions(mode: VoiceTransmissionMode = transmissionMode.value) {
     const settings = connectedPublishSettings.value
     return {
@@ -1126,6 +1162,7 @@ export const useVoiceStore = defineStore('voice', () => {
     updateConnectedChannelSettings,
     syncGuildMute,
     retryDeafenedSync,
+    handleModeratorDisconnect,
     refreshDevices,
     initializeDevices,
     requestMicrophonePermission,

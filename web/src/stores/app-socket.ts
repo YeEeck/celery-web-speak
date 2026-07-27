@@ -50,6 +50,10 @@ export function useSocket(ctx: SocketContext) {
     connection.onmessage = (messageEvent) => {
       const event = JSON.parse(messageEvent.data) as SocketEvent
       if (synchronizingSocket === connection) {
+        if (event.type === 'voice_disconnected_by_moderator') {
+          ctx.handleEvent(event.type, event.data, event.guildId)
+          return
+        }
         socketActivityVersion += 1
         return
       }

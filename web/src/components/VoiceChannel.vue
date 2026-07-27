@@ -1,20 +1,19 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { ChevronRight, Mic, MicOff, Music2, Signal, Volume2, VolumeX } from '@lucide/vue'
+import { computed } from 'vue'
+import { ChevronRight, MicOff, Music2, Signal, Volume2, VolumeX } from '@lucide/vue'
 import { ConnectionQuality } from 'livekit-client'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
 import type { Channel } from '../types'
-import { rangeProgressStyle } from '../utils/range'
 
-const props = defineProps<{ channel: Channel }>()
+const props = defineProps<{ channel: Channel; actionMenuUserId?: number | null }>()
 const emit = defineEmits<{
   channelMenu: [channel: Channel, trigger: HTMLElement, x: number, y: number]
+  participantMenu: [channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number]
 }>()
 const app = useAppStore()
 const voice = useVoiceStore()
-const expandedVolume = ref<number | null>(null)
 
 const connected = computed(() => voice.joined && voice.connectedChannelId === props.channel.id)
 const roomState = computed(() => app.voiceRooms.find((room) => room.channelId === props.channel.id))
@@ -50,6 +49,21 @@ function openKeyboardMenu(event: KeyboardEvent) {
   const bounds = trigger.getBoundingClientRect()
   emit('channelMenu', props.channel, trigger, bounds.right + 4, bounds.top)
 }
+
+function openParticipantMenu(participant: VoiceParticipant, event: MouseEvent) {
+  if (participant.isLocal) return
+  const trigger = event.currentTarget as HTMLElement
+  const bounds = trigger.getBoundingClientRect()
+  emit('participantMenu', props.channel, participant, trigger, event.clientX || bounds.right + 4, event.clientY || bounds.top)
+}
+
+function openParticipantKeyboardMenu(participant: VoiceParticipant, event: KeyboardEvent) {
+  if (participant.isLocal || (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))) return
+  event.preventDefault()
+  const trigger = event.currentTarget as HTMLElement
+  const bounds = trigger.getBoundingClientRect()
+  emit('participantMenu', props.channel, participant, trigger, bounds.right + 4, bounds.top)
+}
 </script>
 
 <template>
@@ -71,7 +85,17 @@ function openKeyboardMenu(event: KeyboardEvent) {
 
     <div v-if="connected" class="voice-members">
       <div v-for="participant in voice.participants" :key="participant.identity" class="voice-member">
-        <button class="voice-member-main" @click="expandedVolume = expandedVolume === participant.userId ? null : participant.userId">
+        <button
+          class="voice-member-main"
+          :class="{ 'local-participant': participant.isLocal }"
+          :title="participant.isLocal ? undefined : '打开参与者操作'"
+          :aria-label="participant.isLocal ? `${participant.name}（你）` : `${participant.name}的语音参与者操作`"
+          :aria-haspopup="participant.isLocal ? undefined : 'dialog'"
+          :aria-expanded="participant.isLocal ? undefined : actionMenuUserId === participant.userId"
+          @click="openParticipantMenu(participant, $event)"
+          @contextmenu.prevent="openParticipantMenu(participant, $event)"
+          @keydown="openParticipantKeyboardMenu(participant, $event)"
+        >
           <UserAvatar :name="participant.name" :size="30" />
           <span class="voice-member-name" :class="{ speaking: participant.isSpeaking }">
             {{ participant.name }}<small v-if="participant.isLocal">你</small>
@@ -91,58 +115,6 @@ function openKeyboardMenu(event: KeyboardEvent) {
             <i v-for="bar in 3" :key="bar" :class="{ lit: bar <= qualityBars(participant.quality) }" />
           </span>
         </button>
-        <div v-if="expandedVolume === participant.userId && !participant.isLocal" class="participant-volume">
-          <div class="participant-volume-control">
-            <button
-              class="participant-volume-icon"
-              :class="{ muted: participant.microphoneMuted }"
-              :title="participant.microphoneMuted ? '取消静音' : '静音'"
-              @click="voice.toggleParticipantMicrophoneMute(participant.userId)"
-            ><component :is="participant.microphoneMuted ? MicOff : Mic" :size="14" /></button>
-            <input
-              type="range"
-              min="0"
-              max="3"
-              step="0.05"
-              :value="participant.microphoneVolume"
-              :style="rangeProgressStyle(participant.microphoneVolume, 0, 3)"
-              aria-label="麦克风音量"
-              @input="voice.setParticipantMicrophoneVolume(participant.userId, Number(($event.target as HTMLInputElement).value))"
-              @dblclick="voice.resetParticipantMicrophoneVolume(participant.userId)"
-            />
-            <button
-              class="participant-volume-value"
-              :class="{ muted: participant.microphoneMuted }"
-              title="重置为 100%"
-              @click="voice.resetParticipantMicrophoneVolume(participant.userId)"
-            >{{ Math.round(participant.microphoneVolume * 100) }}%</button>
-          </div>
-          <div v-if="participant.backgroundAudioAvailable" class="participant-volume-control">
-            <button
-              class="participant-volume-icon"
-              :class="{ muted: participant.backgroundAudioMuted }"
-              :title="participant.backgroundAudioMuted ? '取消静音' : '静音'"
-              @click="voice.toggleParticipantBackgroundAudioMute(participant.userId)"
-            ><component :is="participant.backgroundAudioMuted ? VolumeX : Music2" :size="14" /></button>
-            <input
-              type="range"
-              min="0"
-              max="3"
-              step="0.05"
-              :value="participant.backgroundAudioVolume"
-              :style="rangeProgressStyle(participant.backgroundAudioVolume, 0, 3)"
-              aria-label="背景音音量"
-              @input="voice.setParticipantBackgroundAudioVolume(participant.userId, Number(($event.target as HTMLInputElement).value))"
-              @dblclick="voice.resetParticipantBackgroundAudioVolume(participant.userId)"
-            />
-            <button
-              class="participant-volume-value"
-              :class="{ muted: participant.backgroundAudioMuted }"
-              title="重置为 100%"
-              @click="voice.resetParticipantBackgroundAudioVolume(participant.userId)"
-            >{{ Math.round(participant.backgroundAudioVolume * 100) }}%</button>
-          </div>
-        </div>
         <span v-if="userFor(participant)?.voiceMuted" class="guild-muted">已禁言</span>
       </div>
       <p v-if="voice.status === 'reconnecting'" class="voice-notice"><Signal :size="14" /> 正在恢复语音连接</p>

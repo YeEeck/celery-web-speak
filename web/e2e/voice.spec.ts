@@ -85,7 +85,10 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
 
     const remoteMember = contexts[0].page.locator('.voice-member').filter({ hasText: accounts[1].displayName })
     await remoteMember.locator('.voice-member-main').click()
-    const remoteMicrophoneVolume = remoteMember.getByLabel('麦克风音量')
+    const participantPanel = contexts[0].page.getByRole('dialog', { name: `${accounts[1].displayName}的语音参与者操作` })
+    await expect(participantPanel).toBeVisible()
+    await expect(remoteMember.getByLabel('麦克风音量')).toHaveCount(0)
+    const remoteMicrophoneVolume = participantPanel.getByLabel('麦克风音量')
     await expect(remoteMicrophoneVolume).toHaveValue('1')
     await expect(remoteMicrophoneVolume).toHaveAttribute('max', '3')
     await remoteMicrophoneVolume.fill('3')
@@ -103,6 +106,76 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
       const accountID = accountIds.get(account.username)
       if (accountID) await deletePlatformUser(request, accountID, account.username)
     }
+  }
+})
+
+test('语音参与者菜单支持播放控制与服务器管理操作', async ({ browser, request }, testInfo) => {
+  test.skip(!runVoiceTest, '需要已运行的 LiveKit Compose 环境')
+  test.setTimeout(60_000)
+
+  await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
+  const guildID = await firstJoinedGuildID(request)
+  const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
+  const member = {
+    username: `participant_menu_${suffix}`,
+    displayName: `菜单成员${suffix.slice(-5)}`,
+    password: 'participant-menu-password',
+  }
+  const memberID = (await createGuildMember(request, guildID, member)).id
+  const contexts: Array<{ context: BrowserContext; page: Page }> = []
+
+  try {
+    for (const account of [{ username: adminUsername, password: adminPassword }, member]) {
+      const context = await browser.newContext({ permissions: ['microphone'] })
+      await context.grantPermissions(['microphone'], { origin: baseURL })
+      const page = await context.newPage()
+      contexts.push({ context, page })
+      await loginVoicePage(page, account, testInfo.project.name.startsWith('android'))
+      await installToneCounter(page)
+      await page.getByRole('button', { name: /^语音频道/ }).click()
+      await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
+    }
+
+    const adminPage = contexts[0].page
+    const memberPage = contexts[1].page
+    const localRow = adminPage.locator('.voice-member').filter({ hasText: '你' })
+    await localRow.locator('.voice-member-main').click()
+    await expect(adminPage.getByRole('dialog', { name: /语音参与者操作/ })).toHaveCount(0)
+
+    const remoteRow = adminPage.locator('.voice-member').filter({ hasText: member.displayName })
+    const remoteTrigger = remoteRow.locator('.voice-member-main')
+    await remoteTrigger.click({ button: 'right' })
+    let panel = adminPage.getByRole('dialog', { name: `${member.displayName}的语音参与者操作` })
+    await expect(panel.getByLabel('麦克风音量')).toHaveAttribute('step', '0.05')
+    await expect(panel.getByRole('button', { name: '服务器语音禁言' })).toBeVisible()
+    await adminPage.keyboard.press('Escape')
+    await expect(panel).toHaveCount(0)
+    await expect(remoteTrigger).toBeFocused()
+
+    await remoteTrigger.press('Shift+F10')
+    panel = adminPage.getByRole('dialog', { name: `${member.displayName}的语音参与者操作` })
+    await panel.getByRole('button', { name: '服务器语音禁言' }).click()
+    await expect(adminPage.getByText(`已对 ${member.displayName} 启用服务器语音禁言`, { exact: true })).toBeVisible()
+    await expect(remoteRow.getByText('已禁言', { exact: true })).toBeVisible()
+
+    await remoteTrigger.click()
+    panel = adminPage.getByRole('dialog', { name: `${member.displayName}的语音参与者操作` })
+    await panel.getByRole('button', { name: '解除服务器语音禁言' }).click()
+    await expect(adminPage.getByText(`已解除 ${member.displayName} 的服务器语音禁言`, { exact: true })).toBeVisible()
+
+    const tonesBeforeDisconnect = await toneCount(memberPage)
+    await remoteTrigger.click()
+    panel = adminPage.getByRole('dialog', { name: `${member.displayName}的语音参与者操作` })
+    await panel.getByRole('button', { name: '断开语音', exact: true }).click()
+    await expect(memberPage.getByText('你已被服务器管理员断开语音', { exact: true })).toBeVisible()
+    await expect(memberPage.locator('.voice-connection-panel')).toHaveCount(0, { timeout: 20_000 })
+    await expect.poll(() => toneCount(memberPage)).toBeGreaterThanOrEqual(tonesBeforeDisconnect + 2)
+
+    await memberPage.getByRole('button', { name: /^语音频道/ }).click()
+    await memberPage.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
+  } finally {
+    await Promise.allSettled(contexts.map(({ context }) => context.close()))
+    await deletePlatformUser(request, memberID, member.username)
   }
 })
 
@@ -257,15 +330,16 @@ test('远端麦克风与暂停的背景音可独立调节并持久化', async ({
     const remoteMember = listenerPage.locator('.voice-member').filter({ hasText: accounts[1].displayName })
     await expect(remoteMember).toBeVisible()
     await remoteMember.locator('.voice-member-main').click()
+    const participantPanel = listenerPage.getByRole('dialog', { name: `${accounts[1].displayName}的语音参与者操作` })
 
-    const microphoneVolume = remoteMember.getByLabel('麦克风音量')
+    const microphoneVolume = participantPanel.getByLabel('麦克风音量')
     await expect(microphoneVolume).toHaveValue('1')
     await microphoneVolume.fill('2.5')
     await expect.poll(() => listenerPage.evaluate((userId) => localStorage.getItem(`cws.volume.${userId}`), senderId)).toBe('2.5')
 
     await setRemoteBackgroundAudioAvailable(listenerPage, senderId, true)
     await expect(remoteMember.getByTitle('正在共享背景音', { exact: true })).toHaveCount(0)
-    const backgroundAudioVolume = remoteMember.getByLabel('背景音音量')
+    const backgroundAudioVolume = participantPanel.getByLabel('背景音音量')
     await expect(backgroundAudioVolume).toHaveValue('1')
     await expect(backgroundAudioVolume).toHaveAttribute('max', '3')
     await backgroundAudioVolume.fill('1.75')

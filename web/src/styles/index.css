@@ -5,6 +5,7 @@
 @import './components/AuthScreen.css';
 @import './components/AppShell.css';
 @import './components/VoiceChannel.css';
+@import './components/VoiceParticipantActionMenu.css';
 @import './components/UserControls.css';
 @import './components/VoiceDeviceMenu.css';
 @import './components/UserAvatar.css';
