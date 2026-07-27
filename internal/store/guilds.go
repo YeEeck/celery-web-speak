@@ -611,6 +611,18 @@ func insertGuildAudit(ctx context.Context, tx *sql.Tx, guildID, actorID int64, t
 	return err
 }
 
+func (s *Store) RecordGuildVoiceDisconnect(ctx context.Context, guildID, actorID, targetID, channelID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := insertGuildAudit(ctx, tx, guildID, actorID, &targetID, "disconnect_guild_voice_participant", fmt.Sprintf("channel_id=%d", channelID)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 type guildScanner interface{ Scan(...any) error }
 
 func scanGuild(scanner guildScanner) (Guild, error) {

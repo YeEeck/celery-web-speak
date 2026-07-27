@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/yeck/celery-web-speak/internal/media"
 	"github.com/yeck/celery-web-speak/internal/store"
 )
 
@@ -633,6 +634,52 @@ func (s *Server) handleGuildVoiceState(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err)
 		return
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleGuildVoiceParticipantDisconnect(w http.ResponseWriter, r *http.Request) {
+	targetID, ok := parsePathID(w, r, "userID")
+	if !ok {
+		return
+	}
+	if targetID == currentUser(r).ID {
+		s.writeStoreError(w, store.ErrSelfAction)
+		return
+	}
+	if !s.guildCanManageTarget(w, r, targetID, currentUser(r).IsPlatformAdmin || guildMembership(r).Role == store.GuildRoleOwner) {
+		return
+	}
+	channelID, ok := parsePathID(w, r, "channelID")
+	if !ok {
+		return
+	}
+	guildID := guildMembership(r).GuildID
+	channel, err := s.store.GuildChannelByID(r.Context(), guildID, channelID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	if channel.Type != store.ChannelTypeVoice {
+		writeError(w, http.StatusBadRequest, "voice_channel_required", "目标不是语音频道")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	err = s.media.RemoveParticipantFromChannel(ctx, targetID, guildID, channelID)
+	cancel()
+	if errors.Is(err, media.ErrParticipantNotInVoiceChannel) {
+		writeError(w, http.StatusConflict, "voice_participant_not_in_channel", "该参与者已不在此语音频道")
+		return
+	}
+	if err != nil {
+		s.internalError(w, "disconnect guild voice participant", err)
+		return
+	}
+	if err := s.store.RecordGuildVoiceDisconnect(r.Context(), guildID, currentUser(r).ID, targetID, channelID); err != nil {
+		s.internalError(w, "record guild voice disconnect", err)
+		return
+	}
+	s.hub.SendUser(targetID, "voice_disconnected_by_moderator", map[string]int64{"guildId": guildID, "channelId": channelID})
+	s.broadcastVoiceRooms(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 

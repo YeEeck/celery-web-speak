@@ -24,6 +24,16 @@ const (
 	voiceTokenTTL            = 15 * time.Minute
 )
 
+var ErrParticipantNotInVoiceChannel = errors.New("participant is not connected to voice channel")
+
+type roomService interface {
+	ListRooms(context.Context, *livekit.ListRoomsRequest) (*livekit.ListRoomsResponse, error)
+	DeleteRoom(context.Context, *livekit.DeleteRoomRequest) (*livekit.DeleteRoomResponse, error)
+	ListParticipants(context.Context, *livekit.ListParticipantsRequest) (*livekit.ListParticipantsResponse, error)
+	RemoveParticipant(context.Context, *livekit.RoomParticipantIdentity) (*livekit.RemoveParticipantResponse, error)
+	UpdateParticipant(context.Context, *livekit.UpdateParticipantRequest) (*livekit.ParticipantInfo, error)
+}
+
 type voiceTarget struct {
 	ChannelID  int64
 	GuildID    int64
@@ -36,7 +46,7 @@ type Service struct {
 	apiKey      string
 	apiSecret   string
 	publicURL   string
-	room        *lksdk.RoomServiceClient
+	room        roomService
 	keyProvider auth.KeyProvider
 	mu          sync.RWMutex
 	rooms       map[int64]map[int64]VoiceParticipant
@@ -269,6 +279,48 @@ func (s *Service) RemoveParticipantFromGuild(ctx context.Context, userID, guildI
 		return nil
 	}
 	return s.RemoveParticipant(ctx, userID)
+}
+
+// RemoveParticipantFromChannel removes only the connection represented by
+// the supplied guild and channel. A stale action must not follow the account
+// into a later voice connection.
+func (s *Service) RemoveParticipantFromChannel(ctx context.Context, userID, guildID, channelID int64) error {
+	s.mu.RLock()
+	target := s.targets[userID]
+	participant, connected := s.rooms[channelID][userID]
+	if !connected || target.GuildID != guildID || target.ChannelID != channelID || target.roomName() != GuildRoomName(guildID, channelID) {
+		s.mu.RUnlock()
+		return ErrParticipantNotInVoiceChannel
+	}
+	roomName := target.roomName()
+	generation := target.Generation
+	s.mu.RUnlock()
+
+	if _, err := s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: Identity(userID)}); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	changed := false
+	current := s.targets[userID]
+	if current.GuildID == guildID && current.ChannelID == channelID && current.Generation == generation {
+		if current.valid(s.now()) {
+			current.ChannelID = 0
+			s.targets[userID] = current
+		} else {
+			delete(s.targets, userID)
+		}
+		changed = true
+	}
+	if stored, exists := s.rooms[channelID][userID]; exists && stored.Generation == participant.Generation {
+		delete(s.rooms[channelID], userID)
+		changed = true
+	}
+	if changed {
+		s.revision++
+	}
+	s.mu.Unlock()
+	return nil
 }
 
 // RemoveGuildParticipants revokes all current voice targets in a guild.

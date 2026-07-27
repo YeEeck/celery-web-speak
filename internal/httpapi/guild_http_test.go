@@ -179,6 +179,66 @@ func TestGuildVoiceLeaveRequiresMembership(t *testing.T) {
 	}
 }
 
+func TestGuildVoiceParticipantDisconnectValidatesAction(t *testing.T) {
+	db, owner, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	channels, err := db.ListGuildChannels(ctx, guildID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var textChannelID, voiceChannelID int64
+	for _, channel := range channels {
+		switch channel.Type {
+		case store.ChannelTypeText:
+			textChannelID = channel.ID
+		case store.ChannelTypeVoice:
+			voiceChannelID = channel.ID
+		}
+	}
+	if textChannelID == 0 || voiceChannelID == 0 {
+		t.Fatalf("default channels = %+v", channels)
+	}
+	target, err := db.CreateUser(ctx, "voice_disconnect_member", "语音断开成员", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, owner.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
+	ownerToken, _, err := db.CreateSession(ctx, owner.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetToken, _, err := db.CreateSession(ctx, target.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := func(channelID, userID int64) string {
+		return "/api/guilds/" + formatID(guildID) + "/channels/" + formatID(channelID) + "/voice/participants/" + formatID(userID) + "/disconnect"
+	}
+
+	recorder := serveGuildHTTPRequest(server, targetToken, http.MethodPost, path(voiceChannelID, owner.ID), "")
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("member disconnect status = %d, want 403", recorder.Code)
+	}
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPost, path(voiceChannelID, owner.ID), "")
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "self_action") {
+		t.Fatalf("self disconnect = %d %s", recorder.Code, recorder.Body.String())
+	}
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPost, path(textChannelID, target.ID), "")
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "voice_channel_required") {
+		t.Fatalf("text channel disconnect = %d %s", recorder.Code, recorder.Body.String())
+	}
+	recorder = serveGuildHTTPRequest(server, ownerToken, http.MethodPost, path(voiceChannelID, target.ID), "")
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), "voice_participant_not_in_channel") {
+		t.Fatalf("absent participant disconnect = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestPlatformResetPasswordRevokesSessions(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()

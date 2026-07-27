@@ -320,6 +320,26 @@ func (h *Hub) BroadcastUser(userID int64, eventType string, data any) {
 	}
 }
 
+// SendUser sends an event only to the target account's own connections.
+func (h *Hub) SendUser(userID int64, eventType string, data any) {
+	payload, err := json.Marshal(event{Type: eventType, Data: data})
+	if err != nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for c := range h.clients {
+		if c.user.ID != userID {
+			continue
+		}
+		select {
+		case c.send <- payload:
+		default:
+			c.stop()
+		}
+	}
+}
+
 func (h *Hub) SetClientGuilds(c *client, guildIDs []int64) {
 	h.mu.Lock()
 	c.guilds = make(map[int64]struct{}, len(guildIDs))

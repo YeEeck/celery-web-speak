@@ -2,6 +2,7 @@ package media
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -245,4 +246,77 @@ func TestRemoveParticipantFromGuildLeavesConnectionInAnotherServer(t *testing.T)
 	if target.GuildID != 3 || target.ChannelID != 7 {
 		t.Fatalf("connection in another server was removed: %+v", target)
 	}
+}
+
+func TestRemoveParticipantFromChannelRejectsStaleChannel(t *testing.T) {
+	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	room := &recordingRoomService{}
+	service.room = room
+	generation := uint64(time.Now().UnixNano())
+	service.targets[12] = voiceTarget{
+		GuildID: 3, ChannelID: 8, RoomName: GuildRoomName(3, 8),
+		Generation: generation, ExpiresAt: time.Now().Add(time.Minute),
+	}
+	service.rooms[8] = map[int64]VoiceParticipant{12: {UserID: 12, Generation: generation}}
+
+	err := service.RemoveParticipantFromChannel(context.Background(), 12, 3, 7)
+	if !errors.Is(err, ErrParticipantNotInVoiceChannel) {
+		t.Fatalf("stale channel error = %v, want ErrParticipantNotInVoiceChannel", err)
+	}
+	if room.removed != nil {
+		t.Fatalf("stale action removed participant: %+v", room.removed)
+	}
+	if target := service.currentTarget(12); target.ChannelID != 8 {
+		t.Fatalf("stale action changed current target: %+v", target)
+	}
+}
+
+func TestRemoveParticipantFromChannelRemovesMatchingConnection(t *testing.T) {
+	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	room := &recordingRoomService{}
+	service.room = room
+	generation := uint64(time.Now().UnixNano())
+	service.targets[12] = voiceTarget{
+		GuildID: 3, ChannelID: 7, RoomName: GuildRoomName(3, 7),
+		Generation: generation, ExpiresAt: time.Now().Add(time.Minute),
+	}
+	service.rooms[7] = map[int64]VoiceParticipant{12: {UserID: 12, Generation: generation}}
+
+	if err := service.RemoveParticipantFromChannel(context.Background(), 12, 3, 7); err != nil {
+		t.Fatalf("remove matching participant: %v", err)
+	}
+	if room.removed == nil || room.removed.Room != GuildRoomName(3, 7) || room.removed.Identity != Identity(12) {
+		t.Fatalf("remove request = %+v", room.removed)
+	}
+	if target := service.currentTarget(12); target.ChannelID != 0 {
+		t.Fatalf("removed participant target = %+v", target)
+	}
+	if participants := service.rooms[7]; len(participants) != 0 {
+		t.Fatalf("removed participant remained in snapshot: %+v", participants)
+	}
+}
+
+type recordingRoomService struct {
+	removed *livekit.RoomParticipantIdentity
+}
+
+func (r *recordingRoomService) ListRooms(context.Context, *livekit.ListRoomsRequest) (*livekit.ListRoomsResponse, error) {
+	return &livekit.ListRoomsResponse{}, nil
+}
+
+func (r *recordingRoomService) DeleteRoom(context.Context, *livekit.DeleteRoomRequest) (*livekit.DeleteRoomResponse, error) {
+	return &livekit.DeleteRoomResponse{}, nil
+}
+
+func (r *recordingRoomService) ListParticipants(context.Context, *livekit.ListParticipantsRequest) (*livekit.ListParticipantsResponse, error) {
+	return &livekit.ListParticipantsResponse{}, nil
+}
+
+func (r *recordingRoomService) RemoveParticipant(_ context.Context, participant *livekit.RoomParticipantIdentity) (*livekit.RemoveParticipantResponse, error) {
+	r.removed = participant
+	return &livekit.RemoveParticipantResponse{}, nil
+}
+
+func (r *recordingRoomService) UpdateParticipant(context.Context, *livekit.UpdateParticipantRequest) (*livekit.ParticipantInfo, error) {
+	return &livekit.ParticipantInfo{}, nil
 }

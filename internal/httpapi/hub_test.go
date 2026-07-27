@@ -214,6 +214,33 @@ func TestHubUserBroadcastRequiresSharedGuild(t *testing.T) {
 	}
 }
 
+func TestHubSendUserOnlyTargetsAccountConnections(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	first := newClient(store.User{ID: 1})
+	first.guilds[10] = struct{}{}
+	second := newClient(store.User{ID: 1})
+	second.guilds[20] = struct{}{}
+	sharedGuild := newClient(store.User{ID: 2})
+	sharedGuild.guilds[10] = struct{}{}
+	hub.register(first)
+	hub.register(second)
+	hub.register(sharedGuild)
+
+	hub.SendUser(1, "voice_disconnected_by_moderator", map[string]int64{"channelId": 7})
+	for _, connection := range []*client{first, second} {
+		select {
+		case <-connection.send:
+		case <-time.After(time.Second):
+			t.Fatal("target account connection did not receive event")
+		}
+	}
+	select {
+	case <-sharedGuild.send:
+		t.Fatal("another account in the same guild received private event")
+	default:
+	}
+}
+
 func TestHubGuildPresenceIsIsolated(t *testing.T) {
 	hub := newHub(15 * time.Second)
 	first := newClient(store.User{ID: 1})

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -25,6 +26,37 @@ func TestBootstrapCreatesDefaultGuild(t *testing.T) {
 	}
 	if len(channels) != 2 || channels[0].GuildID != guilds[0].ID || channels[1].GuildID != guilds[0].ID {
 		t.Fatalf("default channels = %+v", channels)
+	}
+}
+
+func TestRecordGuildVoiceDisconnectWritesAuditEntry(t *testing.T) {
+	db := newTestStore(t)
+	actor := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := db.CreateUser(ctx, "voice_disconnect_target", "断开目标", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, actor.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.RecordGuildVoiceDisconnect(ctx, guildID, actor.ID, target.ID, 27); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	err = db.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM audit_logs
+		WHERE guild_id = ? AND actor_id = ? AND target_user_id = ? AND action = ? AND details = ?`,
+		guildID, actor.ID, target.ID, "disconnect_guild_voice_participant", fmt.Sprintf("channel_id=%d", 27)).Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("voice disconnect audit count = %d, want 1", count)
 	}
 }
 

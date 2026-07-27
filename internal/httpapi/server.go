@@ -101,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/messages", s.requireGuildMember(http.HandlerFunc(s.handleGuildCreateMessage)))
 	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/voice/token", s.requireGuildMember(http.HandlerFunc(s.handleGuildVoiceToken)))
 	mux.Handle("PATCH /api/guilds/{guildID}/channels/{channelID}/voice/state", s.requireGuildMember(http.HandlerFunc(s.handleGuildVoiceState)))
+	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/voice/participants/{userID}/disconnect", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildVoiceParticipantDisconnect)))
 	mux.Handle("POST /api/guilds/{guildID}/voice/leave", s.requireGuildMember(http.HandlerFunc(s.handleGuildVoiceLeave)))
 	mux.Handle("DELETE /api/guilds/{guildID}/channels/{channelID}/messages/{messageID}", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildDeleteMessage)))
 	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/read", s.requireGuildMember(http.HandlerFunc(s.handleGuildRead)))
