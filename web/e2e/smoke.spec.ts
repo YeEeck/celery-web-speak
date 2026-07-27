@@ -46,9 +46,9 @@ async function openPlatformAccounts(page: Page) {
   await expect(page.locator('.admin-panel .panel-header p')).toHaveText('平台管理员')
 }
 
-async function mockMemberModerationRoles(
+async function mockActiveGuildRole(
   page: Page,
-  options: { actorRole: 'owner' | 'admin'; isPlatformAdmin: boolean },
+  options: { actorRole: 'owner' | 'admin'; isPlatformAdmin?: boolean },
 ) {
   await page.routeWebSocket(/\/api\/ws\?/, () => {})
   await page.route('**/api/bootstrap', async (route) => {
@@ -58,11 +58,20 @@ async function mockMemberModerationRoles(
       response,
       json: {
         ...payload,
-        user: { ...payload.user, isPlatformAdmin: options.isPlatformAdmin },
+        user: options.isPlatformAdmin === undefined
+          ? payload.user
+          : { ...payload.user, isPlatformAdmin: options.isPlatformAdmin },
         guilds: payload.guilds.map((guild: { joined: boolean }) => guild.joined ? { ...guild, role: options.actorRole } : guild),
       },
     })
   })
+}
+
+async function mockMemberModerationRoles(
+  page: Page,
+  options: { actorRole: 'owner' | 'admin'; isPlatformAdmin: boolean },
+) {
+  await mockActiveGuildRole(page, options)
   await page.route('**/api/guilds/*/bootstrap', async (route) => {
     const response = await route.fetch()
     const payload = await response.json()
@@ -458,17 +467,7 @@ test('语音工具栏在 320px 窄视口内不溢出', async ({ page, isMobile }
 })
 
 test('服务器操作菜单集中展示当前角色可用操作', async ({ page, isMobile }) => {
-  await page.route('**/api/bootstrap', async (route) => {
-    const response = await route.fetch()
-    const payload = await response.json()
-    await route.fulfill({
-      response,
-      json: {
-        ...payload,
-        guilds: payload.guilds.map((guild: { joined: boolean }) => guild.joined ? { ...guild, role: 'owner' } : guild),
-      },
-    })
-  })
+  await mockActiveGuildRole(page, { actorRole: 'owner' })
   await page.reload()
   await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
 
@@ -664,6 +663,68 @@ test('登录、聊天和管理员设置可用', async ({ page }) => {
   expect(Math.abs(verticalLayout.viewport - verticalLayout.composerBottom)).toBeLessThan(2)
 })
 
+test('频道 master-detail 联动展示元数据并丢弃未保存修改', async ({ page }) => {
+  const createdAt = '2026-07-27T01:02:03.000Z'
+  let voiceChannelName = ''
+  let textChannelName = ''
+  await page.routeWebSocket(/\/api\/ws\?/, () => {})
+  await page.route('**/api/guilds/*/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    const voiceChannel = payload.channels.find((channel: { type: string }) => channel.type === 'voice')
+    const textChannel = payload.channels.find((channel: { type: string }) => channel.type === 'text')
+    voiceChannelName = voiceChannel.name
+    textChannelName = textChannel.name
+    const channels = payload.channels.map((channel: { id: number }) => {
+      if (channel.id === voiceChannel.id) {
+        return {
+          ...channel,
+          createdAt,
+          audioBitrateKbps: 96,
+          backgroundAudioBitrateKbps: 192,
+          audioRedEnabled: false,
+          backgroundAudioRedEnabled: true,
+        }
+      }
+      return channel.id === textChannel.id ? { ...channel, messageRetention: 900 } : channel
+    })
+    const voiceRooms = [
+      ...payload.voiceRooms.filter((room: { channelId: number }) => room.channelId !== voiceChannel.id),
+      { channelId: voiceChannel.id, participants: [{ userId: 90_101 }, { userId: 90_102 }] },
+    ]
+    await route.fulfill({ response, json: { ...payload, channels, voiceRooms } })
+  })
+
+  await page.reload()
+  await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
+  await openGuildAdmin(page)
+  await page.locator('.admin-tabs').getByRole('button', { name: '频道', exact: true }).click()
+
+  const list = page.locator('.channel-admin-list')
+  const detail = page.locator('.channel-admin-detail')
+  await list.getByRole('button', { name: voiceChannelName, exact: true }).click()
+  await expect(detail.locator('header h3')).toHaveText(voiceChannelName)
+  const metadataRows = detail.locator('.guild-metadata > div')
+  await expect(metadataRows.nth(0).locator('dt')).toHaveText('频道类型')
+  await expect(metadataRows.nth(0).locator('dd')).toHaveText('语音频道')
+  const localizedCreatedAt = await page.evaluate((value) => new Date(value).toLocaleString('zh-CN'), createdAt)
+  await expect(metadataRows.nth(1).locator('dt')).toHaveText('创建时间')
+  await expect(metadataRows.nth(1).locator('dd')).toHaveText(localizedCreatedAt)
+  await expect(metadataRows.nth(2).locator('dt')).toHaveText('语音在线')
+  await expect(metadataRows.nth(2).locator('dd')).toHaveText('2 人')
+  await expect(detail.getByLabel('频道名称')).toHaveValue(voiceChannelName)
+  await expect(detail.getByRole('slider').nth(0)).toHaveValue('96')
+  await expect(detail.getByRole('slider').nth(1)).toHaveValue('192')
+  await expect(detail.getByLabel('语音 RED 丢包冗余')).not.toBeChecked()
+  await expect(detail.getByLabel('背景音 RED 丢包冗余')).toBeChecked()
+
+  await detail.getByLabel('频道名称').fill('未保存的频道名')
+  await list.getByRole('button', { name: textChannelName, exact: true }).click()
+  await expect(detail.getByLabel('保留消息数量')).toHaveValue('900')
+  await list.getByRole('button', { name: voiceChannelName, exact: true }).click()
+  await expect(detail.getByLabel('频道名称')).toHaveValue(voiceChannelName)
+})
+
 test('临时封禁状态在刷新后可见并可提前解除', async ({ page, request }, testInfo) => {
   await request.post('/api/auth/login', { data: { username, password } })
   const guildID = await firstJoinedGuildID(request)
@@ -756,25 +817,36 @@ test('服务器 Tab 仅所有者可见且为默认页签', async ({ page, isMobi
   await expect(page.getByLabel('服务器名称')).toBeVisible()
   await page.getByTitle('关闭').last().click()
 
-  await page.routeWebSocket(/\/api\/ws\?/, () => {})
-  await page.route('**/api/bootstrap', async (route) => {
-    const response = await route.fetch()
-    const payload = await response.json()
-    await route.fulfill({
-      response,
-      json: {
-        ...payload,
-        user: { ...payload.user, isPlatformAdmin: false },
-        guilds: payload.guilds.map((guild: { joined: boolean }) => guild.joined ? { ...guild, role: 'admin' } : guild),
-      },
-    })
-  })
+  await mockActiveGuildRole(page, { actorRole: 'admin', isPlatformAdmin: false })
   await page.reload()
   await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
   await openGuildAdmin(page)
   await expect(page.getByRole('button', { name: '服务器', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '频道', exact: true })).toHaveClass(/active/)
   await expect(page.locator('.channel-admin-list')).toBeVisible()
+})
+
+test('服务器 Tab 重命名后同步更新主界面', async ({ page, request }, testInfo) => {
+  await request.post('/api/auth/login', { data: { username, password } })
+  const guildID = await firstJoinedGuildID(request)
+  const bootstrapResponse = await request.get('/api/bootstrap')
+  const bootstrap = await bootstrapResponse.json() as { guilds: Array<{ id: number; name: string }> }
+  const originalName = bootstrap.guilds.find((guild) => guild.id === guildID)?.name
+  expect(originalName).toBeTruthy()
+  const projectSuffix = testInfo.project.name.startsWith('android') ? 'M' : 'D'
+  const nextName = `重命名验收${Date.now().toString(36)}${projectSuffix}`
+
+  try {
+    await openGuildAdmin(page)
+    await page.getByLabel('服务器名称').fill(nextName)
+    await page.getByRole('button', { name: '保存名称', exact: true }).click()
+    await expect(page.getByText('服务器名称已更新', { exact: true })).toBeVisible()
+    await page.getByTitle('关闭').last().click()
+    await expect(page.locator('.guild-title strong')).toHaveText(nextName)
+  } finally {
+    const restoreResponse = await request.patch(`/api/guilds/${guildID}`, { data: { name: originalName } })
+    expect(restoreResponse.ok()).toBeTruthy()
+  }
 })
 
 test('WebSocket 重同步的旧响应不会覆盖同一服务器的新状态', async ({ page, request, isMobile }) => {
@@ -885,7 +957,8 @@ test('管理员可创建和删除独立文字频道', async ({ page, isMobile })
   await confirmDelete.click()
   await expect(page.getByText('频道已永久删除')).toBeVisible()
   await expect(page.locator('.channel-admin-list').getByRole('button', { name: channelName, exact: true })).toHaveCount(0)
-  await expect(page.locator('.channel-admin-detail > header h3')).not.toBeEmpty()
+  const firstChannelName = (await page.locator('.channel-admin-list > button').nth(1).locator('span').textContent()) ?? ''
+  await expect(page.locator('.channel-admin-detail > header h3')).toHaveText(firstChannelName)
   await page.getByTitle('关闭').last().click()
   if (isMobile) await page.getByTitle('频道', { exact: true }).click()
   await expect(page.getByRole('button', { name: new RegExp(channelName) })).toHaveCount(0)
@@ -1531,6 +1604,71 @@ async function setSyntheticDeviceChange(page: Page, kind: 'input' | 'output' | n
     voice.deviceChangingId = nextDeviceId
   }, { nextKind: kind, nextDeviceId: deviceId })
 }
+
+test('平台账号列表和详情保持独立滚动', async ({ page, isMobile }) => {
+  await page.route('**/api/platform/users', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    const users = [
+      ...payload.users,
+      ...Array.from({ length: 40 }, (_, index) => ({
+        id: 20_000 + index,
+        username: `platform-scroll-${index + 1}`,
+        displayName: `平台滚动测试账号 ${String(index + 1).padStart(2, '0')}`,
+        role: 'member',
+        voiceMuted: false,
+        textMuted: false,
+        permanentlyBanned: false,
+        createdAt: new Date().toISOString(),
+      })),
+    ]
+    await route.fulfill({ response, json: { ...payload, users } })
+  })
+
+  await page.setViewportSize({ width: isMobile ? 412 : 1200, height: 500 })
+  await openPlatformAccounts(page)
+  const panel = page.getByRole('dialog', { name: '平台管理' })
+  const content = panel.locator('.admin-content')
+  const list = panel.locator('.admin-user-list')
+  const detail = panel.locator('.user-admin-detail')
+  await expect(list).toBeVisible()
+  await expect(detail).toBeVisible()
+
+  const layout = await panel.evaluate((element) => {
+    const contentElement = element.querySelector<HTMLElement>('.admin-content')!
+    const listElement = element.querySelector<HTMLElement>('.admin-user-list')!
+    const detailElement = element.querySelector<HTMLElement>('.user-admin-detail')!
+    const listRect = listElement.getBoundingClientRect()
+    const detailRect = detailElement.getBoundingClientRect()
+    return {
+      contentOverflow: getComputedStyle(contentElement).overflowY,
+      listCanScroll: listElement.scrollHeight > listElement.clientHeight,
+      detailCanScroll: detailElement.scrollHeight > detailElement.clientHeight,
+      listOverscroll: getComputedStyle(listElement).overscrollBehaviorY,
+      detailOverscroll: getComputedStyle(detailElement).overscrollBehaviorY,
+      listRect: { top: listRect.top, right: listRect.right, bottom: listRect.bottom },
+      detailRect: { top: detailRect.top, left: detailRect.left, bottom: detailRect.bottom },
+    }
+  })
+  expect(layout.contentOverflow).toBe('hidden')
+  expect(layout.listCanScroll).toBe(true)
+  expect(layout.detailCanScroll).toBe(true)
+  expect(layout.listOverscroll).toBe('contain')
+  expect(layout.detailOverscroll).toBe('contain')
+  if (isMobile) {
+    expect(layout.listRect.bottom).toBeLessThanOrEqual(layout.detailRect.top)
+  } else {
+    expect(layout.listRect.right).toBeLessThanOrEqual(layout.detailRect.left)
+    expect(Math.abs(layout.listRect.top - layout.detailRect.top)).toBeLessThan(2)
+    expect(Math.abs(layout.listRect.bottom - layout.detailRect.bottom)).toBeLessThan(2)
+  }
+
+  await list.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  await detail.evaluate((element) => { element.scrollTop = element.scrollHeight })
+  expect(await list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  expect(await detail.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+  await expect(content).toHaveClass(/contained/)
+})
 
 test('管理控制台成员列表和详情分别滚动', async ({ page, isMobile }) => {
   await page.route('**/api/guilds/*/bootstrap', async (route) => {
