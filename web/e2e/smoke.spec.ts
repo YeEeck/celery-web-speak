@@ -1104,21 +1104,60 @@ test('主题模式与强调色持久化到浏览器', async ({ page, isMobile })
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 })
 
-test('音频处理开关持久化到浏览器', async ({ page, isMobile }) => {
+test('音频处理与静音说话提醒开关持久化到浏览器', async ({ page, isMobile }) => {
   await openUserSettings(page)
   await page.getByRole('button', { name: '音频', exact: true }).click()
 
   const echoToggle = page.getByLabel('回声抑制')
   const noiseToggle = page.getByLabel('降噪')
+  const reminderToggle = page.getByLabel('静音时说话提醒')
   await expect(echoToggle).toBeChecked()
   await expect(noiseToggle).toBeChecked()
+  await expect(reminderToggle).toBeChecked()
 
   await echoToggle.uncheck()
   await noiseToggle.uncheck()
+  await reminderToggle.uncheck()
   await expect.poll(() => page.evaluate(() => ({
     echo: localStorage.getItem('cws.echoCancellation'),
     noise: localStorage.getItem('cws.noiseSuppression'),
-  }))).toEqual({ echo: 'false', noise: 'false' })
+    mutedSpeakingReminder: localStorage.getItem('cws.mutedSpeakingReminder.enabled'),
+  }))).toEqual({ echo: 'false', noise: 'false', mutedSpeakingReminder: 'false' })
+
+  await page.reload()
+  await openUserSettings(page)
+  await page.getByRole('button', { name: '音频', exact: true }).click()
+  await expect(page.getByLabel('静音时说话提醒')).not.toBeChecked()
+})
+
+test('静音说话提醒使用固定双音并遵守提示音总开关', async ({ page }) => {
+  await installToneCounter(page)
+  await page.locator('body').click({ position: { x: 10, y: 10 } })
+
+  const initialCount = await toneCount(page)
+  await playMutedSpeakingReminderThroughStore(page)
+  await expect.poll(() => toneCount(page)).toBe(initialCount + 2)
+
+  await setSoundEnabledThroughStore(page, false)
+  await playMutedSpeakingReminderThroughStore(page)
+  await page.waitForTimeout(150)
+  expect(await toneCount(page)).toBe(initialCount + 2)
+})
+
+test('静音说话提醒高亮麦克风按钮并显示状态提示', async ({ page, isMobile }) => {
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+  await page.getByTitle('麦克风静音').click()
+  await setMutedSpeakingReminderVisible(page, true)
+
+  const microphoneButton = page.getByTitle('取消静音')
+  const reminderTooltip = page.locator('.muted-speaking-reminder-tooltip')
+  await expect(microphoneButton).toHaveClass(/muted-speaking-reminder/)
+  await expect(reminderTooltip).toBeVisible()
+  await expect(reminderTooltip).toHaveText('你正在静音时说话')
+
+  await setMutedSpeakingReminderVisible(page, false)
+  await expect(microphoneButton).not.toHaveClass(/muted-speaking-reminder/)
+  await expect(reminderTooltip).toHaveCount(0)
 })
 
 test('他人的新消息播放提示音，自己的消息不播放', async ({ page, request, isMobile }, testInfo) => {
@@ -1558,6 +1597,42 @@ async function setSoundSuppressedThroughStore(page: Page, suppressed: boolean) {
     if (!sounds) throw new Error('未找到提示音 store')
     sounds.setSuppressed(value)
   }, suppressed)
+}
+
+async function playMutedSpeakingReminderThroughStore(page: Page) {
+  await page.evaluate(() => {
+    type SoundStoreTestState = { playMutedSpeakingReminder: () => void }
+    type PiniaTestState = { _s: Map<string, SoundStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const sounds = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('sounds')
+    if (!sounds) throw new Error('未找到提示音 store')
+    sounds.playMutedSpeakingReminder()
+  })
+}
+
+async function setSoundEnabledThroughStore(page: Page, enabled: boolean) {
+  await page.evaluate((value) => {
+    type SoundStoreTestState = { setEnabled: (enabled: boolean) => void }
+    type PiniaTestState = { _s: Map<string, SoundStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const sounds = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('sounds')
+    if (!sounds) throw new Error('未找到提示音 store')
+    sounds.setEnabled(value)
+  }, enabled)
+}
+
+async function setMutedSpeakingReminderVisible(page: Page, visible: boolean) {
+  await page.evaluate((value) => {
+    type VoiceStoreTestState = { mutedSpeakingReminderVisible: boolean }
+    type PiniaTestState = { _s: Map<string, VoiceStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    const voice = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('voice')
+    if (!voice) throw new Error('未找到语音 store')
+    voice.mutedSpeakingReminderVisible = value
+  }, visible)
 }
 
 async function setSyntheticVoiceConnection(page: Page, options: {

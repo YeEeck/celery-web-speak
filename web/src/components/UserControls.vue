@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { AudioLines, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RadioTower, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
@@ -167,6 +167,10 @@ onMounted(() => {
   document.addEventListener('keydown', handleKeyDown)
 })
 
+watch(() => voice.mutedSpeakingReminderVisible, (visible) => {
+  if (visible && volumeOpen.value === 'input') closeVolume()
+})
+
 onBeforeUnmount(() => {
   clearVolumeCloseTimer()
   document.removeEventListener('pointerdown', handlePointerDown)
@@ -200,9 +204,10 @@ onBeforeUnmount(() => {
         <button
           ref="microphoneTrigger"
           class="icon-button"
-          :class="{ danger: microphoneMuted }"
+          :class="{ danger: microphoneMuted, 'muted-speaking-reminder': voice.mutedSpeakingReminderVisible }"
           :disabled="voice.muteChanging || voice.deafenChanging"
           :title="microphoneTitle"
+          :aria-describedby="voice.mutedSpeakingReminderVisible ? 'muted-speaking-reminder-tooltip' : undefined"
           :aria-expanded="volumeOpen === 'input'"
           aria-controls="microphone-volume-popover"
           @focus="handleControlFocus('input')"
@@ -213,6 +218,12 @@ onBeforeUnmount(() => {
           <LoaderCircle v-if="voice.muteChanging" :size="18" class="spin" />
           <MicOff v-else-if="microphoneMuted" :size="18" /><Mic v-else :size="18" />
         </button>
+        <span
+          v-if="voice.mutedSpeakingReminderVisible"
+          id="muted-speaking-reminder-tooltip"
+          class="muted-speaking-reminder-tooltip"
+          role="status"
+        >你正在静音时说话</span>
         <section
           v-if="volumeOpen === 'input'"
           id="microphone-volume-popover"

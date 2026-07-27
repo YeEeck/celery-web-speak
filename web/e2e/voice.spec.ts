@@ -178,6 +178,12 @@ test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser
   const context = await browser.newContext({ permissions: ['microphone'] })
   await context.grantPermissions(['microphone'], { origin: baseURL })
   const page = await context.newPage()
+  const mutedSpeakingWarnings: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'warning' && message.text().includes('静音说话检测已停用')) {
+      mutedSpeakingWarnings.push(message.text())
+    }
+  })
 
   try {
     await loginVoicePage(page, account, testInfo.project.name.startsWith('android'))
@@ -201,6 +207,7 @@ test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser
 
     await page.getByTitle('麦克风静音', { exact: true }).click()
     await expect(page.getByTitle('取消静音', { exact: true })).toBeVisible()
+    await expect.poll(() => page.evaluate(() => performance.getEntriesByType('resource').some((entry) => entry.name.includes('muted-speaking-')))).toBe(true)
     await modeButton.click()
     modeButton = page.locator('.transmission-mode-button')
     await expect(modeButton).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
@@ -208,6 +215,7 @@ test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser
     await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.voiceTransmissionMode'))).toBe('continuous')
     await page.getByTitle('取消静音', { exact: true }).click()
     await expect(page.getByTitle('麦克风静音', { exact: true })).toBeVisible()
+    expect(mutedSpeakingWarnings).toEqual([])
 
     await page.getByTitle('断开语音', { exact: true }).click()
     await expect(page.locator('.user-controls')).toHaveCount(1)
