@@ -43,7 +43,7 @@ Go 应用提供嵌入式前端、认证与管理 API、文字聊天 WebSocket、
 
 音频处理分为三层：
 
-- 本地麦克风轨道通过自定义 LiveKit Track Processor 接入 Web Audio GainNode，实现 0%-300% 麦克风增益。
+- 本地麦克风采集明确请求关闭浏览器自动增益，音轨通过自定义 LiveKit Track Processor 接入 Web Audio GainNode，实现固定的 0%-300% 麦克风增益。
 - 远端用户的麦克风音量和背景音音量按音轨来源独立保存并应用；各自与全局扬声器音量在客户端相乘，分别限制在 0%-300%，再通过 LiveKit 参与者音量接口应用。
 - 操作提示音由 Web Audio Oscillator/GainNode 本地合成，不加载外部音频文件；优先通过 `setSinkId` 路由到所选输出设备，不支持时使用系统默认设备。
 

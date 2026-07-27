@@ -14,6 +14,7 @@ import {
 import { request } from '../api'
 import { MicrophoneActivityMonitor } from '../audio/MicrophoneActivityMonitor'
 import { MicrophoneGainProcessor } from '../audio/MicrophoneGainProcessor'
+import { buildMicrophoneCaptureOptions } from '../audio/microphoneCaptureOptions'
 import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor'
 import type { Channel, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
@@ -377,13 +378,7 @@ export const useVoiceStore = defineStore('voice', () => {
         adaptiveStream: true,
         dynacast: true,
         webAudioMix: true,
-        audioCaptureDefaults: {
-          deviceId: resolvedPreferredDeviceId('input'),
-          echoCancellation: echoCancellation.value,
-          noiseSuppression: noiseSuppression.value,
-          autoGainControl: true,
-          channelCount: 1,
-        },
+        audioCaptureDefaults: microphoneCaptureOptions(),
         publishDefaults: {
           audioPreset: { maxBitrate: (channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS) * 1000 },
           dtx: dtxEnabled.value,
@@ -1019,13 +1014,11 @@ export const useVoiceStore = defineStore('voice', () => {
   }
 
   function microphoneCaptureOptions() {
-    return {
+    return buildMicrophoneCaptureOptions({
       deviceId: resolvedPreferredDeviceId('input'),
       echoCancellation: echoCancellation.value,
       noiseSuppression: noiseSuppression.value,
-      autoGainControl: true,
-      channelCount: 1,
-    }
+    })
   }
 
   function applicationAudioPublishOptions() {

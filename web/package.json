@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "typecheck": "vue-tsc -b --pretty false",
-    "test:unit": "node --test tests/muted-speaking-reminder-state.test.ts",
+    "test:unit": "node --test tests/*.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
