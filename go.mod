@@ -7,6 +7,7 @@ require (
 	github.com/livekit/protocol v1.49.0
 	github.com/livekit/server-sdk-go/v2 v2.18.1
 	golang.org/x/crypto v0.54.0
+	golang.org/x/image v0.44.0
 	modernc.org/sqlite v1.54.0
 )
 
