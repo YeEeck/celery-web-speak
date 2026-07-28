@@ -22,6 +22,7 @@ import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
+import { useVoiceShortcuts } from '../stores/voice-shortcuts'
 import type { Channel, GuildSummary, VersionResponse } from '../types'
 
 const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
@@ -29,6 +30,7 @@ const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
 const app = useAppStore()
 const voice = useVoiceStore()
 const toast = useToastStore()
+useVoiceShortcuts()
 const channelsOpen = ref(false)
 const membersOpen = ref(false)
 const desktopMembersVisible = ref(true)

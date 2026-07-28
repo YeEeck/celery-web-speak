@@ -36,8 +36,14 @@ const microphoneVolumeLabel = computed(() => microphoneVolumeMuted.value ? '麦�
 const outputVolumeLabel = computed(() => voice.deafened ? '扬声器音量，当前静音' : '扬声器音量')
 const microphoneTitle = computed(() => {
   if (voice.muteChanging) return '麦克风状态切换中'
-  if (voice.guildMuted) return voice.microphoneEnabledPreference ? '管理员禁言' : '取消静音'
-  return voice.muted ? '取消静音' : '麦克风静音'
+  const label = voice.guildMuted
+    ? (voice.microphoneEnabledPreference ? '管理员禁言' : '取消静音')
+    : (voice.muted ? '取消静音' : '麦克风静音')
+  return `${label} (Ctrl+Shift+M)`
+})
+const deafenTitle = computed(() => {
+  if (voice.deafenChanging) return '耳机状态切换中'
+  return `${voice.deafened ? '取消耳机静音' : '耳机静音'} (Ctrl+Shift+D)`
 })
 
 function finePointerAvailable() {
@@ -248,7 +254,7 @@ onBeforeUnmount(() => {
           class="icon-button"
           :class="{ danger: voice.deafened }"
           :disabled="voice.deafenChanging || voice.muteChanging"
-          :title="voice.deafenChanging ? '耳机状态切换中' : voice.deafened ? '取消耳机静音' : '耳机静音'"
+          :title="deafenTitle"
           :aria-expanded="volumeOpen === 'output'"
           aria-controls="output-volume-popover"
           @focus="handleControlFocus('output')"
