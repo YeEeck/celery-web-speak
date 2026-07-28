@@ -3,7 +3,7 @@ import { MutedSpeakingReminderState } from './MutedSpeakingReminderState'
 
 const SAMPLE_RATE = 16_000
 const FRAME_DURATION_MS = 20
-const VAD_MODE_VERY_AGGRESSIVE = 3
+const VAD_MODE_AGGRESSIVE = 2
 
 type MainMessage = { type: 'connect'; port: MessagePort }
 type WorkerMessage = { type: 'ready' } | { type: 'reminder' } | { type: 'error'; message: string }
@@ -27,7 +27,7 @@ async function connect(port: MessagePort) {
     transport?.close()
     vad?.destroy()
     transport = port
-    vad = await WebrtcVad.create(VAD_MODE_VERY_AGGRESSIVE, SAMPLE_RATE)
+    vad = await WebrtcVad.create(VAD_MODE_AGGRESSIVE, SAMPLE_RATE)
     const state = new MutedSpeakingReminderState()
     transport.onmessage = (event: MessageEvent<unknown>) => {
       if (!(event.data instanceof Int16Array) || !vad) return
