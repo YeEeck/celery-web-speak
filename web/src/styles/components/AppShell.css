@@ -1,4 +1,4 @@
-.app-shell { height: 100%; display: grid; grid-template-columns: 72px 300px minmax(360px, 1fr) 264px; grid-template-rows: minmax(0, 1fr); background: var(--main); }
+.app-shell { height: 100%; display: grid; grid-template-columns: 80px 300px minmax(360px, 1fr) 264px; grid-template-rows: minmax(0, 1fr); background: var(--main); }
 #voice-audio-root { position: fixed; width: 0; height: 0; overflow: hidden; }
 .action-toast-stack { position: fixed; z-index: 100; top: max(16px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; width: max-content; max-width: calc(100vw - 32px); pointer-events: none; }
 .action-toast { position: relative; width: max-content; max-width: calc(100vw - 32px); min-height: 38px; padding: 9px 30px 9px 14px; border: 1px solid var(--border-strong); border-left: 3px solid var(--green); border-radius: 6px; display: flex; align-items: center; gap: 10px; background: var(--elevated); color: var(--text); box-shadow: 0 10px 28px rgba(0,0,0,.4); font-size: 13px; pointer-events: auto; }
@@ -7,12 +7,12 @@
 .action-toast.warning { border-left-color: var(--yellow); }
 .action-toast-close { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; }
 .action-toast-close:hover { background: var(--hover); color: var(--text); }
-.guild-rail { background: var(--rail); padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; overflow: hidden; }
-.rail-logo { width: 46px; height: 46px; border-radius: 22%; overflow: hidden; flex: 0 0 auto; transition: var(--t-colors); }
+.guild-rail { background: var(--rail); padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 10px; overflow: hidden; }
+.rail-logo { width: 52px; height: 52px; border-radius: 22%; overflow: hidden; flex: 0 0 auto; transition: var(--t-colors); }
 .rail-logo:hover { opacity: .85; }
-.guild-button { position: relative; width: 46px; height: 46px; padding: 0; border: 2px solid transparent; border-radius: 22%; overflow: hidden; background: transparent; cursor: pointer; flex: 0 0 auto; transition: var(--t-colors), transform var(--dur-fast) var(--ease); }
+.guild-button { position: relative; width: 52px; height: 52px; padding: 0; border: 2px solid transparent; border-radius: 22%; overflow: hidden; background: transparent; cursor: pointer; flex: 0 0 auto; transition: var(--t-colors), transform var(--dur-fast) var(--ease); }
 .guild-icon { display: block; width: 100%; height: 100%; }
-.guild-initial { width: 100%; height: 100%; display: grid; place-items: center; background: var(--sidebar); color: var(--muted); font-size: 18px; font-weight: 750; transition: var(--t-colors); }
+.guild-initial { width: 100%; display: grid; place-items: center; background: var(--sidebar); color: var(--muted); font-size: 20px; font-weight: 750; transition: var(--t-colors); }
 .guild-button:not(.add-guild):not(.platform-manage):hover { transform: scale(1.08); }
 .guild-button.active { border-color: var(--brand); }
 .guild-button.metadata-only { opacity: .52; }
@@ -20,16 +20,17 @@
 .guild-button.add-guild:hover { background: var(--hover); }
 .guild-button.platform-manage { display: grid; place-items: center; color: var(--muted); background: transparent; transition: var(--t-colors); }
 .guild-button.platform-manage:hover { background: var(--hover); color: var(--text); }
-.guild-unread { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 31px; border: 2px solid var(--rail); border-radius: 50%; background: var(--brand); }
-.rail-divider { width: 32px; height: 2px; flex: 0 0 auto; background: var(--active); }
-.rail-status { width: 40px; height: 40px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--sidebar); color: var(--faint); transition: var(--t-colors); }
+.guild-unread { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 37px; border: 2px solid var(--rail); border-radius: 50%; background: var(--brand); }
+.rail-divider { width: 36px; height: 2px; flex: 0 0 auto; background: var(--active); }
+.rail-status { width: 44px; height: 44px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: var(--sidebar); color: var(--faint); transition: var(--t-colors); }
 .rail-status:hover { background: var(--hover); }
 .rail-status.online { color: var(--green); }
 .rail-status.connecting { color: var(--yellow); }
-.rail-scroll { flex: 1 1 auto; width: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.rail-status.offline { color: var(--muted); }
+.rail-scroll { flex: 1 1 auto; width: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .rail-scroll::-webkit-scrollbar { display: none; }
-.rail-account { flex: 0 0 auto; width: 46px; padding-top: 10px; border-top: 2px solid var(--active); display: grid; place-items: center; }
-.account-trigger { position: relative; width: 46px; height: 46px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; background: transparent; cursor: pointer; }
+.rail-account { flex: 0 0 auto; width: 52px; padding-top: 10px; border-top: 2px solid var(--active); display: grid; place-items: center; }
+.account-trigger { position: relative; width: 52px; height: 52px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; background: transparent; cursor: pointer; }
 .account-trigger:hover .avatar { filter: brightness(1.08); }
 .account-trigger[aria-expanded="true"] .avatar { box-shadow: 0 0 0 2px var(--brand); }
 .rail-account .online-dot { border-color: var(--rail); }
