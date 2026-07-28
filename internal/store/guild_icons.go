@@ -7,9 +7,10 @@ import (
 	"fmt"
 )
 
-// SetGuildIcon stores the supplied icon bytes for the guild and atomically bumps
-// icon_version so clients can cache by URL derivation of the version.
-func (s *Store) SetGuildIcon(ctx context.Context, guildID int64, mime string, bytes []byte) (Guild, error) {
+// SetGuildIcon stores the supplied icon bytes for the guild, atomically bumps
+// icon_version so clients can cache by URL derivation of the version, and
+// records a guild audit entry attributed to actorID.
+func (s *Store) SetGuildIcon(ctx context.Context, guildID, actorID int64, mime string, bytes []byte) (Guild, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Guild{}, err
@@ -25,6 +26,9 @@ WHERE id = ?`, bytes, mime, formatTime(s.now()), guildID)
 	if count, _ := result.RowsAffected(); count == 0 {
 		return Guild{}, ErrNotFound
 	}
+	if err := insertGuildAudit(ctx, tx, guildID, actorID, nil, "set_guild_icon", fmt.Sprintf("mime=%s bytes=%d", mime, len(bytes))); err != nil {
+		return Guild{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return Guild{}, err
 	}
@@ -32,8 +36,9 @@ WHERE id = ?`, bytes, mime, formatTime(s.now()), guildID)
 }
 
 // ClearGuildIcon removes the guild's icon bytes while still bumping icon_version
-// so previously cached URLs cannot collide with a future upload.
-func (s *Store) ClearGuildIcon(ctx context.Context, guildID int64) (Guild, error) {
+// so previously cached URLs cannot collide with a future upload, and records a
+// guild audit entry attributed to actorID.
+func (s *Store) ClearGuildIcon(ctx context.Context, guildID, actorID int64) (Guild, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Guild{}, err
@@ -48,6 +53,9 @@ WHERE id = ?`, formatTime(s.now()), guildID)
 	}
 	if count, _ := result.RowsAffected(); count == 0 {
 		return Guild{}, ErrNotFound
+	}
+	if err := insertGuildAudit(ctx, tx, guildID, actorID, nil, "clear_guild_icon", ""); err != nil {
+		return Guild{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Guild{}, err
