@@ -80,7 +80,7 @@ onBeforeUnmount(() => {
       @keydown="handleKeyDown"
     >
       <header class="voice-participant-action-header">
-        <UserAvatar :name="participant.name" :size="34" />
+        <UserAvatar :name="participant.name" :size="34" :user="member ?? undefined" />
         <span><strong>{{ participant.name }}</strong><small>语音参与者</small></span>
       </header>
 

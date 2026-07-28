@@ -94,7 +94,7 @@ onBeforeUnmount(() => {
       @keydown="handleKeyDown"
     >
       <header class="account-menu-summary">
-        <UserAvatar :name="app.user!.displayName" :size="40" :online="true" />
+        <UserAvatar :name="app.user!.displayName" :size="40" :online="true" :user="app.user ?? undefined" />
         <span><strong>{{ app.user!.displayName }}</strong><small>@{{ app.user!.username }} · 在线</small></span>
       </header>
       <span class="account-menu-divider" role="separator" />

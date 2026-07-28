@@ -96,7 +96,7 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
           @contextmenu.prevent="openParticipantMenu(participant, $event)"
           @keydown="openParticipantKeyboardMenu(participant, $event)"
         >
-          <UserAvatar :name="participant.name" :size="30" />
+          <UserAvatar :name="participant.name" :size="30" :user="userFor(participant)" />
           <span class="voice-member-name" :class="{ speaking: participant.isSpeaking }">
             {{ participant.name }}<small v-if="participant.isLocal">你</small>
           </span>
@@ -122,7 +122,7 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
     <div v-else-if="previewParticipants.length" class="voice-members voice-members-preview">
       <div v-for="participant in previewParticipants" :key="participant.identity" class="voice-member">
         <div class="voice-member-main">
-          <UserAvatar :name="userFor(participant)?.displayName ?? participant.name" :size="30" />
+          <UserAvatar :name="userFor(participant)?.displayName ?? participant.name" :size="30" :user="userFor(participant)" />
           <span class="voice-member-name">{{ userFor(participant)?.displayName ?? participant.name }}</span>
         </div>
       </div>

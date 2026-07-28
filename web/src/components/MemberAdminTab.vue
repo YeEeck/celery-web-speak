@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onMounted, ref } from 'vue'
-import { Ban, ShieldCheck, UserMinus, UserPlus } from '@lucide/vue'
+import { Ban, ShieldCheck, Trash2, UserMinus, UserPlus } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import type { GuildRole, User } from '../types'
@@ -118,6 +118,16 @@ async function permanentBan(banned: boolean) {
   }, banned ? '服务器永久封禁已生效' : '服务器永久封禁已解除')
 }
 
+async function removeAvatar() {
+  const target = selectedUser.value
+  if (!target || !window.confirm(`移除 ${target.displayName} 的头像?`)) return
+  await run(async () => {
+    await request(`/api/users/${target.id}/avatar`, { method: 'DELETE' })
+    await app.bootstrap()
+    selectedUserId.value = target.id
+  }, '头像已移除')
+}
+
 function roleLabel(user: User) {
   return user.role === 'owner' ? '服务器所有者' : user.role === 'admin' ? '服务器管理员' : '普通成员'
 }
@@ -142,12 +152,12 @@ function selectUser(userId: number) {
         :class="{ active: selectedUserId === member.id }"
         @click="selectUser(member.id)"
       >
-        <UserAvatar :name="member.displayName" :size="32" />
+        <UserAvatar :name="member.displayName" :size="32" :user="member" />
         <span><strong>{{ member.displayName }}</strong><small>{{ roleLabel(member) }}</small></span>
       </button>
     </aside>
     <div v-if="selectedUser" ref="userDetail" class="user-admin-detail">
-      <header><UserAvatar :name="selectedUser.displayName" :size="48" /><div><h3>{{ selectedUser.displayName }}</h3><p>@{{ selectedUser.username }}</p></div></header>
+      <header><UserAvatar :name="selectedUser.displayName" :size="48" :user="selectedUser" /><div><h3>{{ selectedUser.displayName }}</h3><p>@{{ selectedUser.username }}</p></div></header>
       <template v-if="moderationPermission.allowed">
         <div class="toggle-list">
           <label><span>语音禁言</span><input type="checkbox" :checked="selectedUser.voiceMuted" @change="setMute('voice', ($event.target as HTMLInputElement).checked)" /></label>
@@ -157,6 +167,7 @@ function selectUser(userId: number) {
         <button v-if="selectedUser.temporaryBanUntil" class="secondary-button" @click="clearTemporaryBan">解除临时封禁</button>
         <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '解除服务器永久封禁' : '服务器永久封禁' }}</button>
         <button class="secondary-button danger-text" @click="removeMember"><UserMinus :size="16" />移出服务器</button>
+        <button v-if="app.isPlatformAdmin && selectedUser.hasAvatar" class="secondary-button danger-text" @click="removeAvatar"><Trash2 :size="16" />移除头像</button>
       </template>
       <p v-else-if="moderationPermission.reason" class="permission-note"><ShieldCheck :size="17" />{{ moderationPermission.reason }}</p>
 

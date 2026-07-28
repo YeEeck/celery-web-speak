@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { BellRing, Headphones, Mic, Palette, RefreshCw, Save, UserRound, X } from '@lucide/vue'
+import { BellRing, Headphones, Mic, Palette, RefreshCw, Save, Trash2, UserRound, X } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useSoundStore, type NotificationSound, type SoundPresetId, SOUND_PRESETS } from '../stores/sounds'
 import { useThemeStore } from '../stores/theme'
 import { useVoiceStore } from '../stores/voice'
 import { rangeProgressStyle } from '../utils/range'
+import AvatarCropperModal from './AvatarCropperModal.vue'
+import UserAvatar from './UserAvatar.vue'
 
 const props = withDefaults(defineProps<{
   initialTab?: 'account' | 'audio'
@@ -33,6 +35,74 @@ const passwordMessage = ref('')
 const passwordError = ref('')
 
 onMounted(() => void voice.refreshDevices(false))
+
+const avatarFile = ref<File | null>(null)
+const cropperOpen = ref(false)
+const avatarSaving = ref(false)
+const avatarMessage = ref('')
+const avatarError = ref('')
+const fileInput = ref<HTMLInputElement | null>(null)
+
+const allowedAvatarTypes = ['image/png', 'image/jpeg', 'image/webp']
+
+function openAvatarPicker() {
+  avatarError.value = ''
+  avatarMessage.value = ''
+  fileInput.value?.click()
+}
+
+function onAvatarFileChosen(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (file.size > 4 * 1024 * 1024) {
+    avatarError.value = '图片大小不能超过 4 MB'
+    return
+  }
+  if (!allowedAvatarTypes.includes(file.type)) {
+    avatarError.value = '请选择 PNG、JPEG 或 WebP 图片'
+    return
+  }
+  avatarFile.value = file
+  cropperOpen.value = true
+}
+
+async function onAvatarCropped(blob: Blob) {
+  cropperOpen.value = false
+  avatarError.value = ''
+  avatarMessage.value = ''
+  avatarSaving.value = true
+  try {
+    await app.updateAvatar(blob)
+    avatarMessage.value = '头像已更新'
+  } catch (error) {
+    avatarError.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    avatarSaving.value = false
+    avatarFile.value = null
+  }
+}
+
+async function removeAvatar() {
+  if (!app.user?.hasAvatar) return
+  avatarError.value = ''
+  avatarMessage.value = ''
+  avatarSaving.value = true
+  try {
+    await app.deleteAvatar()
+    avatarMessage.value = '头像已移除'
+  } catch (error) {
+    avatarError.value = error instanceof Error ? error.message : '保存失败'
+  } finally {
+    avatarSaving.value = false
+  }
+}
+
+function cancelCropper() {
+  cropperOpen.value = false
+  avatarFile.value = null
+}
 
 async function saveDisplayName() {
   if (!displayName.value.trim()) return
@@ -124,6 +194,21 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
       </nav>
       <div class="settings-scroll">
         <section v-if="tab === 'account'" class="settings-section">
+          <h3><UserRound :size="18" />头像</h3>
+          <div class="avatar-editor-row">
+            <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="onAvatarFileChosen" />
+            <button class="avatar-trigger" type="button" :disabled="avatarSaving" :aria-label="`更换${app.user!.displayName}的头像`" @click="openAvatarPicker">
+              <UserAvatar :name="app.user!.displayName" :size="80" :user="app.user ?? undefined" />
+              <span class="avatar-overlay" aria-hidden="true">更换头像</span>
+            </button>
+            <div class="avatar-editor-actions">
+              <button class="secondary-button danger-text" :disabled="avatarSaving || !app.user?.hasAvatar" @click="removeAvatar"><Trash2 :size="16" />移除头像</button>
+            </div>
+          </div>
+          <div class="profile-save-row avatar-editor-message-row">
+            <span v-if="avatarError" class="form-error">{{ avatarError }}</span>
+            <span v-else-if="avatarMessage" class="form-success">{{ avatarMessage }}</span>
+          </div>
           <h3><UserRound :size="18" />个人资料</h3>
           <label><span>显示名称</span><input v-model.trim="displayName" maxlength="32" /></label>
           <div class="profile-save-row">
@@ -244,5 +329,6 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
         </section>
       </div>
     </section>
+    <AvatarCropperModal v-if="cropperOpen && avatarFile" :file="avatarFile" @cancel="cancelCropper" @confirm="onAvatarCropped" />
   </div>
 </template>

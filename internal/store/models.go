@@ -60,6 +60,8 @@ type GuildMember struct {
 	PermanentlyBanned bool       `json:"permanentlyBanned"`
 	TemporaryBanUntil *time.Time `json:"temporaryBanUntil,omitempty"`
 	JoinedAt          time.Time  `json:"joinedAt"`
+	AvatarVersion     int        `json:"avatarVersion"`
+	HasAvatar         bool       `json:"hasAvatar"`
 }
 
 func (m GuildMember) ActiveAt(now time.Time) bool {
@@ -78,6 +80,8 @@ type User struct {
 	IsPlatformAdmin   bool       `json:"isPlatformAdmin"`
 	SuspendedAt       *time.Time `json:"suspendedAt,omitempty"`
 	CreatedAt         time.Time  `json:"createdAt"`
+	AvatarVersion     int        `json:"avatarVersion"`
+	HasAvatar         bool       `json:"hasAvatar"`
 }
 
 type Channel struct {

@@ -11,7 +11,7 @@ import (
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT u.id, u.username, u.display_name, u.permanently_banned, u.created_at,
-       u.is_platform_admin, u.suspended_at
+       u.is_platform_admin, u.suspended_at, u.avatar_version, u.avatar_bytes IS NOT NULL
 FROM users u
 WHERE u.deleted_at IS NULL
 ORDER BY u.is_platform_admin DESC,
@@ -23,14 +23,15 @@ ORDER BY u.is_platform_admin DESC,
 	var users []User
 	for rows.Next() {
 		var user User
-		var permanentlyBanned, platformAdmin int
+		var permanentlyBanned, platformAdmin, hasAvatar int
 		var createdAt string
 		var suspendedAt sql.NullString
-		if err := rows.Scan(&user.ID, &user.Username, &user.DisplayName, &permanentlyBanned, &createdAt, &platformAdmin, &suspendedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.DisplayName, &permanentlyBanned, &createdAt, &platformAdmin, &suspendedAt, &user.AvatarVersion, &hasAvatar); err != nil {
 			return nil, err
 		}
 		user.PermanentlyBanned = permanentlyBanned != 0
 		user.IsPlatformAdmin = platformAdmin != 0
+		user.HasAvatar = hasAvatar != 0
 		user.Role = platformRole(user.IsPlatformAdmin)
 		user.CreatedAt, _ = parseTime(createdAt)
 		if suspendedAt.Valid {

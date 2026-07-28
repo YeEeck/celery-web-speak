@@ -49,5 +49,7 @@ export function mapGuildMember(member: GuildMemberPayload): User {
     permanentlyBanned: member.permanentlyBanned,
     temporaryBanUntil: member.temporaryBanUntil,
     createdAt: member.joinedAt,
+    avatarVersion: member.avatarVersion,
+    hasAvatar: member.hasAvatar,
   }
 }
