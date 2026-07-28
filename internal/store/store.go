@@ -142,6 +142,28 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if err := s.migratePermissionScope(ctx); err != nil {
 		return fmt.Errorf("migrate scoped permissions: %w", err)
 	}
+	if err := s.ensureAvatarColumns(ctx); err != nil {
+		return fmt.Errorf("migrate avatar columns: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ensureAvatarColumns(ctx context.Context) error {
+	for _, column := range []struct{ name, decl string }{
+		{"avatar_version", "INTEGER NOT NULL DEFAULT 0"},
+		{"avatar_bytes", "BLOB"},
+		{"avatar_mime", "TEXT"},
+	} {
+		has, err := s.tableHasColumn(ctx, "users", column.name)
+		if err != nil {
+			return err
+		}
+		if !has {
+			if _, err := s.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN "+column.name+" "+column.decl); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -416,13 +438,13 @@ func (s *Store) CreateUser(ctx context.Context, username, displayName, password 
 func (s *Store) Authenticate(ctx context.Context, username, password string) (User, error) {
 	var user User
 	var passwordHash, createdAt string
-	var platformAdmin int
-	var permanentlyBanned int
+	var platformAdmin, permanentlyBanned, hasAvatar int
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, password_hash, permanently_banned, created_at, is_platform_admin
+SELECT id, username, display_name, password_hash, permanently_banned, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
 FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(username)).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &passwordHash,
 		&permanentlyBanned, &createdAt, &platformAdmin,
+		&user.AvatarVersion, &hasAvatar,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrInvalidLogin
@@ -436,6 +458,7 @@ FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(usernam
 	user.PermanentlyBanned = permanentlyBanned != 0
 	user.IsPlatformAdmin = platformAdmin != 0
 	user.Role = platformRole(user.IsPlatformAdmin)
+	user.HasAvatar = hasAvatar != 0
 	user.CreatedAt, _ = parseTime(createdAt)
 	if user.PermanentlyBanned {
 		return User{}, ErrBanned
@@ -446,13 +469,13 @@ FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(usernam
 func (s *Store) UserByID(ctx context.Context, id int64) (User, error) {
 	var user User
 	var createdAt string
-	var platformAdmin int
-	var permanentlyBanned int
+	var platformAdmin, permanentlyBanned, hasAvatar int
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, permanently_banned, created_at, is_platform_admin
+SELECT id, username, display_name, permanently_banned, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
 FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 		&user.ID, &user.Username, &user.DisplayName,
 		&permanentlyBanned, &createdAt, &platformAdmin,
+		&user.AvatarVersion, &hasAvatar,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
@@ -463,6 +486,7 @@ FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 	user.PermanentlyBanned = permanentlyBanned != 0
 	user.IsPlatformAdmin = platformAdmin != 0
 	user.Role = platformRole(user.IsPlatformAdmin)
+	user.HasAvatar = hasAvatar != 0
 	user.CreatedAt, _ = parseTime(createdAt)
 	return user, nil
 }

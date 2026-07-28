@@ -131,7 +131,8 @@ func guildMembership(ctx context.Context, queryer guildQueryRower, guildID, user
 	return scanGuildMember(queryer.QueryRowContext(ctx, `
 SELECT gm.guild_id, gm.user_id, u.username, u.display_name,
        CASE WHEN g.owner_user_id = gm.user_id THEN 'owner' ELSE gm.role END,
-       gm.voice_muted, gm.text_muted, gm.permanently_banned, gm.temporary_ban_until, gm.joined_at
+       gm.voice_muted, gm.text_muted, gm.permanently_banned, gm.temporary_ban_until, gm.joined_at,
+       u.avatar_version, u.avatar_bytes IS NOT NULL
 FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id JOIN users u ON u.id = gm.user_id AND u.deleted_at IS NULL
 WHERE gm.guild_id = ? AND gm.user_id = ?`, guildID, userID))
 }
@@ -140,7 +141,8 @@ func (s *Store) ListGuildMembers(ctx context.Context, guildID int64) ([]GuildMem
 	rows, err := s.db.QueryContext(ctx, `
 SELECT gm.guild_id, gm.user_id, u.username, u.display_name,
        CASE WHEN g.owner_user_id = gm.user_id THEN 'owner' ELSE gm.role END,
-       gm.voice_muted, gm.text_muted, gm.permanently_banned, gm.temporary_ban_until, gm.joined_at
+       gm.voice_muted, gm.text_muted, gm.permanently_banned, gm.temporary_ban_until, gm.joined_at,
+       u.avatar_version, u.avatar_bytes IS NOT NULL
 FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id JOIN users u ON u.id = gm.user_id
 WHERE gm.guild_id = ? AND u.deleted_at IS NULL
 ORDER BY CASE WHEN g.owner_user_id = gm.user_id THEN 0 WHEN gm.role = 'admin' THEN 1 ELSE 2 END, u.display_name COLLATE NOCASE`, guildID)
@@ -436,7 +438,8 @@ func (s *Store) ListPendingGuildMembershipRestores(ctx context.Context, now time
 	rows, err := s.db.QueryContext(ctx, `
 SELECT gm.guild_id, gm.user_id, u.username, u.display_name,
        CASE WHEN g.owner_user_id = gm.user_id THEN 'owner' ELSE gm.role END,
-       gm.voice_muted, gm.text_muted, gm.permanently_banned, gm.temporary_ban_until, gm.joined_at
+       gm.voice_muted, gm.text_muted, gm.permanently_banned, gm.temporary_ban_until, gm.joined_at,
+       u.avatar_version, u.avatar_bytes IS NOT NULL
 FROM guild_members gm
 JOIN guilds g ON g.id = gm.guild_id
 JOIN users u ON u.id = gm.user_id
@@ -641,10 +644,10 @@ func scanGuild(scanner guildScanner) (Guild, error) {
 
 func scanGuildMember(scanner guildScanner) (GuildMember, error) {
 	var member GuildMember
-	var voiceMuted, textMuted, permanentlyBanned int
+	var voiceMuted, textMuted, permanentlyBanned, hasAvatar int
 	var temporaryBanUntil sql.NullString
 	var joinedAt string
-	if err := scanner.Scan(&member.GuildID, &member.UserID, &member.Username, &member.DisplayName, &member.Role, &voiceMuted, &textMuted, &permanentlyBanned, &temporaryBanUntil, &joinedAt); err != nil {
+	if err := scanner.Scan(&member.GuildID, &member.UserID, &member.Username, &member.DisplayName, &member.Role, &voiceMuted, &textMuted, &permanentlyBanned, &temporaryBanUntil, &joinedAt, &member.AvatarVersion, &hasAvatar); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return GuildMember{}, ErrNotFound
 		}
@@ -653,6 +656,7 @@ func scanGuildMember(scanner guildScanner) (GuildMember, error) {
 	member.VoiceMuted = voiceMuted != 0
 	member.TextMuted = textMuted != 0
 	member.PermanentlyBanned = permanentlyBanned != 0
+	member.HasAvatar = hasAvatar != 0
 	member.JoinedAt, _ = parseTime(joinedAt)
 	if temporaryBanUntil.Valid {
 		until, err := parseTime(temporaryBanUntil.String)
