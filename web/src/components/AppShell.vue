@@ -13,6 +13,7 @@ import MemberList from './MemberList.vue'
 import PlatformGuildsPanel from './PlatformGuildsPanel.vue'
 import ProfilePanel from './ProfilePanel.vue'
 import GuildActionMenu from './GuildActionMenu.vue'
+import GuildIcon from './GuildIcon.vue'
 import UserControls from './UserControls.vue'
 import UserAvatar from './UserAvatar.vue'
 import VoiceChannel from './VoiceChannel.vue'
@@ -534,7 +535,7 @@ function closeChangelog() {
           @contextmenu.prevent="openGuildContextMenu(guild, $event)"
           @keydown="openGuildKeyboardMenu(guild, $event)"
         >
-          <span class="guild-initial">{{ guild.name.trim().slice(0, 1).toUpperCase() }}</span>
+          <GuildIcon :name="guild.name" :guild="guild" />
           <span v-if="guild.unreadCount" class="guild-unread" />
         </button>
         <button v-if="app.isPlatformAdmin" class="guild-button add-guild" type="button" title="创建服务器" @click="openPlatformGuilds(null, true)"><Plus :size="22" /></button>

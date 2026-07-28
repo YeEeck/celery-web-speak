@@ -9,7 +9,7 @@
 .platform-guild-list nav > button { width: 100%; min-height: 52px; padding: 5px 8px; border: 0; border-radius: 4px; display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 9px; background: transparent; color: var(--muted); text-align: left; cursor: pointer; transition: var(--t-colors); }
 .platform-guild-list nav > button:hover { color: var(--text); background: var(--hover); }
 .platform-guild-list nav > button.active { color: var(--text); background: var(--active); }
-.platform-guild-list .guild-initial { width: 38px; height: 38px; border-radius: 4px; font-size: 15px; }
+.platform-guild-list .guild-initial { width: 38px; height: 38px; font-size: 15px; }
 .platform-guild-list nav span:last-child { min-width: 0; display: grid; gap: 3px; }
 .platform-guild-list nav strong, .platform-guild-list nav small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .platform-guild-list nav small { color: var(--faint); font-size: 10px; }
@@ -17,7 +17,7 @@
 .platform-guild-detail > header { display: flex; align-items: center; gap: 14px; }
 .platform-guild-detail > header h3 { font-size: 20px; }
 .platform-guild-detail > header p { margin-top: 4px; color: var(--faint); font-size: 11px; }
-.platform-guild-mark { width: 52px; height: 52px; border-radius: 6px; display: grid; place-items: center; background: var(--elevated); color: var(--text); font-size: 20px; font-weight: 750; }
+.platform-guild-mark { width: 52px; height: 52px; border-radius: 22%; display: grid; place-items: center; background: var(--elevated); color: var(--text); font-size: 20px; font-weight: 750; }
 .guild-metadata { margin: 0; display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .guild-metadata div { min-width: 0; padding: 13px 10px; }
 .guild-metadata dt { color: var(--faint); font-size: 10px; font-weight: 700; }

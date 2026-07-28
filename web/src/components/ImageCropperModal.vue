@@ -2,7 +2,14 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { Save, X } from '@lucide/vue'
 
-const props = defineProps<{ file: File }>()
+const props = withDefaults(defineProps<{
+  file: File
+  title?: string
+  confirmLabel?: string
+}>(), {
+  title: '调整头像',
+  confirmLabel: '设为头像',
+})
 const emit = defineEmits<{ cancel: []; confirm: [Blob] }>()
 
 const OUT = 512
@@ -114,7 +121,7 @@ onBeforeUnmount(() => {
     <div class="modal-backdrop avatar-cropper-backdrop" @mousedown.self="cancel">
       <section class="avatar-cropper" role="dialog" aria-modal="true" aria-labelledby="avatar-cropper-title">
         <header>
-          <h3 id="avatar-cropper-title">调整头像</h3>
+          <h3 id="avatar-cropper-title">{{ props.title }}</h3>
           <button class="icon-button" title="取消" @click="cancel"><X :size="20" /></button>
         </header>
         <div class="cropper-stage">
@@ -147,7 +154,7 @@ onBeforeUnmount(() => {
         <p class="cropper-hint">拖动调整画面位置,滑动缩放裁剪区域。</p>
         <footer>
           <button class="secondary-button" @click="cancel">取消</button>
-          <button class="primary-button" :disabled="loading" @click="confirm"><Save :size="16" />设为头像</button>
+          <button class="primary-button" :disabled="loading" @click="confirm"><Save :size="16" />{{ props.confirmLabel }}</button>
         </footer>
       </section>
     </div>

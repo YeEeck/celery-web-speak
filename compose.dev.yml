@@ -1,5 +1,8 @@
 # 本地开发覆盖（不走 gateway，直接 HTTP/WS 访问）
 # 用法: docker compose -f compose.yml -f compose.build.yml -f compose.dev.yml up -d
+# 项目名覆盖为 cws-dev，使本地卷/网络/容器与生产名 celery-web-speak 隔离，
+# 避免本地构建覆盖生产镜像或共享持久卷。
+name: cws-dev
 services:
   app:
     environment:

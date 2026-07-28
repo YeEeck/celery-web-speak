@@ -1,5 +1,5 @@
 @media (min-width: 1141px) {
-  .app-shell.members-collapsed { grid-template-columns: 72px 300px minmax(360px, 1fr); }
+  .app-shell.members-collapsed { grid-template-columns: 80px 300px minmax(360px, 1fr); }
   .app-shell.members-collapsed > .member-list { display: none; }
 }
 
@@ -11,7 +11,7 @@
 }
 
 @media (max-width: 1140px) {
-  .app-shell { grid-template-columns: 72px 300px minmax(340px, 1fr); }
+  .app-shell { grid-template-columns: 80px 300px minmax(340px, 1fr); }
   .app-shell > .member-list { display: none; }
   .member-toggle { display: inline-grid; }
   .drawer-scrim.member-scrim { position: fixed; z-index: 44; inset: 0; display: flex; justify-content: flex-end; background: rgba(0,0,0,.58); }

@@ -7,7 +7,7 @@ import { useThemeStore } from '../stores/theme'
 import { useToastStore } from '../stores/toast'
 import { useVoiceStore } from '../stores/voice'
 import { rangeProgressStyle } from '../utils/range'
-import AvatarCropperModal from './AvatarCropperModal.vue'
+import ImageCropperModal from './ImageCropperModal.vue'
 import UserAvatar from './UserAvatar.vue'
 
 const props = withDefaults(defineProps<{
@@ -313,6 +313,6 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
         </section>
       </div>
     </section>
-    <AvatarCropperModal v-if="cropperOpen && avatarFile" :file="avatarFile" @cancel="cancelCropper" @confirm="onAvatarCropped" />
+    <ImageCropperModal v-if="cropperOpen && avatarFile" :file="avatarFile" @cancel="cancelCropper" @confirm="onAvatarCropped" />
   </div>
 </template>

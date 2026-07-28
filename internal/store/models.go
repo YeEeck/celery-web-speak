@@ -33,6 +33,8 @@ type Guild struct {
 	CreatedBy   int64     `json:"createdBy"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+	IconVersion int       `json:"iconVersion"`
+	HasIcon     bool      `json:"hasIcon"`
 }
 
 type GuildSummary struct {

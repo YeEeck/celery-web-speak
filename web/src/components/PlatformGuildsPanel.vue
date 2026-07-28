@@ -5,6 +5,8 @@ import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
 import type { GuildSummary, User } from '../types'
+import GuildIcon from './GuildIcon.vue'
+import ImageCropperModal from './ImageCropperModal.vue'
 
 const props = defineProps<{ initialGuildId?: number | null; createOnOpen?: boolean }>()
 const emit = defineEmits<{ close: []; accounts: [] }>()
@@ -22,6 +24,12 @@ const showDeleteConfirmation = ref(false)
 const busy = ref(false)
 const loading = ref(false)
 const createNameInput = ref<HTMLInputElement | null>(null)
+const iconFile = ref<File | null>(null)
+const cropperOpen = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+const iconError = ref('')
+
+const allowedIconTypes = ['image/png', 'image/jpeg', 'image/webp']
 
 const selectedGuild = computed(() => guilds.value.find((guild) => guild.id === selectedGuildId.value) ?? null)
 const selectedOwner = computed(() => users.value.find((user) => user.id === selectedGuild.value?.ownerUserId) ?? null)
@@ -34,6 +42,7 @@ watch(selectedGuildId, () => {
   newOwnerId.value = null
   deleteConfirmation.value = ''
   showDeleteConfirmation.value = false
+  iconError.value = ''
 })
 watch(selectedGuild, (guild) => {
   renamedGuildName.value = guild?.name ?? ''
@@ -124,6 +133,60 @@ async function transferOwner() {
   }, '所有权已转让')
 }
 
+function openIconPicker() {
+  iconError.value = ''
+  fileInput.value?.click()
+}
+
+function onIconFileChosen(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  if (file.size > 4 * 1024 * 1024) {
+    iconError.value = '图片大小不能超过 4 MB'
+    return
+  }
+  if (!allowedIconTypes.includes(file.type)) {
+    iconError.value = '请选择 PNG、JPEG 或 WebP 图片'
+    return
+  }
+  iconFile.value = file
+  cropperOpen.value = true
+}
+
+async function onIconCropped(blob: Blob) {
+  cropperOpen.value = false
+  iconError.value = ''
+  const guildId = selectedGuildId.value
+  if (guildId === null) {
+    iconFile.value = null
+    return
+  }
+  const form = new FormData()
+  form.append('file', blob)
+  await run(async () => {
+    await request(`/api/platform/guilds/${guildId}/icon`, { method: 'POST', body: form })
+    await refresh()
+  }, '服务器图标已更新')
+  iconFile.value = null
+}
+
+async function removeIcon() {
+  const guildId = selectedGuildId.value
+  if (guildId === null || !selectedGuild.value?.hasIcon) return
+  iconError.value = ''
+  await run(async () => {
+    await request(`/api/platform/guilds/${guildId}/icon`, { method: 'DELETE' })
+    await refresh()
+  }, '服务器图标已移除')
+}
+
+function cancelCropper() {
+  cropperOpen.value = false
+  iconFile.value = null
+}
+
 async function deleteGuild() {
   const guild = selectedGuild.value
   if (!guild || deleteConfirmation.value !== guild.name) return
@@ -159,7 +222,7 @@ async function deleteGuild() {
           </form>
           <nav aria-label="平台服务器列表">
             <button v-for="guild in guilds" :key="guild.id" type="button" :class="{ active: guild.id === selectedGuildId }" @click="selectedGuildId = guild.id">
-              <span class="guild-initial">{{ guild.name.trim().slice(0, 1).toUpperCase() }}</span>
+              <GuildIcon :name="guild.name" :guild="guild" />
               <span><strong>{{ guild.name }}</strong><small>{{ guild.joined ? '已加入' : '仅管理信息' }}</small></span>
             </button>
           </nav>
@@ -167,7 +230,7 @@ async function deleteGuild() {
 
         <div v-if="selectedGuild" class="platform-guild-detail">
           <header>
-            <span class="platform-guild-mark">{{ selectedGuild.name.trim().slice(0, 1).toUpperCase() }}</span>
+            <span class="platform-guild-mark"><GuildIcon :name="selectedGuild.name" :guild="selectedGuild" /></span>
             <div><h3>{{ selectedGuild.name }}</h3><p>服务器 #{{ selectedGuild.id }}</p></div>
           </header>
           <dl class="guild-metadata">
