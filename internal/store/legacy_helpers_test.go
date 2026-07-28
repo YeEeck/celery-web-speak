@@ -82,5 +82,5 @@ func (s *Store) DeleteChannelMessage(ctx context.Context, actorID, channelID, me
 	if err != nil {
 		return err
 	}
-	return s.DeleteGuildChannelMessage(ctx, channel.GuildID, actorID, channelID, messageID)
+	return s.DeleteGuildChannelMessage(ctx, channel.GuildID, actorID, channelID, messageID, GuildRoleOwner)
 }

@@ -112,7 +112,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /api/guilds/{guildID}/channels/{channelID}/voice/state", s.requireGuildMember(http.HandlerFunc(s.handleGuildVoiceState)))
 	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/voice/participants/{userID}/disconnect", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildVoiceParticipantDisconnect)))
 	mux.Handle("POST /api/guilds/{guildID}/voice/leave", s.requireGuildMember(http.HandlerFunc(s.handleGuildVoiceLeave)))
-	mux.Handle("DELETE /api/guilds/{guildID}/channels/{channelID}/messages/{messageID}", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildDeleteMessage)))
+	mux.Handle("DELETE /api/guilds/{guildID}/channels/{channelID}/messages/{messageID}", s.requireGuildMember(http.HandlerFunc(s.handleGuildDeleteMessage)))
 	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/read", s.requireGuildMember(http.HandlerFunc(s.handleGuildRead)))
 	mux.Handle("GET /api/ws", s.requireAuth(http.HandlerFunc(s.handleWebSocket)))
 	mux.Handle("GET /api/version", s.requireAuth(http.HandlerFunc(s.handleVersion)))

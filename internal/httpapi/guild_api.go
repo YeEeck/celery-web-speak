@@ -561,7 +561,7 @@ func (s *Server) handleGuildDeleteMessage(w http.ResponseWriter, r *http.Request
 		s.writeStoreError(w, err)
 		return
 	}
-	if err := s.store.DeleteGuildChannelMessage(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, channelID, messageID); err != nil {
+	if err := s.store.DeleteGuildChannelMessage(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, channelID, messageID, guildMembership(r).Role); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}

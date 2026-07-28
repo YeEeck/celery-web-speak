@@ -121,7 +121,7 @@ func (s *Store) createChannelMessage(ctx context.Context, channel Channel, user 
 	return Message{ID: id, ChannelID: channel.ID, UserID: user.ID, Username: user.Username, DisplayName: user.DisplayName, Role: GuildRoleMember, Content: content, CreatedAt: now}, nil
 }
 
-func (s *Store) DeleteGuildChannelMessage(ctx context.Context, guildID, actorID, channelID, messageID int64) error {
+func (s *Store) DeleteGuildChannelMessage(ctx context.Context, guildID, actorID, channelID, messageID int64, actorRole GuildRole) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -133,12 +133,17 @@ func (s *Store) DeleteGuildChannelMessage(ctx context.Context, guildID, actorID,
 	} else if err != nil {
 		return err
 	}
-	result, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE id = ? AND channel_id = ?", messageID, channelID)
-	if err != nil {
+	var authorID int64
+	if err := tx.QueryRowContext(ctx, "SELECT user_id FROM messages WHERE id = ? AND channel_id = ?", messageID, channelID).Scan(&authorID); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
 		return err
 	}
-	if count, _ := result.RowsAffected(); count == 0 {
-		return ErrNotFound
+	if authorID != actorID && !actorRole.IsAdmin() {
+		return ErrMessageDeleteForbidden
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE id = ? AND channel_id = ?", messageID, channelID); err != nil {
+		return err
 	}
 	if err := insertGuildAudit(ctx, tx, guildID, actorID, nil, "delete_message", fmt.Sprintf("channel_id=%d message_id=%d", channelID, messageID)); err != nil {
 		return err

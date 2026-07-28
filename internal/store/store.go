@@ -30,6 +30,7 @@ var (
 	ErrChannelLimit               = errors.New("channel limit reached")
 	ErrChannelNameExists          = errors.New("channel name already exists")
 	ErrGuildOwnerTransferRequired = errors.New("guild ownership must be transferred first")
+	ErrMessageDeleteForbidden     = errors.New("only the message author or a guild admin can delete this message")
 )
 
 type Store struct {

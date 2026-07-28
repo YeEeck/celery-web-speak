@@ -141,6 +141,8 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "guild_owner_transfer_required", "请先转让或删除该账号拥有的服务器")
 	case errors.Is(err, store.ErrGuildMemberBanned):
 		writeError(w, http.StatusConflict, "guild_member_banned", "账号当前已被该服务器封禁")
+	case errors.Is(err, store.ErrMessageDeleteForbidden):
+		writeError(w, http.StatusForbidden, "message_delete_forbidden", "只能删除自己发送的消息")
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 	}

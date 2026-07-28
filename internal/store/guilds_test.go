@@ -364,3 +364,80 @@ func TestRestoreExpiredGuildMembershipsClaimsOnlyActiveExpiredBans(t *testing.T)
 		t.Fatalf("permanent membership was restored = %+v", permanentMember)
 	}
 }
+
+func TestDeleteGuildChannelMessagePermissions(t *testing.T) {
+	db := newTestStore(t)
+	platformAdmin := bootstrapAdmin(t, db)
+	ctx := context.Background()
+	owner, err := db.CreateUser(ctx, "del_owner", "删除所有者", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := db.CreateUser(ctx, "del_member", "删除成员", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := db.CreateUser(ctx, "del_other", "删除其他", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guild, err := db.CreateGuild(ctx, platformAdmin.ID, "删除权限服务器", owner.Username)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.JoinGuildAsAdmin(ctx, guild.ID, platformAdmin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guild.ID, owner.ID, member.Username); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guild.ID, owner.ID, other.Username); err != nil {
+		t.Fatal(err)
+	}
+	channels, err := db.ListGuildChannels(ctx, guild.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var textChannel Channel
+	for _, channel := range channels {
+		if channel.Type == ChannelTypeText {
+			textChannel = channel
+			break
+		}
+	}
+	memberMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, member, "成员消息")
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, other, "其他消息")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, owner, "所有者消息")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.DeleteGuildChannelMessage(ctx, guild.ID, member.ID, textChannel.ID, otherMessage.ID, GuildRoleMember); !errors.Is(err, ErrMessageDeleteForbidden) {
+		t.Fatalf("member deleting other's message error = %v, want ErrMessageDeleteForbidden", err)
+	}
+	if err := db.DeleteGuildChannelMessage(ctx, guild.ID, member.ID, textChannel.ID, memberMessage.ID, GuildRoleMember); err != nil {
+		t.Fatalf("author deleting own message error = %v", err)
+	}
+	if err := db.DeleteGuildChannelMessage(ctx, guild.ID, platformAdmin.ID, textChannel.ID, otherMessage.ID, GuildRoleAdmin); err != nil {
+		t.Fatalf("admin deleting other's message error = %v", err)
+	}
+	if err := db.DeleteGuildChannelMessage(ctx, guild.ID, owner.ID, textChannel.ID, ownerMessage.ID, GuildRoleOwner); err != nil {
+		t.Fatalf("owner deleting own message error = %v", err)
+	}
+	if err := db.DeleteGuildChannelMessage(ctx, guild.ID, owner.ID, textChannel.ID, 99999, GuildRoleOwner); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing message error = %v, want ErrNotFound", err)
+	}
+	messages, _, err := db.ListGuildChannelMessages(ctx, guild.ID, textChannel.ID, 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("remaining messages = %+v, want none", messages)
+	}
+}
