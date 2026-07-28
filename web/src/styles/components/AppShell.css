@@ -10,10 +10,11 @@
 .guild-rail { background: var(--rail); padding: 12px 0; display: flex; flex-direction: column; align-items: center; gap: 8px; overflow: hidden; }
 .rail-logo { width: 46px; height: 46px; border-radius: 22%; overflow: hidden; flex: 0 0 auto; transition: var(--t-colors); }
 .rail-logo:hover { opacity: .85; }
-.guild-button { position: relative; width: 46px; height: 46px; padding: 0; border: 0; border-radius: 22%; overflow: hidden; background: transparent; cursor: pointer; flex: 0 0 auto; }
+.guild-button { position: relative; width: 46px; height: 46px; padding: 0; border: 2px solid transparent; border-radius: 22%; overflow: hidden; background: transparent; cursor: pointer; flex: 0 0 auto; transition: var(--t-colors), transform var(--dur-fast) var(--ease); }
 .guild-icon { display: block; width: 100%; height: 100%; }
 .guild-initial { width: 100%; height: 100%; display: grid; place-items: center; background: var(--sidebar); color: var(--muted); font-size: 18px; font-weight: 750; transition: var(--t-colors); }
-.guild-button:hover .guild-initial, .guild-button.active .guild-initial { background: var(--brand); color: white; }
+.guild-button:not(.add-guild):not(.platform-manage):hover { transform: scale(1.08); }
+.guild-button.active { border-color: var(--brand); }
 .guild-button.metadata-only { opacity: .52; }
 .guild-button.add-guild { display: grid; place-items: center; color: var(--green); background: transparent; }
 .guild-button.add-guild:hover { background: var(--hover); }
