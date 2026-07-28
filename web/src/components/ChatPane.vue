@@ -303,7 +303,7 @@ function roleLabel(role: string) {
                 <span>{{ row.dateLabel }}</span>
               </div>
               <article class="message-row">
-                <UserAvatar :name="row.message.displayName" :size="40" />
+                <UserAvatar :name="row.message.displayName" :size="40" :user="app.users.find((u) => u.id === row.message?.userId)" />
                 <div class="message-body">
                   <header>
                     <strong>{{ row.message.displayName }}</strong>

@@ -29,7 +29,7 @@ function roleRank(role: string) {
     <section>
       <h3>在线 — {{ online.length }}</h3>
       <div v-for="member in online" :key="member.id" class="member-row">
-        <UserAvatar :name="member.displayName" :size="34" :online="true" />
+        <UserAvatar :name="member.displayName" :size="34" :online="true" :user="member" />
         <span><strong>{{ member.displayName }}</strong><small>@{{ member.username }}</small></span>
         <component :is="clientIcons[app.onlineClients[member.id] ?? 'web']" :size="14" class="client-type" :aria-label="clientLabels[app.onlineClients[member.id] ?? 'web']" />
         <Crown v-if="member.role === 'owner'" :size="15" class="guild-role" aria-label="服务器所有者" />
@@ -39,7 +39,7 @@ function roleRank(role: string) {
     <section v-if="offline.length">
       <h3>离线 — {{ offline.length }}</h3>
       <div v-for="member in offline" :key="member.id" class="member-row offline">
-        <UserAvatar :name="member.displayName" :size="34" />
+        <UserAvatar :name="member.displayName" :size="34" :user="member" />
         <span><strong>{{ member.displayName }}</strong><small>@{{ member.username }}</small></span>
         <Crown v-if="member.role === 'owner'" :size="15" class="guild-role" aria-label="服务器所有者" />
         <ShieldCheck v-else-if="member.role === 'admin'" :size="15" class="channel-role" aria-label="服务器管理员" />

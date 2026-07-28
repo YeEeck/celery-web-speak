@@ -142,12 +142,12 @@ function selectUser(userId: number) {
         :class="{ active: selectedUserId === member.id }"
         @click="selectUser(member.id)"
       >
-        <UserAvatar :name="member.displayName" :size="32" />
+        <UserAvatar :name="member.displayName" :size="32" :user="member" />
         <span><strong>{{ member.displayName }}</strong><small>{{ roleLabel(member) }}</small></span>
       </button>
     </aside>
     <div v-if="selectedUser" ref="userDetail" class="user-admin-detail">
-      <header><UserAvatar :name="selectedUser.displayName" :size="48" /><div><h3>{{ selectedUser.displayName }}</h3><p>@{{ selectedUser.username }}</p></div></header>
+      <header><UserAvatar :name="selectedUser.displayName" :size="48" :user="selectedUser" /><div><h3>{{ selectedUser.displayName }}</h3><p>@{{ selectedUser.username }}</p></div></header>
       <template v-if="moderationPermission.allowed">
         <div class="toggle-list">
           <label><span>语音禁言</span><input type="checkbox" :checked="selectedUser.voiceMuted" @change="setMute('voice', ($event.target as HTMLInputElement).checked)" /></label>

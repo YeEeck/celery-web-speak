@@ -249,12 +249,12 @@ function selectTab(nextTab: 'users' | 'invites') {
               :class="{ active: selectedUserId === member.id }"
               @click="selectUser(member.id)"
             >
-              <UserAvatar :name="member.displayName" :size="32" />
+              <UserAvatar :name="member.displayName" :size="32" :user="member" />
               <span><strong>{{ member.displayName }}</strong><small>{{ roleLabel(member) }}</small></span>
             </button>
           </aside>
           <div v-if="selectedUser" ref="userDetail" class="user-admin-detail">
-            <header><UserAvatar :name="selectedUser.displayName" :size="48" /><div><h3>{{ selectedUser.displayName }}</h3><p>@{{ selectedUser.username }}</p></div></header>
+            <header><UserAvatar :name="selectedUser.displayName" :size="48" :user="selectedUser" /><div><h3>{{ selectedUser.displayName }}</h3><p>@{{ selectedUser.username }}</p></div></header>
             <label><span>平台角色</span><select :value="selectedUser.isPlatformAdmin ? 'platform_admin' : 'member'" @change="setRole(($event.target as HTMLSelectElement).value as PlatformRole)"><option value="member">普通账号</option><option value="platform_admin">平台管理员</option></select></label>
             <label><span>重置密码</span><span class="inline-actions"><input v-model="resetPassword" type="password" minlength="10" placeholder="至少 10 位" /><button class="secondary-button" :disabled="resetPassword.length < 10" @click="doResetPassword"><KeyRound :size="16" />重置</button></span></label>
             <button :class="['secondary-button', { 'danger-text': !selectedUser.permanentlyBanned }]" @click="permanentBan(!selectedUser.permanentlyBanned)"><Ban :size="16" />{{ selectedUser.permanentlyBanned ? '恢复平台账号' : '停用平台账号' }}</button>
