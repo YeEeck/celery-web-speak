@@ -26,7 +26,7 @@
 .rail-status:hover { background: var(--hover); }
 .rail-status.online { color: var(--green); }
 .rail-status.connecting { color: var(--yellow); }
-.rail-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.rail-scroll { flex: 1 1 auto; width: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .rail-scroll::-webkit-scrollbar { display: none; }
 .rail-account { flex: 0 0 auto; width: 46px; padding-top: 10px; border-top: 2px solid var(--active); display: grid; place-items: center; }
 .account-trigger { position: relative; width: 46px; height: 46px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; background: transparent; cursor: pointer; }
