@@ -28,7 +28,7 @@ const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>(computed(() => (
   getScrollElement: () => list.value as HTMLDivElement | null,
   estimateSize: (index: number) => {
     if (index === 0) return app.hasEarlierMessages ? 46 : 205
-    return startsNewDay(index - 1) ? 97 : 64
+    return startsNewDay(index - 1) ? 101 : 68
   },
   getItemKey: (index: number) => index === 0 ? `history-${app.activeTextChannelId}` : (app.messages[index - 1]?.id ?? index),
   overscan: 10,

@@ -7,7 +7,7 @@
 .member-toggle { margin-left: auto; }
 .member-toggle.active { color: var(--text); background: var(--hover); }
 .message-list-wrap { position: relative; min-height: 0; }
-.message-list { height: 100%; overflow-y: auto; scrollbar-color: var(--scrollbar) transparent; }
+.message-list { height: 100%; overflow-y: auto; scrollbar-color: var(--scrollbar) transparent; padding: 0 8px; }
 .virtual-message-list { position: relative; width: 100%; }
 .virtual-message-row { position: absolute; top: 0; left: 0; width: 100%; padding-top: 5px; }
 .virtual-message-row.history-row { padding-top: 0; }
@@ -17,7 +17,7 @@
 .channel-intro { min-height: 205px; display: flex; flex-direction: column; justify-content: flex-end; padding: 28px 16px 18px; }
 .intro-icon { width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; background: var(--active); margin-bottom: 12px; }
 .channel-intro .intro-title { font-size: 24px; }.channel-intro p { margin-top: 6px; color: var(--muted); }
-.message-row { position: relative; display: grid; grid-template-columns: 40px minmax(0,1fr) 34px; column-gap: 12px; padding: 4px 12px 4px 16px; }
+.message-row { position: relative; display: grid; grid-template-columns: 40px minmax(0,1fr) 34px; column-gap: 12px; margin: 0 16px; padding: 6px 12px 6px 16px; border-radius: 10px; cursor: pointer; }
 .message-date-divider { display: flex; align-items: center; gap: 12px; padding: 7px 16px 3px; color: var(--faint); font-size: 10px; line-height: 16px; }
 .message-date-divider::before, .message-date-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
 .message-date-divider span { flex: 0 0 auto; }
