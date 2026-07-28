@@ -4,6 +4,7 @@ import { BellRing, Headphones, Mic, Palette, RefreshCw, Save, Trash2, UserRound,
 import { useAppStore } from '../stores/app'
 import { useSoundStore, type NotificationSound, type SoundPresetId, SOUND_PRESETS } from '../stores/sounds'
 import { useThemeStore } from '../stores/theme'
+import { useToastStore } from '../stores/toast'
 import { useVoiceStore } from '../stores/voice'
 import { rangeProgressStyle } from '../utils/range'
 import AvatarCropperModal from './AvatarCropperModal.vue'
@@ -21,6 +22,7 @@ const app = useAppStore()
 const voice = useVoiceStore()
 const sounds = useSoundStore()
 const theme = useThemeStore()
+const toast = useToastStore()
 const tab = ref<'account' | 'audio' | 'sound' | 'theme'>(props.initialTab)
 const audioSubNav = ref<'input' | 'output'>(props.initialAudioSubNav)
 
@@ -29,9 +31,6 @@ const currentPassword = ref('')
 const newPassword = ref('')
 const savingDisplayName = ref(false)
 const savingPassword = ref(false)
-const displayNameMessage = ref('')
-const displayNameError = ref('')
-const passwordMessage = ref('')
 const passwordError = ref('')
 
 onMounted(() => void voice.refreshDevices(false))
@@ -39,7 +38,6 @@ onMounted(() => void voice.refreshDevices(false))
 const avatarFile = ref<File | null>(null)
 const cropperOpen = ref(false)
 const avatarSaving = ref(false)
-const avatarMessage = ref('')
 const avatarError = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 
@@ -47,7 +45,6 @@ const allowedAvatarTypes = ['image/png', 'image/jpeg', 'image/webp']
 
 function openAvatarPicker() {
   avatarError.value = ''
-  avatarMessage.value = ''
   fileInput.value?.click()
 }
 
@@ -71,13 +68,11 @@ function onAvatarFileChosen(event: Event) {
 async function onAvatarCropped(blob: Blob) {
   cropperOpen.value = false
   avatarError.value = ''
-  avatarMessage.value = ''
   avatarSaving.value = true
   try {
-    await app.updateAvatar(blob)
-    avatarMessage.value = '头像已更新'
-  } catch (error) {
-    avatarError.value = error instanceof Error ? error.message : '保存失败'
+    await toast.runAction(async () => {
+      await app.updateAvatar(blob)
+    }, '头像已更新')
   } finally {
     avatarSaving.value = false
     avatarFile.value = null
@@ -87,13 +82,11 @@ async function onAvatarCropped(blob: Blob) {
 async function removeAvatar() {
   if (!app.user?.hasAvatar) return
   avatarError.value = ''
-  avatarMessage.value = ''
   avatarSaving.value = true
   try {
-    await app.deleteAvatar()
-    avatarMessage.value = '头像已移除'
-  } catch (error) {
-    avatarError.value = error instanceof Error ? error.message : '保存失败'
+    await toast.runAction(async () => {
+      await app.deleteAvatar()
+    }, '头像已移除')
   } finally {
     avatarSaving.value = false
   }
@@ -107,13 +100,10 @@ function cancelCropper() {
 async function saveDisplayName() {
   if (!displayName.value.trim()) return
   savingDisplayName.value = true
-  displayNameMessage.value = ''
-  displayNameError.value = ''
   try {
-    await app.updateProfile({ displayName: displayName.value })
-    displayNameMessage.value = '显示名称已保存'
-  } catch (error) {
-    displayNameError.value = error instanceof Error ? error.message : '保存失败'
+    await toast.runAction(async () => {
+      await app.updateProfile({ displayName: displayName.value })
+    }, '显示名称已保存')
   } finally {
     savingDisplayName.value = false
   }
@@ -124,20 +114,18 @@ async function savePassword() {
     passwordError.value = '新密码至少 10 位'
     return
   }
-  savingPassword.value = true
-  passwordMessage.value = ''
   passwordError.value = ''
+  savingPassword.value = true
   try {
-    await app.updateProfile({
-      displayName: app.user!.displayName,
-      currentPassword: currentPassword.value,
-      newPassword: newPassword.value,
-    })
-    currentPassword.value = ''
-    newPassword.value = ''
-    passwordMessage.value = '密码已更新'
-  } catch (error) {
-    passwordError.value = error instanceof Error ? error.message : '保存失败'
+    await toast.runAction(async () => {
+      await app.updateProfile({
+        displayName: app.user!.displayName,
+        currentPassword: currentPassword.value,
+        newPassword: newPassword.value,
+      })
+      currentPassword.value = ''
+      newPassword.value = ''
+    }, '密码已更新')
   } finally {
     savingPassword.value = false
   }
@@ -207,14 +195,11 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           </div>
           <div class="profile-save-row avatar-editor-message-row">
             <span v-if="avatarError" class="form-error">{{ avatarError }}</span>
-            <span v-else-if="avatarMessage" class="form-success">{{ avatarMessage }}</span>
           </div>
           <h3><UserRound :size="18" />个人资料</h3>
           <label><span>显示名称</span><input v-model.trim="displayName" maxlength="32" /></label>
           <div class="profile-save-row">
             <button class="primary-button" :disabled="savingDisplayName || !displayName.trim()" @click="saveDisplayName"><Save :size="17" />{{ savingDisplayName ? '保存中' : '保存显示名称' }}</button>
-            <span v-if="displayNameError" class="form-error">{{ displayNameError }}</span>
-            <span v-else-if="displayNameMessage" class="form-success">{{ displayNameMessage }}</span>
           </div>
           <h3><UserRound :size="18" />修改密码</h3>
           <div class="two-column">
@@ -224,7 +209,6 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           <div class="profile-save-row">
             <button class="primary-button" :disabled="savingPassword || !currentPassword || !newPassword" @click="savePassword"><Save :size="17" />{{ savingPassword ? '保存中' : '保存密码' }}</button>
             <span v-if="passwordError" class="form-error">{{ passwordError }}</span>
-            <span v-else-if="passwordMessage" class="form-success">{{ passwordMessage }}</span>
           </div>
           <h3>关于</h3>
           <button class="changelog-entry-button" @click="$emit('changelog')">更新日志</button>
