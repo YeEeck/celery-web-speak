@@ -7,3 +7,13 @@ button { color: inherit; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid #8b96ff; outline-offset: 2px; }
 button:disabled { cursor: not-allowed; opacity: .52; }
 h1, h2, h3, p { margin: 0; }
+
+/* 全局滚动条基线：透明轨道（去底色）、无上下箭头、细、胶囊滑块、hover 变亮。
+   特例不受影响——.rail-scroll（隐藏滚动条）与 .composer textarea（6px 自定义）
+   的选择器优先级高于通配符，各自规则仍然生效。 */
+* { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--scrollbar); }
+*::-webkit-scrollbar-thumb:hover { background: var(--faint); }
+*::-webkit-scrollbar-button { display: none; width: 0; height: 0; }

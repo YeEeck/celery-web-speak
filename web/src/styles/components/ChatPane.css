@@ -7,7 +7,7 @@
 .member-toggle { margin-left: auto; }
 .member-toggle.active { color: var(--text); background: var(--hover); }
 .message-list-wrap { position: relative; min-height: 0; }
-.message-list { height: 100%; overflow-y: auto; scrollbar-color: var(--scrollbar) transparent; padding: 0 8px; }
+.message-list { height: 100%; overflow-y: auto; padding: 0 8px; }
 .virtual-message-list { position: relative; width: 100%; }
 .virtual-message-row { position: absolute; top: 0; left: 0; width: 100%; padding-top: 5px; }
 .virtual-message-row.history-row { padding-top: 0; }
