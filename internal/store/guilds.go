@@ -66,13 +66,13 @@ func createDefaultGuildChannels(ctx context.Context, tx *sql.Tx, guildID int64, 
 }
 
 func (s *Store) GuildByID(ctx context.Context, guildID int64) (Guild, error) {
-	return scanGuild(s.db.QueryRowContext(ctx, `SELECT id, name, owner_user_id, created_by, created_at, updated_at FROM guilds WHERE id = ?`, guildID))
+	return scanGuild(s.db.QueryRowContext(ctx, `SELECT id, name, owner_user_id, created_by, created_at, updated_at, icon_version, icon_bytes IS NOT NULL FROM guilds WHERE id = ?`, guildID))
 }
 
 func (s *Store) ListGuildsForUser(ctx context.Context, userID int64, platformAdmin bool) ([]GuildSummary, error) {
 	now := formatTime(s.now())
 	rows, err := s.db.QueryContext(ctx, `
-SELECT g.id, g.name, g.owner_user_id, g.created_by, g.created_at, g.updated_at,
+SELECT g.id, g.name, g.owner_user_id, g.created_by, g.created_at, g.updated_at, g.icon_version, g.icon_bytes IS NOT NULL,
        gm.user_id IS NOT NULL AND gm.permanently_banned = 0 AND (gm.temporary_ban_until IS NULL OR gm.temporary_ban_until <= ?),
        CASE WHEN gm.user_id IS NOT NULL AND gm.permanently_banned = 0 AND (gm.temporary_ban_until IS NULL OR gm.temporary_ban_until <= ?) THEN CASE WHEN g.owner_user_id = ? THEN 'owner' ELSE gm.role END ELSE '' END,
        CASE WHEN gm.user_id IS NOT NULL AND gm.permanently_banned = 0 AND (gm.temporary_ban_until IS NULL OR gm.temporary_ban_until <= ?) THEN (
@@ -89,12 +89,14 @@ ORDER BY CASE WHEN gm.user_id IS NOT NULL THEN gm.joined_at ELSE g.created_at EN
 	}
 	defer rows.Close()
 	result := make([]GuildSummary, 0)
-	for rows.Next() {
+for rows.Next() {
 		var item GuildSummary
 		var createdAt, updatedAt string
-		if err := rows.Scan(&item.ID, &item.Name, &item.OwnerUserID, &item.CreatedBy, &createdAt, &updatedAt, &item.Joined, &item.Role, &item.UnreadCount, &item.MemberCount); err != nil {
+		var itemHasIcon int
+		if err := rows.Scan(&item.ID, &item.Name, &item.OwnerUserID, &item.CreatedBy, &createdAt, &updatedAt, &item.IconVersion, &itemHasIcon, &item.Joined, &item.Role, &item.UnreadCount, &item.MemberCount); err != nil {
 			return nil, err
 		}
+		item.HasIcon = itemHasIcon != 0
 		item.CreatedAt, _ = parseTime(createdAt)
 		item.UpdatedAt, _ = parseTime(updatedAt)
 		result = append(result, item)
@@ -566,7 +568,7 @@ WHERE gm.guild_id = ? AND gm.user_id = ?
 	if err := insertGuildAudit(ctx, tx, guildID, actorID, &newOwnerID, "transfer_guild_ownership", fmt.Sprintf("old_owner_id=%d", oldOwnerID)); err != nil {
 		return GuildOwnershipTransfer{}, err
 	}
-	guild, err := scanGuild(tx.QueryRowContext(ctx, `SELECT id, name, owner_user_id, created_by, created_at, updated_at FROM guilds WHERE id = ?`, guildID))
+	guild, err := scanGuild(tx.QueryRowContext(ctx, `SELECT id, name, owner_user_id, created_by, created_at, updated_at, icon_version, icon_bytes IS NOT NULL FROM guilds WHERE id = ?`, guildID))
 	if err != nil {
 		return GuildOwnershipTransfer{}, err
 	}
@@ -631,12 +633,14 @@ type guildScanner interface{ Scan(...any) error }
 func scanGuild(scanner guildScanner) (Guild, error) {
 	var guild Guild
 	var createdAt, updatedAt string
-	if err := scanner.Scan(&guild.ID, &guild.Name, &guild.OwnerUserID, &guild.CreatedBy, &createdAt, &updatedAt); err != nil {
+	var hasIcon int
+	if err := scanner.Scan(&guild.ID, &guild.Name, &guild.OwnerUserID, &guild.CreatedBy, &createdAt, &updatedAt, &guild.IconVersion, &hasIcon); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Guild{}, ErrNotFound
 		}
 		return Guild{}, err
 	}
+	guild.HasIcon = hasIcon != 0
 	guild.CreatedAt, _ = parseTime(createdAt)
 	guild.UpdatedAt, _ = parseTime(updatedAt)
 	return guild, nil

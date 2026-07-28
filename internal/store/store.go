@@ -145,6 +145,28 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if err := s.ensureAvatarColumns(ctx); err != nil {
 		return fmt.Errorf("migrate avatar columns: %w", err)
 	}
+	if err := s.ensureGuildIconColumns(ctx); err != nil {
+		return fmt.Errorf("migrate guild icon columns: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ensureGuildIconColumns(ctx context.Context) error {
+	for _, column := range []struct{ name, decl string }{
+		{"icon_version", "INTEGER NOT NULL DEFAULT 0"},
+		{"icon_bytes", "BLOB"},
+		{"icon_mime", "TEXT"},
+	} {
+		has, err := s.tableHasColumn(ctx, "guilds", column.name)
+		if err != nil {
+			return err
+		}
+		if !has {
+			if _, err := s.db.ExecContext(ctx, "ALTER TABLE guilds ADD COLUMN "+column.name+" "+column.decl); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
