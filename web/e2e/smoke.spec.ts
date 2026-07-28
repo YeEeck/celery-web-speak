@@ -252,6 +252,47 @@ test('WebUI 仅在有效原生场景保留鼠标右键菜单', async ({ page, is
   expect(await keyboardResult).toBe(false)
 })
 
+test('WebUI 仅在用户内容与可编辑控件上允许文本选区', async ({ page }) => {
+  const result = await page.evaluate(() => {
+    const fixture = document.createElement('div')
+    fixture.style.cssText = 'position:fixed;inset:0 auto auto 0;z-index:99999'
+    fixture.innerHTML = `
+      <div data-target="chrome">界面文本</div>
+      <div data-target="user-content" data-user-content>消息正文</div>
+      <input data-target="text-input" value="可编辑">
+      <textarea data-target="textarea">可编辑</textarea>
+      <div data-target="editable" contenteditable="true">可编辑区</div>
+      <a data-target="link" href="/help">链接</a>
+      <button data-target="button">按钮文本</button>
+    `
+    document.body.append(fixture)
+    const styleOf = (name: string) => getComputedStyle(fixture.querySelector(`[data-target="${name}"]`) as HTMLElement).userSelect
+    const value = {
+      body: getComputedStyle(document.body).userSelect,
+      chrome: styleOf('chrome'),
+      userContent: styleOf('user-content'),
+      textInput: styleOf('text-input'),
+      textarea: styleOf('textarea'),
+      editable: styleOf('editable'),
+      link: styleOf('link'),
+      button: styleOf('button'),
+    }
+    fixture.remove()
+    return value
+  })
+
+  expect(result).toEqual({
+    body: 'none',
+    chrome: 'none',
+    userContent: 'text',
+    textInput: 'text',
+    textarea: 'text',
+    editable: 'text',
+    link: 'text',
+    button: 'none',
+  })
+})
+
 test('浏览器图标与服务器切换栏可用', async ({ page, isMobile }) => {
   const favicon = page.locator('link[rel="icon"]')
   await expect(favicon).toHaveAttribute('href', '/favicon.svg')
