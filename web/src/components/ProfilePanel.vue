@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { BellRing, Headphones, Mic, Palette, RefreshCw, Save, Trash2, Upload, UserRound, X } from '@lucide/vue'
+import { BellRing, Headphones, Mic, Palette, RefreshCw, Save, Trash2, UserRound, X } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useSoundStore, type NotificationSound, type SoundPresetId, SOUND_PRESETS } from '../stores/sounds'
 import { useThemeStore } from '../stores/theme'
@@ -196,10 +196,12 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
         <section v-if="tab === 'account'" class="settings-section">
           <h3><UserRound :size="18" />头像</h3>
           <div class="avatar-editor-row">
-            <UserAvatar :name="app.user!.displayName" :size="80" :user="app.user ?? undefined" />
+            <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="onAvatarFileChosen" />
+            <button class="avatar-trigger" type="button" :disabled="avatarSaving" :aria-label="`更换${app.user!.displayName}的头像`" @click="openAvatarPicker">
+              <UserAvatar :name="app.user!.displayName" :size="80" :user="app.user ?? undefined" />
+              <span class="avatar-overlay" aria-hidden="true">更换头像</span>
+            </button>
             <div class="avatar-editor-actions">
-              <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="onAvatarFileChosen" />
-              <button class="secondary-button" :disabled="avatarSaving" @click="openAvatarPicker"><Upload :size="16" />更换头像</button>
               <button class="secondary-button danger-text" :disabled="avatarSaving || !app.user?.hasAvatar" @click="removeAvatar"><Trash2 :size="16" />移除头像</button>
             </div>
           </div>
