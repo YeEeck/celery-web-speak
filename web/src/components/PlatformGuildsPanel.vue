@@ -3,11 +3,13 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { LogIn, Plus, RefreshCw, Save, ServerCog, Trash2, UserCog, UserRoundCog, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
+import { useToastStore } from '../stores/toast'
 import type { GuildSummary, User } from '../types'
 
 const props = defineProps<{ initialGuildId?: number | null; createOnOpen?: boolean }>()
 const emit = defineEmits<{ close: []; accounts: [] }>()
 const app = useAppStore()
+const toast = useToastStore()
 const guilds = ref<GuildSummary[]>([])
 const users = ref<User[]>([])
 const selectedGuildId = ref<number | null>(props.initialGuildId ?? null)
@@ -19,8 +21,6 @@ const deleteConfirmation = ref('')
 const showDeleteConfirmation = ref(false)
 const busy = ref(false)
 const loading = ref(false)
-const message = ref('')
-const errorMessage = ref('')
 const createNameInput = ref<HTMLInputElement | null>(null)
 
 const selectedGuild = computed(() => guilds.value.find((guild) => guild.id === selectedGuildId.value) ?? null)
@@ -34,8 +34,6 @@ watch(selectedGuildId, () => {
   newOwnerId.value = null
   deleteConfirmation.value = ''
   showDeleteConfirmation.value = false
-  message.value = ''
-  errorMessage.value = ''
 })
 watch(selectedGuild, (guild) => {
   renamedGuildName.value = guild?.name ?? ''
@@ -48,7 +46,6 @@ onMounted(async () => {
 
 async function refresh() {
   loading.value = true
-  errorMessage.value = ''
   try {
     const [guildPayload, userPayload] = await Promise.all([
       request<{ guilds: GuildSummary[] }>('/api/platform/guilds'),
@@ -60,7 +57,7 @@ async function refresh() {
       selectedGuildId.value = guilds.value[0]?.id ?? null
     }
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '加载失败'
+    toast.showError(error instanceof Error ? error.message : '加载失败')
   } finally {
     loading.value = false
   }
@@ -68,13 +65,8 @@ async function refresh() {
 
 async function run(action: () => Promise<void>, success: string) {
   busy.value = true
-  message.value = ''
-  errorMessage.value = ''
   try {
-    await action()
-    message.value = success
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '操作失败'
+    await toast.runAction(action, success)
   } finally {
     busy.value = false
   }
@@ -218,8 +210,6 @@ async function deleteGuild() {
         </div>
         <div v-else class="platform-guild-empty"><ServerCog :size="30" /><span>暂无服务器</span></div>
       </div>
-
-      <footer class="panel-footer"><span v-if="errorMessage" class="form-error">{{ errorMessage }}</span><span v-else class="form-success">{{ message }}</span></footer>
     </section>
   </div>
 </template>

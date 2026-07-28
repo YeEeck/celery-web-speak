@@ -11,8 +11,6 @@
 .settings-section:last-child { border-bottom: 0; }
 .settings-section h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; }
 .two-column { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.panel-footer { min-height: 56px; padding: 9px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
-.panel-footer > span { margin-right: auto; }
 
 .admin-panel { position: relative; width: 980px; height: 820px; max-width: none; max-height: none; grid-template-rows: auto auto minmax(0,1fr) auto; }
 .admin-content.contained { overflow: hidden; }

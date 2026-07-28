@@ -3,11 +3,13 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { Ban, Clipboard, KeyRound, Plus, Ticket, Trash2, UserCog, UserPlus, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
+import { useToastStore } from '../stores/toast'
 import type { Invite, PlatformRole, User } from '../types'
 import UserAvatar from './UserAvatar.vue'
 
 defineEmits<{ close: [] }>()
 const app = useAppStore()
+const toast = useToastStore()
 const tab = ref<'users' | 'invites'>('users')
 const selectedUserId = ref<number | null>(null)
 const resetPassword = ref('')
@@ -22,8 +24,6 @@ const newUsername = ref('')
 const newDisplayName = ref('')
 const newPassword = ref('')
 const newRole = ref<PlatformRole>('member')
-const message = ref('')
-const errorMessage = ref('')
 const busy = ref(false)
 const adminContent = ref<HTMLElement | null>(null)
 const userDetail = ref<HTMLElement | null>(null)
@@ -40,7 +40,7 @@ onMounted(async () => {
     await loadPlatformUsers()
     await loadInvites()
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '邀请码加载失败'
+    toast.showError(error instanceof Error ? error.message : '邀请码加载失败')
   }
   selectedUserId.value = manageableUsers.value[0]?.id ?? null
 })
@@ -52,13 +52,8 @@ async function loadPlatformUsers() {
 
 async function run(action: () => Promise<void>, success: string) {
   busy.value = true
-  message.value = ''
-  errorMessage.value = ''
   try {
-    await action()
-    message.value = success
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '操作失败'
+    await toast.runAction(action, success)
   } finally {
     busy.value = false
   }
@@ -96,7 +91,6 @@ async function doResetPassword() {
 }
 
 function openDeleteDialog(target: User) {
-  errorMessage.value = ''
   deleteTarget.value = target
   deleteConfirmation.value = ''
   nextTick(() => deleteConfirmationInput.value?.focus())
@@ -193,7 +187,7 @@ async function deleteInvite(invite: Invite) {
 
 async function copyCode(code: string) {
   await navigator.clipboard.writeText(code)
-  message.value = '邀请码已复制'
+  toast.showSuccess('邀请码已复制')
 }
 
 type InviteStatus = 'active' | 'exhausted' | 'expired' | 'revoked'
@@ -307,7 +301,6 @@ function selectTab(nextTab: 'users' | 'invites') {
           </section>
         </section>
       </div>
-      <footer class="panel-footer"><span v-if="errorMessage" class="form-error">{{ errorMessage }}</span><span v-else class="form-success">{{ message }}</span></footer>
       <div v-if="deleteTarget" class="account-delete-backdrop" @mousedown.self="closeDeleteDialog" @keydown.esc.stop="closeDeleteDialog">
         <section class="account-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="account-delete-title" aria-describedby="account-delete-description">
           <header>
@@ -318,7 +311,6 @@ function selectTab(nextTab: 'users' | 'invites') {
             <span>输入登录名 <code>{{ deleteTarget.username }}</code> 以确认</span>
             <input ref="deleteConfirmationInput" v-model="deleteConfirmation" autocomplete="off" spellcheck="false" />
           </label>
-          <p v-if="errorMessage" class="form-error">{{ errorMessage }}</p>
           <div class="account-delete-actions">
             <button class="secondary-button" :disabled="busy" @click="closeDeleteDialog">取消</button>
             <button class="account-delete-confirm" :disabled="busy || deleteConfirmation !== deleteTarget.username" @click="deleteUser"><Trash2 :size="16" />{{ busy ? '正在删除' : '永久删除' }}</button>
