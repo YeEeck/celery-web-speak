@@ -67,8 +67,8 @@ onMounted(async () => {
   const triggerBounds = props.trigger?.getBoundingClientRect()
   if (!menuBounds || !triggerBounds) return
   const margin = 8
-  left.value = Math.min(triggerBounds.right + 8, window.innerWidth - menuBounds.width - margin)
-  top.value = Math.min(Math.max(margin, triggerBounds.bottom - menuBounds.height), window.innerHeight - menuBounds.height - margin)
+  left.value = Math.min(Math.max(margin, triggerBounds.left + 8), window.innerWidth - menuBounds.width - margin)
+  top.value = Math.max(margin, triggerBounds.top - menuBounds.height - 8)
   positioned.value = true
   await nextTick()
   focusAt(0)
