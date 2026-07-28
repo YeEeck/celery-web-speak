@@ -32,6 +32,8 @@ export interface User {
   temporaryBanUntil?: string
   createdAt: string
   isPlatformAdmin?: boolean
+  avatarVersion: number
+  hasAvatar: boolean
 }
 
 export interface Message {
@@ -112,6 +114,8 @@ export interface GuildMemberPayload {
   permanentlyBanned: boolean
   temporaryBanUntil?: string
   joinedAt: string
+  avatarVersion: number
+  hasAvatar: boolean
 }
 
 export interface GuildBootstrapData {

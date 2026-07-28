@@ -235,6 +235,18 @@ export const useAppStore = defineStore('app', () => {
     applyAccountUpdate(result.user)
   }
 
+  async function updateAvatar(blob: Blob) {
+    const form = new FormData()
+    form.append('file', blob)
+    const result = await request<{ user: User }>('/api/me/avatar', { method: 'POST', body: form })
+    applyAccountUpdate(result.user)
+  }
+
+  async function deleteAvatar() {
+    const result = await request<{ user: User }>('/api/me/avatar', { method: 'DELETE' })
+    applyAccountUpdate(result.user)
+  }
+
   function getChannelDraft(channelId: number) {
     return localStorage.getItem(`cws.guild.${activeGuildId.value ?? 0}.channelDraft.${channelId}`) ?? ''
   }
@@ -461,7 +473,7 @@ export const useAppStore = defineStore('app', () => {
     voiceRooms, messages, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
     channelReadStates, onlineIds, onlineClients, socketStatus, moderatorVoiceDisconnect, isAdmin, isGuildAdmin, isPlatformAdmin,
     initialize, bootstrap, loadGuildBootstrap, selectGuild, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh: socket.requestVoiceRoomsRefresh,
-    sendMessage, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, getChannelDraft, setChannelDraft,
+    sendMessage, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,
   }
 })
