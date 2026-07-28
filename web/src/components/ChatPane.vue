@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useVirtualizer } from '@tanstack/vue-virtual'
-import { ArrowDown, ChevronUp, Hash, Menu, Send, Trash2, Users } from '@lucide/vue'
+import { ArrowDown, ChevronUp, Hash, Menu, Send, Users } from '@lucide/vue'
 import UserAvatar from './UserAvatar.vue'
-import { request } from '../api'
 import { useAppStore } from '../stores/app'
+import type { Message } from '../types'
 
 const monthDayFormatter = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' })
 const fullDateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
 
 defineProps<{ membersVisible: boolean }>()
-defineEmits<{ channels: []; members: [] }>()
+const emit = defineEmits<{ channels: []; members: []; messageMenu: [message: Message, trigger: HTMLElement | null, x: number, y: number] }>()
 const app = useAppStore()
 const content = ref('')
 const sending = ref(false)
@@ -114,10 +114,11 @@ function resizeComposer() {
   })
 }
 
-async function removeMessage(id: number) {
-  if (app.activeTextChannelId === null) return
-  if (app.activeGuildId === null) return
-  await request<void>(`/api/guilds/${app.activeGuildId}/channels/${app.activeTextChannelId}/messages/${id}`, { method: 'DELETE' })
+function openMessageMenu(message: Message, event: MouseEvent) {
+  event.preventDefault()
+  const trigger = event.currentTarget as HTMLElement | null
+  const bounds = trigger?.getBoundingClientRect()
+  emit('messageMenu', message, trigger, event.clientX || (bounds?.right ?? 0), event.clientY || (bounds?.top ?? 0))
 }
 
 async function loadEarlierMessages() {
@@ -302,7 +303,7 @@ function roleLabel(role: string) {
               <div v-if="row.dateLabel" class="message-date-divider" role="separator" :aria-label="row.dateLabel">
                 <span>{{ row.dateLabel }}</span>
               </div>
-              <article class="message-row">
+              <article class="message-row" @contextmenu="openMessageMenu(row.message, $event)">
                 <UserAvatar :name="row.message.displayName" :size="40" :user="app.users.find((u) => u.id === row.message?.userId)" />
                 <div class="message-body" data-user-content>
                   <header>
@@ -312,7 +313,6 @@ function roleLabel(role: string) {
                   </header>
                   <p>{{ row.message.content }}</p>
                 </div>
-                <button v-if="app.isAdmin" class="message-action" title="删除消息" @click="removeMessage(row.message.id)"><Trash2 :size="16" /></button>
               </article>
             </template>
           </div>

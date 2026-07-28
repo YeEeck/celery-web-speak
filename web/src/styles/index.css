@@ -14,6 +14,7 @@
 @import './overlays.css';
 @import './components/GuildActionMenu.css';
 @import './components/ChannelActionMenu.css';
+@import './components/MessageActionMenu.css';
 @import './components/AccountMenu.css';
 @import './components/dialogs.css';
 @import './components/ProfilePanel.css';

@@ -41,7 +41,6 @@ export const useAppStore = defineStore('app', () => {
     isGuildBootstrapVersionCurrent: (version) => version === guildBootstrapVersion,
   })
 
-  const isAdmin = computed(() => activeGuild.value?.role === 'owner' || activeGuild.value?.role === 'admin')
   const isGuildAdmin = computed(() => activeGuild.value?.role === 'owner' || activeGuild.value?.role === 'admin')
   const isPlatformAdmin = computed(() => user.value?.isPlatformAdmin === true)
   const activeGuild = computed(() => guilds.value.find((guild) => guild.id === activeGuildId.value && guild.joined) ?? null)
@@ -471,7 +470,7 @@ export const useAppStore = defineStore('app', () => {
   return {
     ready, user, users, guilds, activeGuildId, activeGuild, channels, textChannels, voiceChannels, activeTextChannelId, activeTextChannel,
     voiceRooms, messages, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
-    channelReadStates, onlineIds, onlineClients, socketStatus, moderatorVoiceDisconnect, isAdmin, isGuildAdmin, isPlatformAdmin,
+    channelReadStates, onlineIds, onlineClients, socketStatus, moderatorVoiceDisconnect, isGuildAdmin, isPlatformAdmin,
     initialize, bootstrap, loadGuildBootstrap, selectGuild, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh: socket.requestVoiceRoomsRefresh,
     sendMessage, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,

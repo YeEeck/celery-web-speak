@@ -31,9 +31,6 @@
 .message-body p { color: var(--text); line-height: 1.42; white-space: pre-wrap; overflow-wrap: anywhere; }
 .role-chip { padding: 1px 5px; border-radius: 3px; font-size: 9px; color: white; background: #3f844f; }
 .role-chip.owner { background: #a55f13; }.role-chip.admin { background: #3f6fa8; }
-.message-action { visibility: hidden; width: 30px; height: 28px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--muted); cursor: pointer; }
-.message-row:hover .message-action { visibility: visible; }
-.message-action:hover { color: var(--danger-fg); }
 .jump-to-latest { position: absolute; z-index: 3; left: 50%; bottom: 12px; min-height: 34px; max-width: calc(100% - 24px); transform: translateX(-50%); border: 1px solid var(--line); border-radius: 4px; padding: 0 12px; display: flex; align-items: center; gap: 6px; background: var(--elevated); color: var(--text); cursor: pointer; box-shadow: 0 5px 16px rgba(0,0,0,.32); }
 .jump-to-latest:hover { background: var(--active); }
 .jump-to-latest { transition: var(--t-colors); }

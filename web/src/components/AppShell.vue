@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EllipsisVertical, Hash, LogOut, Plus, Radio, ServerCog, X } from '@lucide/vue'
 import AccountMenu from './AccountMenu.vue'
 import ChannelActionMenu from './ChannelActionMenu.vue'
+import MessageActionMenu from './MessageActionMenu.vue'
 import GuildAdminPanel from './GuildAdminPanel.vue'
 import PlatformAdminPanel from './PlatformAdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
@@ -23,7 +24,7 @@ import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
 import { useVoiceShortcuts } from '../stores/voice-shortcuts'
-import type { Channel, GuildSummary, VersionResponse } from '../types'
+import type { Channel, GuildSummary, Message, VersionResponse } from '../types'
 
 const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
 
@@ -60,6 +61,12 @@ const guildActionMenu = ref<{
 const guildActionTrigger = ref<HTMLButtonElement | null>(null)
 const channelActionMenu = ref<{
   channel: Channel
+  x: number
+  y: number
+  trigger: HTMLElement | null
+} | null>(null)
+const messageActionMenu = ref<{
+  message: Message
   x: number
   y: number
   trigger: HTMLElement | null
@@ -125,10 +132,17 @@ watch(() => app.socketStatus, (value) => {
 watch(() => app.activeGuildId, () => {
   closeGuildActionMenu()
   closeChannelActionMenu()
+  closeMessageActionMenu()
   closeVoiceParticipantActionMenu()
 })
 watch(() => channelActionMenu.value === null || app.channels.some((channel) => channel.id === channelActionMenu.value?.channel.id), (exists) => {
   if (!exists) closeChannelActionMenu()
+})
+watch(() => app.activeTextChannelId, () => {
+  closeMessageActionMenu()
+})
+watch(() => messageActionMenu.value === null || app.messages.some((message) => message.id === messageActionMenu.value?.message.id), (exists) => {
+  if (!exists) closeMessageActionMenu()
 })
 watch(voiceParticipantMenuTarget, (target) => {
   if (!target && voiceParticipantActionMenu.value) closeVoiceParticipantActionMenu()
@@ -214,6 +228,7 @@ function toggleAccountMenu() {
   }
   closeGuildActionMenu()
   closeChannelActionMenu()
+  closeMessageActionMenu()
   closeVoiceParticipantActionMenu()
   channelsOpen.value = false
   accountMenuOpen.value = true
@@ -272,6 +287,7 @@ async function logout() {
 
 function openGuildActionMenu(guild: GuildSummary, trigger: HTMLElement, x: number, y: number, align: 'start' | 'end') {
   closeChannelActionMenu()
+  closeMessageActionMenu()
   closeVoiceParticipantActionMenu()
   guildActionMenu.value = { guild, trigger, x, y, align }
 }
@@ -333,6 +349,7 @@ async function openGuildAdmin(guild: GuildSummary) {
 function openChannelActionMenu(channel: Channel, trigger: HTMLElement, x: number, y: number) {
   closeAccountMenu()
   closeGuildActionMenu()
+  closeMessageActionMenu()
   closeVoiceParticipantActionMenu()
   channelActionMenu.value = { channel, trigger, x, y }
 }
@@ -355,6 +372,45 @@ function closeChannelActionMenu(restoreFocus = false) {
   if (restoreFocus) void nextTick(() => trigger?.focus())
 }
 
+function openMessageActionMenu(message: Message, trigger: HTMLElement | null, x: number, y: number) {
+  closeAccountMenu()
+  closeGuildActionMenu()
+  closeChannelActionMenu()
+  closeVoiceParticipantActionMenu()
+  messageActionMenu.value = { message, trigger, x, y }
+}
+
+function closeMessageActionMenu() {
+  messageActionMenu.value = null
+}
+
+const messageMenuCanDelete = computed(() => {
+  const menu = messageActionMenu.value
+  if (!menu) return false
+  return app.isGuildAdmin || menu.message.userId === app.user?.id
+})
+
+async function copyMessageText(message: Message) {
+  closeMessageActionMenu()
+  try {
+    await navigator.clipboard.writeText(message.content)
+    toast.showSuccess('文本已复制')
+  } catch {
+    toast.showError('复制失败，请重试')
+  }
+}
+
+async function deleteMenuMessage(message: Message) {
+  closeMessageActionMenu()
+  const guildId = app.activeGuildId
+  if (guildId === null) return
+  try {
+    await request<void>(`/api/guilds/${guildId}/channels/${message.channelId}/messages/${message.id}`, { method: 'DELETE' })
+  } catch (error) {
+    toast.showError(error instanceof Error ? error.message : '删除消息失败')
+  }
+}
+
 function openVoiceParticipantActionMenu(channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number) {
   if (participant.isLocal || voice.connectedGuildId === null || voice.connectedChannelId !== channel.id) return
   if (voiceParticipantActionMenu.value?.userId === participant.userId) {
@@ -364,6 +420,7 @@ function openVoiceParticipantActionMenu(channel: Channel, participant: VoicePart
   closeAccountMenu()
   closeGuildActionMenu()
   closeChannelActionMenu()
+  closeMessageActionMenu()
   voiceParticipantActionMenu.value = {
     guildId: voice.connectedGuildId,
     channelId: channel.id,
@@ -611,7 +668,7 @@ function closeChangelog() {
       <UserControls @settings="openVoiceSettings" />
     </aside>
 
-    <ChatPane :members-visible="membersVisible" @channels="channelsOpen = true" @members="toggleMembers" />
+    <ChatPane :members-visible="membersVisible" @channels="channelsOpen = true" @members="toggleMembers" @message-menu="openMessageActionMenu" />
     <MemberList />
 
     <div v-if="channelsOpen" class="drawer-scrim" @click="channelsOpen = false" />
@@ -645,6 +702,17 @@ function closeChangelog() {
       @copy="copyChannelName"
       @mark-read="markChannelRead"
       @edit="editChannel"
+    />
+    <MessageActionMenu
+      v-if="messageActionMenu"
+      :message="messageActionMenu.message"
+      :can-delete="messageMenuCanDelete"
+      :x="messageActionMenu.x"
+      :y="messageActionMenu.y"
+      :trigger="messageActionMenu.trigger"
+      @close="closeMessageActionMenu"
+      @copy="copyMessageText"
+      @delete="deleteMenuMessage"
     />
     <VoiceParticipantActionMenu
       v-if="voiceParticipantActionMenu && voiceParticipantMenuTarget"
