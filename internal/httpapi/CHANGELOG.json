@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.4.17",
+    "date": "2026-07-28",
+    "changes": [
+      "feat: 添加全局语音快捷键 Ctrl+Shift+M（麦克风静音）和 Ctrl+Shift+D（耳机静音），已登录主界面内任何焦点位置均生效"
+    ]
+  },
+  {
     "version": "0.4.16",
     "date": "2026-07-28",
     "changes": [
