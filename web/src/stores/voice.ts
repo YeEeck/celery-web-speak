@@ -16,6 +16,7 @@ import { MicrophoneActivityMonitor } from '../audio/MicrophoneActivityMonitor'
 import { MicrophoneGainProcessor } from '../audio/MicrophoneGainProcessor'
 import { buildMicrophoneCaptureOptions } from '../audio/microphoneCaptureOptions'
 import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor'
+import { VoiceAudioContextController } from '../audio/VoiceAudioContextController'
 import type { Channel, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
 import { useSoundStore } from './sounds'
@@ -125,6 +126,7 @@ export const useVoiceStore = defineStore('voice', () => {
     if (participant) participant.isSpeaking = speaking
   })
   let room: Room | null = null
+  let voiceAudioContextController: VoiceAudioContextController | null = null
   let participantSoundsReady = false
   let pendingDeafenedSync: boolean | null = null
   let deafenedSyncSession: number | null = null
@@ -343,10 +345,24 @@ export const useVoiceStore = defineStore('voice', () => {
     void refreshDevices(false)
   }
 
+  function createVoiceAudioContext() {
+    const AudioContextConstructor = window.AudioContext
+      || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+    return AudioContextConstructor ? new AudioContextConstructor({ latencyHint: 'interactive' }) : null
+  }
+
+  async function destroyVoiceAudioContext() {
+    const controller = voiceAudioContextController
+    if (!controller) return
+    voiceAudioContextController = null
+    await controller.destroy()
+  }
+
   async function join(channelId: number) {
     if (room && connectedChannelId.value === channelId) return
     if (status.value === 'connecting') return
     if (room) await leave({ playLeaveSound: true })
+    await destroyVoiceAudioContext()
     voiceSession += 1
     mutedSpeakingReminder.resetFailure()
     clearMutedSpeakingReminder()
@@ -385,10 +401,11 @@ export const useVoiceStore = defineStore('voice', () => {
         body: JSON.stringify({ deafened: tokenDeafened }),
       })
       if (session !== voiceSession) return
+      const audioContext = createVoiceAudioContext()
       const nextRoom = markRaw(new Room({
         adaptiveStream: true,
         dynacast: true,
-        webAudioMix: true,
+        webAudioMix: audioContext ? { audioContext } : true,
         audioCaptureDefaults: microphoneCaptureOptions(),
         publishDefaults: {
           audioPreset: { maxBitrate: (channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS) * 1000 },
@@ -399,6 +416,14 @@ export const useVoiceStore = defineStore('voice', () => {
         audioOutput: outputDeviceSelectionSupported ? { deviceId: resolvedPreferredDeviceId('output') } : undefined,
       }))
       room = nextRoom
+      if (audioContext) {
+        voiceAudioContextController = new VoiceAudioContextController(audioContext, {
+          startAudio: () => nextRoom.startAudio(),
+          shouldResume: () => room === nextRoom && status.value === 'connected' && !deafened.value,
+          interactionTarget: document,
+          onError: (error) => console.warn('语音音频自动恢复失败', error),
+        })
+      }
       bindRoom(nextRoom)
       await nextRoom.connect(credentials.url, credentials.token, { autoSubscribe: true, maxRetries: 5 })
       if (session !== voiceSession || room !== nextRoom) return
@@ -407,6 +432,7 @@ export const useVoiceStore = defineStore('voice', () => {
       await applyJoiningPreferences(nextRoom, session)
       if (session !== voiceSession || room !== nextRoom) return
       status.value = 'connected'
+      voiceAudioContextController?.resumeIfNeeded()
       await refreshDevices(false)
       syncParticipants()
       participantSoundsReady = true
@@ -417,6 +443,7 @@ export const useVoiceStore = defineStore('voice', () => {
       participantSoundsReady = false
       room?.disconnect()
       room = null
+      await destroyVoiceAudioContext()
       clearConnectedChannelSummary()
       status.value = 'error'
       guildMuted.value = false
@@ -443,6 +470,7 @@ export const useVoiceStore = defineStore('voice', () => {
       targetRoom.disconnect()
       room = null
     }
+    await destroyVoiceAudioContext()
     clearConnectedChannelSummary()
     document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove())
     participantStates.value = []
@@ -806,6 +834,7 @@ export const useVoiceStore = defineStore('voice', () => {
       } else {
         await target.startAudio()
         if (session !== voiceSession || room !== target) return
+        voiceAudioContextController?.resumeIfNeeded()
         if (target.localParticipant.isMicrophoneEnabled !== shouldEnableMicrophone) {
           const nextTransmissionMode = transmissionMode.value
           await target.localParticipant.setMicrophoneEnabled(
@@ -856,6 +885,7 @@ export const useVoiceStore = defineStore('voice', () => {
       .on(RoomEvent.Reconnected, () => {
         if (room !== target) return
         status.value = 'connected'
+        voiceAudioContextController?.resumeIfNeeded()
         void reconcileConnectedPreferences(target, voiceSession).then(() => {
           if (room !== target) return
           syncParticipants()
@@ -880,6 +910,7 @@ export const useVoiceStore = defineStore('voice', () => {
           appliedTransmissionMode = null
           deafenedSyncError.value = ''
           microphoneActivity.destroy()
+          void destroyVoiceAudioContext()
           useSoundStore().setSuppressed(false)
           syncIdlePreferenceState()
           useAppStore().requestVoiceRoomsRefresh()
