@@ -3,13 +3,24 @@ import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
 import { Hash, Plus, Radio, Save, Trash2, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
+import { useToastStore } from '../stores/toast'
 import type { Channel, ChannelType } from '../types'
 import { guildAdminContextKey } from './guild-admin-context'
 import { rangeProgressStyle } from '../utils/range'
 
 const app = useAppStore()
-const { busy, run } = inject(guildAdminContextKey)!
+const toast = useToastStore()
+const { busy } = inject(guildAdminContextKey)!
 const props = defineProps<{ initialChannelId?: number | null }>()
+
+async function run(action: () => Promise<void>, success: string) {
+  busy.value = true
+  try {
+    await toast.runAction(action, success)
+  } finally {
+    busy.value = false
+  }
+}
 
 interface ChannelSettingsDraft {
   name: string

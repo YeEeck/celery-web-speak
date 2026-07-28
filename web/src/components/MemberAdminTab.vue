@@ -3,12 +3,23 @@ import { computed, inject, nextTick, onMounted, ref } from 'vue'
 import { Ban, ShieldCheck, Trash2, UserMinus, UserPlus } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
+import { useToastStore } from '../stores/toast'
 import type { GuildRole, User } from '../types'
 import { guildAdminContextKey } from './guild-admin-context'
 import UserAvatar from './UserAvatar.vue'
 
 const app = useAppStore()
-const { busy, run } = inject(guildAdminContextKey)!
+const toast = useToastStore()
+const { busy } = inject(guildAdminContextKey)!
+
+async function run(action: () => Promise<void>, success: string) {
+  busy.value = true
+  try {
+    await toast.runAction(action, success)
+  } finally {
+    busy.value = false
+  }
+}
 const selectedUserId = ref<number | null>(null)
 const kickMinutes = ref(30)
 const memberUsername = ref('')

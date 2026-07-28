@@ -3,15 +3,26 @@ import { inject, ref, watch } from 'vue'
 import { Save } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
+import { useToastStore } from '../stores/toast'
 import { guildAdminContextKey } from './guild-admin-context'
 
 const app = useAppStore()
-const { busy, run } = inject(guildAdminContextKey)!
+const toast = useToastStore()
+const { busy } = inject(guildAdminContextKey)!
 const guildName = ref(app.activeGuild?.name ?? '')
 
 watch(() => app.activeGuild, (guild) => {
   guildName.value = guild?.name ?? ''
 })
+
+async function run(action: () => Promise<void>, success: string) {
+  busy.value = true
+  try {
+    await toast.runAction(action, success)
+  } finally {
+    busy.value = false
+  }
+}
 
 async function renameGuild() {
   const name = guildName.value.trim()

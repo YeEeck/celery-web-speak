@@ -16,8 +16,6 @@ const app = useAppStore()
 const canSeeGuildTab = computed(() => app.isPlatformAdmin || app.activeGuild?.role === 'owner')
 const defaultTab = canSeeGuildTab.value ? 'guild' : 'channel'
 const tab = ref<'guild' | 'channel' | 'users'>(props.initialTab ?? defaultTab)
-const message = ref('')
-const errorMessage = ref('')
 const busy = ref(false)
 const adminContent = ref<HTMLElement | null>(null)
 
@@ -27,21 +25,7 @@ const adminSubtitle = computed(() => {
   return app.isPlatformAdmin ? `${guildRole} · 平台管理员` : guildRole
 })
 
-async function run(action: () => Promise<void>, success: string) {
-  busy.value = true
-  message.value = ''
-  errorMessage.value = ''
-  try {
-    await action()
-    message.value = success
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '操作失败'
-  } finally {
-    busy.value = false
-  }
-}
-
-provide<GuildAdminContext>(guildAdminContextKey, { busy, run })
+provide<GuildAdminContext>(guildAdminContextKey, { busy })
 
 function selectTab(nextTab: 'guild' | 'channel' | 'users') {
   if (tab.value === nextTab) return
@@ -68,7 +52,6 @@ function selectTab(nextTab: 'guild' | 'channel' | 'users') {
         <ChannelAdminTab v-else-if="tab === 'channel'" :initial-channel-id="initialChannelId" />
         <MemberAdminTab v-else />
       </div>
-      <footer class="panel-footer"><span v-if="errorMessage" class="form-error">{{ errorMessage }}</span><span v-else class="form-success">{{ message }}</span></footer>
     </section>
   </div>
 </template>
