@@ -15,6 +15,8 @@ export interface GuildSummary {
   createdBy: number
   createdAt: string
   updatedAt: string
+  iconVersion: number
+  hasIcon: boolean
   joined: boolean
   role?: GuildRole
   memberCount?: number
