@@ -3,7 +3,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { LoaderCircle, LogOut } from '@lucide/vue'
 import type { GuildSummary } from '../types'
 
-const props = defineProps<{ guild: GuildSummary; busy: boolean; error: string }>()
+const props = defineProps<{ guild: GuildSummary; busy: boolean }>()
 const emit = defineEmits<{ cancel: []; confirm: [] }>()
 const panel = ref<HTMLElement | null>(null)
 const cancelButton = ref<HTMLButtonElement | null>(null)
@@ -48,7 +48,6 @@ onBeforeUnmount(() => {
       <section ref="panel" class="leave-guild-panel" role="alertdialog" aria-modal="true" aria-labelledby="leave-guild-title" aria-describedby="leave-guild-description" tabindex="-1">
         <h2 id="leave-guild-title">离开“{{ guild.name }}”？</h2>
         <p id="leave-guild-description">你的成员身份将被移除，之后需要由服务器管理员重新添加。你发送的历史消息不会被删除。</p>
-        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <footer>
           <button ref="cancelButton" class="secondary-button" type="button" :disabled="busy" @click="cancel">取消</button>
           <button class="danger-button" type="button" :disabled="busy" @click="emit('confirm')">

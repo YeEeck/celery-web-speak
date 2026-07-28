@@ -19,6 +19,7 @@ import VoiceChannel from './VoiceChannel.vue'
 import VoiceParticipantActionMenu from './VoiceParticipantActionMenu.vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
+import { useToastStore } from '../stores/toast'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
 import type { Channel, GuildSummary, VersionResponse } from '../types'
 
@@ -26,6 +27,7 @@ const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
 
 const app = useAppStore()
 const voice = useVoiceStore()
+const toast = useToastStore()
 const channelsOpen = ref(false)
 const membersOpen = ref(false)
 const desktopMembersVisible = ref(true)
@@ -43,7 +45,6 @@ const platformInitialGuildId = ref<number | null>(null)
 const platformCreateOnOpen = ref(false)
 const platformAdminOpen = ref(false)
 const leavingGuild = ref(false)
-const leaveGuildError = ref('')
 const leaveTarget = ref<GuildSummary | null>(null)
 const leaveDialogTrigger = ref<HTMLElement | null>(null)
 const guildActionMenu = ref<{
@@ -69,16 +70,13 @@ const voiceParticipantActionMenu = ref<{
   trigger: HTMLElement | null
 } | null>(null)
 const participantManagementPending = ref(false)
-const actionToast = ref<{ message: string; type: 'success' | 'error' | 'warning' } | null>(null)
 const accountTrigger = ref<HTMLButtonElement | null>(null)
 const accountMenuOpen = ref(false)
 const logoutOpen = ref(false)
 const loggingOut = ref(false)
-const logoutError = ref('')
 const currentVersion = ref('')
 let wideMemberQuery: MediaQueryList | null = null
 let mobileQuery: MediaQueryList | null = null
-let actionToastTimer: number | null = null
 
 const membersVisible = computed(() => wideMemberLayout.value ? desktopMembersVisible.value : membersOpen.value)
 const voiceParticipantMenuTarget = computed(() => {
@@ -134,7 +132,7 @@ watch(voiceParticipantMenuTarget, (target) => {
 })
 watch(() => app.moderatorVoiceDisconnect, (event) => {
   if (!event || !voice.handleModeratorDisconnect(event.guildId, event.channelId)) return
-  showActionToast('你已被服务器管理员断开语音', 'warning', 4_000)
+  toast.showWarning('你已被服务器管理员断开语音')
 })
 watch(() => leaveTarget.value === null || app.guilds.some((guild) => guild.id === leaveTarget.value?.id && guild.joined), (hasMembership) => {
   if (!hasMembership && !leavingGuild.value) closeLeaveGuildDialog()
@@ -150,7 +148,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   wideMemberQuery?.removeEventListener('change', handleWideMemberLayout)
   mobileQuery?.removeEventListener('change', closeTemporaryDrawers)
-  if (actionToastTimer !== null) window.clearTimeout(actionToastTimer)
   void voice.leave()
 })
 
@@ -248,26 +245,23 @@ function closeProfile() {
 
 function openLogoutDialog() {
   closeAccountMenu()
-  logoutError.value = ''
   logoutOpen.value = true
 }
 
 function closeLogoutDialog() {
   if (loggingOut.value) return
   logoutOpen.value = false
-  logoutError.value = ''
   void nextTick(() => accountTrigger.value?.focus())
 }
 
 async function logout() {
   if (loggingOut.value) return
   loggingOut.value = true
-  logoutError.value = ''
   try {
     await voice.leave({ playLeaveSound: true })
     await app.logout()
   } catch (error) {
-    logoutError.value = error instanceof Error ? error.message : '退出登录失败'
+    toast.showError(error instanceof Error ? error.message : '退出登录失败')
   } finally {
     loggingOut.value = false
   }
@@ -394,9 +388,9 @@ async function setParticipantServerMute(participant: VoiceParticipant, muted: bo
       method: 'PATCH',
       body: JSON.stringify({ voiceMuted: muted, textMuted: member.textMuted }),
     })
-    showActionToast(muted ? `已对 ${participant.name} 启用服务器语音禁言` : `已解除 ${participant.name} 的服务器语音禁言`, 'success')
+    toast.showSuccess(muted ? `已对 ${participant.name} 启用服务器语音禁言` : `已解除 ${participant.name} 的服务器语音禁言`)
   } catch (error) {
-    showActionToast(error instanceof Error ? error.message : '服务器语音禁言操作失败', 'error')
+    toast.showError(error instanceof Error ? error.message : '服务器语音禁言操作失败')
   } finally {
     participantManagementPending.value = false
   }
@@ -409,30 +403,21 @@ async function disconnectVoiceParticipant(participant: VoiceParticipant) {
   closeVoiceParticipantActionMenu(true)
   try {
     await request(`/api/guilds/${menu.guildId}/channels/${menu.channelId}/voice/participants/${participant.userId}/disconnect`, { method: 'POST' })
-    showActionToast(`已断开 ${participant.name} 的语音`, 'success')
+    toast.showSuccess(`已断开 ${participant.name} 的语音`)
   } catch (error) {
-    showActionToast(error instanceof Error ? error.message : '断开语音失败', 'error')
+    toast.showError(error instanceof Error ? error.message : '断开语音失败')
   } finally {
     participantManagementPending.value = false
   }
-}
-
-function showActionToast(message: string, type: 'success' | 'error' | 'warning', duration = 2_000) {
-  if (actionToastTimer !== null) window.clearTimeout(actionToastTimer)
-  actionToast.value = { message, type }
-  actionToastTimer = window.setTimeout(() => {
-    actionToast.value = null
-    actionToastTimer = null
-  }, duration)
 }
 
 async function copyChannelName(channel: Channel) {
   closeChannelActionMenu(true)
   try {
     await navigator.clipboard.writeText(channel.name)
-    showActionToast('频道名称已复制', 'success')
+    toast.showSuccess('频道名称已复制')
   } catch {
-    showActionToast('复制失败，请重试', 'error')
+    toast.showError('复制失败，请重试')
   }
 }
 
@@ -441,7 +426,7 @@ async function markChannelRead(channel: Channel) {
   try {
     await app.markChannelRead(channel.id)
   } catch (error) {
-    showActionToast(error instanceof Error ? error.message : '标记为已读失败，请重试', 'error')
+    toast.showError(error instanceof Error ? error.message : '标记为已读失败，请重试')
   }
 }
 
@@ -468,7 +453,6 @@ function openGuildPlatformManagement(guild: GuildSummary) {
 function confirmLeaveGuild(guild: GuildSummary) {
   leaveDialogTrigger.value = guildActionMenu.value?.trigger ?? null
   closeGuildActionMenu()
-  leaveGuildError.value = ''
   leaveTarget.value = guild
 }
 
@@ -476,7 +460,6 @@ function closeLeaveGuildDialog() {
   if (leavingGuild.value) return
   const trigger = leaveDialogTrigger.value
   leaveTarget.value = null
-  leaveGuildError.value = ''
   leaveDialogTrigger.value = null
   void nextTick(() => trigger?.focus())
 }
@@ -490,7 +473,6 @@ async function leaveGuild() {
   const guild = leaveTarget.value
   if (!guild || guild.role === 'owner' || leavingGuild.value) return
   leavingGuild.value = true
-  leaveGuildError.value = ''
   try {
     await request(`/api/guilds/${guild.id}/leave`, { method: 'POST' })
     if (voice.connectedGuildId === guild.id) {
@@ -505,7 +487,7 @@ async function leaveGuild() {
     leaveDialogTrigger.value = null
     channelsOpen.value = false
   } catch (error) {
-    leaveGuildError.value = error instanceof Error ? error.message : '离开服务器失败'
+    toast.showError(error instanceof Error ? error.message : '离开服务器失败')
   } finally {
     leavingGuild.value = false
   }
@@ -674,10 +656,15 @@ function closeChangelog() {
       @server-mute="setParticipantServerMute"
       @disconnect="disconnectVoiceParticipant"
     />
-    <div v-if="actionToast" class="action-toast" :class="actionToast.type" role="status" aria-live="polite">{{ actionToast.message }}</div>
+    <div class="action-toast-stack" role="region" aria-live="polite" aria-label="操作反馈">
+      <div v-for="item in toast.toasts" :key="item.id" :class="['action-toast', item.type]" role="status" @mouseenter="toast.pause(item.id)" @mouseleave="toast.resume(item.id)">
+        <span>{{ item.message }}</span>
+        <button class="action-toast-close" type="button" title="关闭" aria-label="关闭提示" @click="toast.dismiss(item.id)"><X :size="14" /></button>
+      </div>
+    </div>
     <AccountMenu v-if="accountMenuOpen" :trigger="accountTrigger" @close="closeAccountMenu" @settings="openProfile" @logout="openLogoutDialog" />
-    <LeaveGuildDialog v-if="leaveTarget" :guild="leaveTarget" :busy="leavingGuild" :error="leaveGuildError" @cancel="closeLeaveGuildDialog" @confirm="leaveGuild" />
-    <LogoutDialog v-if="logoutOpen" :busy="loggingOut" :error="logoutError" :voice-joined="voice.joined" @cancel="closeLogoutDialog" @confirm="logout" />
+    <LeaveGuildDialog v-if="leaveTarget" :guild="leaveTarget" :busy="leavingGuild" @cancel="closeLeaveGuildDialog" @confirm="leaveGuild" />
+    <LogoutDialog v-if="logoutOpen" :busy="loggingOut" :voice-joined="voice.joined" @cancel="closeLogoutDialog" @confirm="logout" />
     <ProfilePanel
       v-if="profileOpen"
       :initial-tab="profileInitialTab"

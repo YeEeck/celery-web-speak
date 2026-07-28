@@ -2,7 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { LoaderCircle, LogOut } from '@lucide/vue'
 
-const props = defineProps<{ busy: boolean; error: string; voiceJoined: boolean }>()
+const props = defineProps<{ busy: boolean; voiceJoined: boolean }>()
 const emit = defineEmits<{ cancel: []; confirm: [] }>()
 const panel = ref<HTMLElement | null>(null)
 const cancelButton = ref<HTMLButtonElement | null>(null)
@@ -45,7 +45,6 @@ onBeforeUnmount(() => document.removeEventListener('keydown', handleKeyDown))
       <section ref="panel" class="logout-panel" role="alertdialog" aria-modal="true" aria-labelledby="logout-confirm-title" aria-describedby="logout-confirm-description" tabindex="-1">
         <h2 id="logout-confirm-title">退出登录？</h2>
         <p id="logout-confirm-description">{{ voiceJoined ? '退出后将断开当前语音连接。' : '你需要重新输入账号和密码才能继续使用。' }}</p>
-        <p v-if="error" class="form-error" role="alert">{{ error }}</p>
         <footer>
           <button ref="cancelButton" class="secondary-button" type="button" :disabled="busy" @click="cancel">取消</button>
           <button class="danger-button" type="button" :disabled="busy" @click="emit('confirm')">
