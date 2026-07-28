@@ -26,3 +26,10 @@
 .sound-event-list { display: grid; gap: 12px; }
 .sound-event-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
 .sound-event-row .setting-toggle { min-height: 42px; }
+
+.avatar-editor-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.avatar-editor-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.avatar-editor-actions .secondary-button { min-height: 34px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; }
+.avatar-editor-message-row { margin-top: -4px; }
+.avatar-editor-message-row .form-error,
+.avatar-editor-message-row .form-success { font-size: 11px; }
