@@ -198,7 +198,7 @@ cp .env.example .env
 docker compose -f compose.yml -f compose.build.yml -f compose.dev.yml up --build
 ```
 
-`compose.dev.yml` 覆盖 `LIVEKIT_PUBLIC_URL`、`TRUSTED_ORIGINS` 和 `COOKIE_SECURE`，使本地不走 Gateway 也能正常访问 WebSocket 和语音。
+`compose.dev.yml` 覆盖 `LIVEKIT_PUBLIC_URL`、`TRUSTED_ORIGINS` 和 `COOKIE_SECURE`，使本地不走 Gateway 也能正常访问 WebSocket 和语音；同时把项目名覆盖为 `cws-dev`，本地容器/卷/网络均以 `cws-dev_` 前缀，与生产名 `celery-web-speak` 隔离。本地镜像名为 `cws-dev:dev`。
 
 ## 检查
 

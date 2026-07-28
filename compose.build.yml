@@ -1,6 +1,6 @@
 services:
   app:
-    image: celery-web-speak:dev
+    image: cws-dev:dev
     build:
       context: .
       dockerfile: Dockerfile
