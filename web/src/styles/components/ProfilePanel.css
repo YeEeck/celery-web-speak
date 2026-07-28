@@ -41,3 +41,7 @@
 .avatar-trigger:hover:not(:disabled) .avatar-overlay,
 .avatar-trigger:focus-visible:not(:disabled) .avatar-overlay { opacity: 1; }
 .avatar-trigger:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--brand); }
+
+.guild-icon-trigger { border-radius: 10px; }
+.guild-icon-trigger .avatar-overlay { border-radius: 10px; }
+.guild-icon-trigger:focus-visible { box-shadow: 0 0 0 2px var(--brand); }
