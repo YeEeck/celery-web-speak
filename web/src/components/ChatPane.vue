@@ -304,7 +304,7 @@ function roleLabel(role: string) {
               </div>
               <article class="message-row">
                 <UserAvatar :name="row.message.displayName" :size="40" :user="app.users.find((u) => u.id === row.message?.userId)" />
-                <div class="message-body">
+                <div class="message-body" data-user-content>
                   <header>
                     <strong>{{ row.message.displayName }}</strong>
                     <span v-if="roleLabel(row.message.role)" :class="['role-chip', row.message.role]">{{ roleLabel(row.message.role) }}</span>

@@ -1,6 +1,7 @@
 * { box-sizing: border-box; }
 html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
-body { background: var(--rail); color: var(--text); font-size: 14px; letter-spacing: 0; }
+body { background: var(--rail); color: var(--text); font-size: 14px; letter-spacing: 0; user-select: none; }
+:where(input, textarea, [contenteditable], a[href], [data-user-content]) { user-select: text; }
 button, input, textarea, select { font: inherit; letter-spacing: 0; }
 button { color: inherit; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid #8b96ff; outline-offset: 2px; }
