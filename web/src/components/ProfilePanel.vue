@@ -7,6 +7,7 @@ import { useThemeStore } from '../stores/theme'
 import { useVoiceStore } from '../stores/voice'
 import { rangeProgressStyle } from '../utils/range'
 import AvatarCropperModal from './AvatarCropperModal.vue'
+import UserAvatar from './UserAvatar.vue'
 
 const props = withDefaults(defineProps<{
   initialTab?: 'account' | 'audio'
