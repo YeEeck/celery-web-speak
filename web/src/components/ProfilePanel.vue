@@ -360,11 +360,11 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           </label>
           <h3><BellRing :size="18" />各事件</h3>
           <div class="sound-event-list">
-            <div v-for="sound in soundEvents" :key="sound" class="sound-event-block">
+            <div v-for="sound in soundEvents" :key="sound" class="sound-event-block" :data-sound="sound">
               <div class="sound-event-row">
                 <label class="setting-toggle">
                   <span>{{ soundEventLabels[sound] }}</span>
-                  <input type="checkbox" :checked="isSoundEnabled(sound)" :disabled="!sounds.enabled" :aria-label="`${soundEventLabels[sound]}提示音`" @change="setSoundEnabled(sound, $event)" />
+                  <input type="checkbox" :checked="isSoundEnabled(sound)" :disabled="!sounds.enabled" @change="setSoundEnabled(sound, $event)" />
                 </label>
                 <label><span>音效</span>
                   <select :value="getSelectedDropdownValue(sound)" :disabled="!sounds.enabled" :aria-label="`${soundEventLabels[sound]}音效`" @change="onSoundSelectChange(sound, $event)">
@@ -373,7 +373,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
                   </select>
                 </label>
               </div>
-              <input :ref="setCustomFileInput(sound)" type="file" :accept="CUSTOM_ACCEPT" hidden @change="onCustomFileChosen(sound, $event)" />
+              <input :ref="setCustomFileInput(sound)" type="file" :accept="CUSTOM_ACCEPT" :data-sound="sound" hidden @change="onCustomFileChosen(sound, $event)" />
               <div class="sound-event-actions">
                 <button class="secondary-button" type="button" :disabled="!sounds.enabled || customBusy[sound]" :aria-label="`试听${soundEventLabels[sound]}预置音效`" @click="previewPreset(sound)"><Play :size="14" />试听预置</button>
                 <button class="secondary-button" type="button" :disabled="!sounds.enabled || !getCustomRecord(sound) || customBusy[sound]" :aria-label="`试听${soundEventLabels[sound]}自定义音效`" @click="previewCustom(sound)"><Play :size="14" />试听自定义</button>
