@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.4.19",
+    "date": "2026-07-29",
+    "changes": [
+      "refactor(sounds): 新增应用提示音深模块核心与适配器，迁移调用方并删除旧 store",
+      "refactor(sounds): 合并双试听按钮为单个「试听当前选中来源」按钮",
+      "fix(sounds): 合并重复输出路由任务",
+      "fix(voice): 未加入语音也同步耳机静音与首选输出设备"
+    ]
+  },
+  {
     "version": "0.4.18",
     "date": "2026-07-29",
     "changes": [
