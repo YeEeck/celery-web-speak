@@ -2286,3 +2286,148 @@ test('窄屏频道与成员抽屉不溢出', async ({ page, isMobile }) => {
   const viewport = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
   expect(viewport.width).toBeLessThanOrEqual(viewport.client)
 })
+
+test('自定义提示音上传成功、可试听并持久化到 IndexedDB', async ({ page }) => {
+  await openUserSettings(page)
+  await page.getByRole('button', { name: '音效', exact: true }).click()
+
+  await installToneCounter(page)
+  await installBufferSourceCounter(page)
+  await page.locator('body').click({ position: { x: 10, y: 10 } })
+
+  const row = page.locator('.sound-event-block[data-sound="join"]')
+  const dropdown = row.getByRole('combobox', { name: '加入语音音效' })
+  await row.locator('input[data-sound="join"]').setInputFiles({ name: 'custom-join.wav', mimeType: 'audio/wav', buffer: synthWavBuffer(0.2) })
+  await expect(dropdown).toHaveValue('__custom__')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.source.join'))).toBe('custom')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.preset.join'))).toBe('rise-duo')
+  await expect.poll(() => getCustomSoundFromIDB(page, 'join')).toBeTruthy()
+
+  const presetBefore = await toneCount(page)
+  await row.getByRole('button', { name: '试听加入语音预置音效' }).click()
+  await expect.poll(() => toneCount(page)).toBe(presetBefore + 2)
+
+  const customBefore = await bufferSourceCount(page)
+  await row.getByRole('button', { name: '试听加入语音自定义音效' }).click()
+  await expect.poll(() => bufferSourceCount(page)).toBe(customBefore + 1)
+
+  await page.reload()
+  await openUserSettings(page)
+  await page.getByRole('button', { name: '音效', exact: true }).click()
+  await expect(page.locator('.sound-event-block[data-sound="join"]').getByRole('combobox', { name: '加入语音音效' })).toHaveValue('__custom__')
+})
+
+test('删除自定义提示音回退到上一次系统预置选择', async ({ page }) => {
+  await openUserSettings(page)
+  await page.getByRole('button', { name: '音效', exact: true }).click()
+
+  const row = page.locator('.sound-event-block[data-sound="join"]')
+  const dropdown = row.getByRole('combobox', { name: '加入语音音效' })
+  await dropdown.selectOption('gentle-triple')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.preset.join'))).toBe('gentle-triple')
+
+  await row.locator('input[data-sound="join"]').setInputFiles({ name: 'custom-join.wav', mimeType: 'audio/wav', buffer: synthWavBuffer(0.2) })
+  await expect(dropdown).toHaveValue('__custom__')
+  await expect.poll(() => page.evaluate(() => ({
+    source: localStorage.getItem('cws.notificationSounds.source.join'),
+    preset: localStorage.getItem('cws.notificationSounds.preset.join'),
+  }))).toEqual({ source: 'custom', preset: 'gentle-triple' })
+
+  await row.getByRole('button', { name: '删除加入语音自定义音效' }).click()
+  await expect(dropdown).toHaveValue('gentle-triple')
+  await expect.poll(() => page.evaluate(() => ({
+    source: localStorage.getItem('cws.notificationSounds.source.join'),
+    preset: localStorage.getItem('cws.notificationSounds.preset.join'),
+  }))).toEqual({ source: 'preset', preset: 'gentle-triple' })
+  await expect.poll(() => getCustomSoundFromIDB(page, 'join')).toBeNull()
+})
+
+test('上传校验拒绝过大、非法格式与过长音频的文件', async ({ page }) => {
+  await openUserSettings(page)
+  await page.getByRole('button', { name: '音效', exact: true }).click()
+
+  const row = page.locator('.sound-event-block[data-sound="leave"]')
+  const fileInput = row.locator('input[data-sound="leave"]')
+
+  await fileInput.setInputFiles({ name: 'big.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(600 * 1024) })
+  await expect(row.locator('.form-error')).toHaveText('音频大小不能超过 512 KB')
+
+  await fileInput.setInputFiles({ name: 'bad.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') })
+  await expect(row.locator('.form-error')).toHaveText('请选择 MP3、WAV、OGG、M4A 或 WEBM 音频')
+
+  await fileInput.setInputFiles({ name: 'long.wav', mimeType: 'audio/wav', buffer: synthWavBuffer(3.5) })
+  await expect(row.locator('.form-error')).toHaveText('音频时长不能超过 3 秒')
+
+  await expect.poll(() => getCustomSoundFromIDB(page, 'leave')).toBeNull()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.source.leave'))).toBe('preset')
+})
+
+async function installBufferSourceCounter(page: Page) {
+  await page.evaluate(() => {
+    const target = window as typeof window & { __cwsBufferSourceCount?: number }
+    target.__cwsBufferSourceCount = 0
+    const original = AudioContext.prototype.createBufferSource
+    AudioContext.prototype.createBufferSource = function patchedCreateBufferSource(this: AudioContext) {
+      target.__cwsBufferSourceCount = (target.__cwsBufferSourceCount ?? 0) + 1
+      return original.call(this)
+    }
+  })
+}
+
+async function bufferSourceCount(page: Page) {
+  return page.evaluate(() => (window as typeof window & { __cwsBufferSourceCount?: number }).__cwsBufferSourceCount ?? 0)
+}
+
+function synthWavBuffer(seconds: number): Buffer {
+  const sampleRate = 8000
+  const bitDepth = 16
+  const channels = 1
+  const numSamples = Math.ceil(seconds * sampleRate)
+  const dataSize = numSamples * channels * (bitDepth / 8)
+  const headerSize = 44
+  const buffer = Buffer.alloc(headerSize + dataSize)
+  buffer.write('RIFF', 0)
+  buffer.writeUInt32LE(headerSize + dataSize - 8, 4)
+  buffer.write('WAVE', 8)
+  buffer.write('fmt ', 12)
+  buffer.writeUInt32LE(16, 16)
+  buffer.writeUInt16LE(1, 20)
+  buffer.writeUInt16LE(channels, 22)
+  buffer.writeUInt32LE(sampleRate, 24)
+  buffer.writeUInt32LE(sampleRate * channels * (bitDepth / 8), 28)
+  buffer.writeUInt16LE(channels * (bitDepth / 8), 32)
+  buffer.writeUInt16LE(bitDepth, 34)
+  buffer.write('data', 36)
+  buffer.writeUInt32LE(dataSize, 40)
+  for (let i = 0; i < numSamples; i++) {
+    const sample = Math.sin((2 * Math.PI * 440 * i) / sampleRate) * 0.5 * 32767
+    buffer.writeInt16LE(sample | 0, headerSize + i * 2)
+  }
+  return buffer
+}
+
+async function getCustomSoundFromIDB(page: Page, event: string): Promise<unknown> {
+  return page.evaluate(async (e) => {
+    return new Promise<unknown>((resolve) => {
+      const request = indexedDB.open('cws.sounds')
+      request.onsuccess = () => {
+        const db = request.result
+        if (!db.objectStoreNames.contains('customSounds')) {
+          db.close()
+          resolve(null)
+          return
+        }
+        const tx = db.transaction('customSounds', 'readonly')
+        const get = tx.objectStore('customSounds').get(e)
+        get.onsuccess = () => resolve(get.result ?? null)
+        get.onerror = () => resolve(null)
+        tx.oncomplete = () => db.close()
+      }
+      request.onerror = () => resolve(null)
+      request.onupgradeneeded = () => {
+        request.transaction?.abort()
+        resolve(null)
+      }
+    })
+  }, event)
+}
