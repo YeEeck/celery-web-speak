@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.18",
+    "date": "2026-07-29",
+    "changes": [
+      "fix(web): 分离 Chromium 与 Firefox 的滚动条样式，Firefox 改用 scrollbar-width、Chromium 走 ::-webkit-scrollbar",
+      "style(web): 收窄滚动条宽度并增加端部留白，避免内容贴边"
+    ]
+  },
+  {
     "version": "0.4.17",
     "date": "2026-07-28",
     "changes": [
