@@ -8,12 +8,40 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 button:disabled { cursor: not-allowed; opacity: .52; }
 h1, h2, h3, p { margin: 0; }
 
-/* 全局滚动条基线：透明轨道（去底色）、无上下箭头、细、胶囊滑块、hover 变亮。
-   特例不受影响——.rail-scroll（隐藏滚动条）与 .composer textarea（6px 自定义）
-   的选择器优先级高于通配符，各自规则仍然生效。 */
+/* 全局滚动条基线：透明轨道、细、胶囊滑块、hover 变亮。
+   去箭头要按 WebKit 段伪类逐一覆盖——单条 ::-webkit-scrollbar-button 在
+   Windows Chrome 上压不住 :start/:end/:increment/:decrement 各端箭头，
+   故穷举（含 :horizontal/:vertical 维度）。默认色走 var(--scrollbar)；hover
+   借次要文本灰 var(--faint)，梯度平滑且不引入新 token。 */
 * { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--scrollbar); }
 *::-webkit-scrollbar-thumb:hover { background: var(--faint); }
-*::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+*::-webkit-scrollbar-button,
+*::-webkit-scrollbar-button:start,
+*::-webkit-scrollbar-button:end,
+*::-webkit-scrollbar-button:increment,
+*::-webkit-scrollbar-button:decrement,
+*::-webkit-scrollbar-button:start:increment,
+*::-webkit-scrollbar-button:start:decrement,
+*::-webkit-scrollbar-button:end:increment,
+*::-webkit-scrollbar-button:end:decrement,
+*::-webkit-scrollbar-button:horizontal,
+*::-webkit-scrollbar-button:horizontal:start,
+*::-webkit-scrollbar-button:horizontal:end,
+*::-webkit-scrollbar-button:horizontal:increment,
+*::-webkit-scrollbar-button:horizontal:decrement,
+*::-webkit-scrollbar-button:horizontal:start:increment,
+*::-webkit-scrollbar-button:horizontal:start:decrement,
+*::-webkit-scrollbar-button:horizontal:end:increment,
+*::-webkit-scrollbar-button:horizontal:end:decrement,
+*::-webkit-scrollbar-button:vertical,
+*::-webkit-scrollbar-button:vertical:start,
+*::-webkit-scrollbar-button:vertical:end,
+*::-webkit-scrollbar-button:vertical:increment,
+*::-webkit-scrollbar-button:vertical:decrement,
+*::-webkit-scrollbar-button:vertical:start:increment,
+*::-webkit-scrollbar-button:vertical:start:decrement,
+*::-webkit-scrollbar-button:vertical:end:increment,
+*::-webkit-scrollbar-button:vertical:end:decrement { display: none; width: 0; height: 0; }
