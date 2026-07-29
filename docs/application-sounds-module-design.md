@@ -91,6 +91,8 @@ interface OperationSoundControl {
 - 排除频道删除、成员资格移除、页面关闭、刷新与异常断线等被动离开。
 - 初始参与者同步与重连完成后才报告真实参与者加入或退出。
 - 把耳机静音与首选输出设备同步给 `followPlayback`。
+- `followPlayback.deafened` 取当前有效耳机静音状态，不限制于已加入语音。idle、error、connecting 取离线偏好生效值；connected、reconnecting 取已实施到会话的运行时状态。语音 module 在离线切换耳机静音/麦克风静音、设备选择、设备列表刷新后均重新同步。
+- `followPlayback.outputDeviceId` 在已绑定语音会话且不在 connecting 中（connected、reconnecting）取当前会话活动输出 `activeOutputId`；idle、error、connecting 与尚未绑定会话时取 `resolvedPreferredDeviceId('output')` 归一化后的首选输出设备，不可用时回退到系统默认。设备热插拔让首选重新可用时也要重新同步，确保后续事件指向真实首选设备而非陈旧的系统默认。
 - 把 `mutedSpeakingReminderAudible` 与语音连接、主动麦克风静音、服务器语音禁言、提醒独立开关和麦克风权限组合，决定是否运行 VAD。
 
 消息 module 负责：
