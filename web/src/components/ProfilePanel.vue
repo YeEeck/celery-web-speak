@@ -2,7 +2,7 @@
 import { onMounted, ref, type ComponentPublicInstance } from 'vue'
 import { BellRing, Headphones, Mic, Palette, Play, RefreshCw, Save, Trash2, Upload, UserRound, X } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
-import { useSoundStore, type CustomSoundRecord, type NotificationSound, type SoundPresetId, type SoundSource, SOUND_PRESETS } from '../stores/sounds'
+import { useApplicationSoundStore, type OperationSoundControl, type OperationSoundEvent } from '../stores/application-sounds'
 import { useThemeStore } from '../stores/theme'
 import { useToastStore } from '../stores/toast'
 import { useVoiceStore } from '../stores/voice'
@@ -20,7 +20,7 @@ const props = withDefaults(defineProps<{
 defineEmits<{ close: []; changelog: [] }>()
 const app = useAppStore()
 const voice = useVoiceStore()
-const sounds = useSoundStore()
+const sounds = useApplicationSoundStore()
 const theme = useThemeStore()
 const toast = useToastStore()
 const tab = ref<'account' | 'audio' | 'sound' | 'theme'>(props.initialTab)
@@ -33,20 +33,9 @@ const savingDisplayName = ref(false)
 const savingPassword = ref(false)
 const passwordError = ref('')
 
-const presetOptions = Object.entries(SOUND_PRESETS).map(([id, { name }]) => ({ id: id as SoundPresetId, name }))
-const CUSTOM_OPTION_VALUE = '__custom__'
-const CUSTOM_ACCEPT = 'audio/mpeg,audio/mp3,audio/wav,audio/wave,audio/x-wav,audio/ogg,audio/mp4,audio/x-m4a,audio/webm'
-const soundEvents: NotificationSound[] = ['join', 'leave', 'message']
-const soundEventLabels: Record<NotificationSound, string> = {
-  join: '加入语音',
-  leave: '退出语音',
-  message: '新文字消息',
-}
-const customError = ref<Record<NotificationSound, string>>({ join: '', leave: '', message: '' })
-const customBusy = ref<Record<NotificationSound, boolean>>({ join: false, leave: false, message: false })
-const customFileInputs = new Map<NotificationSound, HTMLInputElement>()
+const customFileInputs = new Map<OperationSoundEvent, HTMLInputElement>()
 
-function setCustomFileInput(sound: NotificationSound) {
+function setCustomFileInput(sound: OperationSoundEvent) {
   return (el: Element | ComponentPublicInstance | null) => {
     if (el instanceof HTMLInputElement) customFileInputs.set(sound, el)
     else customFileInputs.delete(sound)
@@ -151,74 +140,20 @@ async function savePassword() {
   }
 }
 
-function setSoundEnabled(sound: NotificationSound, event: Event) {
-  sounds.setSoundEnabled(sound, (event.target as HTMLInputElement).checked)
+function triggerCustomUpload(sound: OperationSoundControl) {
+  customFileInputs.get(sound.event)?.click()
 }
 
-function onSoundSelectChange(sound: NotificationSound, event: Event) {
-  const value = (event.target as HTMLSelectElement).value
-  if (value === CUSTOM_OPTION_VALUE) {
-    sounds.setSoundSource(sound, 'custom')
-  } else {
-    sounds.setSoundPreset(sound, value as SoundPresetId)
-  }
-}
-
-function getCustomRecord(sound: NotificationSound): CustomSoundRecord | null {
-  if (sound === 'join') return sounds.joinCustom
-  if (sound === 'leave') return sounds.leaveCustom
-  return sounds.messageCustom
-}
-
-function getCurrentSource(sound: NotificationSound): SoundSource {
-  if (sound === 'join') return sounds.joinSource
-  if (sound === 'leave') return sounds.leaveSource
-  return sounds.messageSource
-}
-
-function getSelectedDropdownValue(sound: NotificationSound): string {
-  if (getCurrentSource(sound) === 'custom' && getCustomRecord(sound)) return CUSTOM_OPTION_VALUE
-  if (sound === 'join') return sounds.joinPreset
-  if (sound === 'leave') return sounds.leavePreset
-  return sounds.messagePreset
-}
-
-function isSoundEnabled(sound: NotificationSound): boolean {
-  if (sound === 'join') return sounds.joinEnabled
-  if (sound === 'leave') return sounds.leaveEnabled
-  return sounds.messageEnabled
-}
-
-function triggerCustomUpload(sound: NotificationSound) {
-  customError.value = { ...customError.value, [sound]: '' }
-  customFileInputs.get(sound)?.click()
-}
-
-async function onCustomFileChosen(sound: NotificationSound, event: Event) {
+async function onCustomFileChosen(sound: OperationSoundControl, event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  customError.value = { ...customError.value, [sound]: '' }
-  customBusy.value = { ...customBusy.value, [sound]: true }
-  try {
-    const result = await sounds.uploadCustomSound(sound, file)
-    if (!result.ok) {
-      customError.value = { ...customError.value, [sound]: result.error }
-    }
-  } finally {
-    customBusy.value = { ...customBusy.value, [sound]: false }
-  }
+  await sound.upload(file)
 }
 
-async function removeCustomSound(sound: NotificationSound) {
-  customError.value = { ...customError.value, [sound]: '' }
-  customBusy.value = { ...customBusy.value, [sound]: true }
-  try {
-    await sounds.removeCustomSound(sound)
-  } finally {
-    customBusy.value = { ...customBusy.value, [sound]: false }
-  }
+async function removeCustomSound(sound: OperationSoundControl) {
+  await sound.removeCustom()
 }
 
 const themeModes: { value: 'system' | 'light' | 'dark'; label: string }[] = [
@@ -344,33 +279,33 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           <h3><BellRing :size="18" />全局</h3>
           <label class="setting-toggle">
             <span>启用提示音</span>
-            <input type="checkbox" :checked="sounds.enabled" aria-label="启用提示音" @change="sounds.setEnabled(($event.target as HTMLInputElement).checked)" />
+            <input type="checkbox" :checked="sounds.settings.master.enabled" :disabled="sounds.settings.master.phase === 'changing'" aria-label="启用提示音" @change="sounds.settings.master.setEnabled(($event.target as HTMLInputElement).checked)" />
           </label>
           <label class="audio-level-control">
-            <span><span>提示音音量</span><strong>{{ Math.round(sounds.volume * 100) }}%</strong></span>
-            <input type="range" min="0" max="1" step="0.05" :value="sounds.volume" :style="rangeProgressStyle(sounds.volume, 0, 1)" :disabled="!sounds.enabled" aria-label="提示音音量" @input="sounds.setVolume(Number(($event.target as HTMLInputElement).value))" />
+            <span><span>提示音音量</span><strong>{{ Math.round(sounds.settings.master.volume * 100) }}%</strong></span>
+            <input type="range" min="0" max="1" step="0.05" :value="sounds.settings.master.volume" :style="rangeProgressStyle(sounds.settings.master.volume, 0, 1)" :disabled="!sounds.settings.master.enabled || sounds.settings.master.phase === 'changing'" aria-label="提示音音量" @input="sounds.settings.master.setVolume(Number(($event.target as HTMLInputElement).value))" />
           </label>
+          <span v-if="sounds.settings.master.issue" class="form-error">{{ sounds.settings.master.issue.message }}</span>
           <h3><BellRing :size="18" />各事件</h3>
           <div class="sound-event-list">
-            <div v-for="sound in soundEvents" :key="sound" class="sound-event-block" :data-sound="sound">
+            <div v-for="sound in sounds.settings.operationSounds" :key="sound.event" class="sound-event-block" :data-sound="sound.event">
               <div class="sound-event-row">
                 <label class="setting-toggle">
-                  <span>{{ soundEventLabels[sound] }}</span>
-                  <input type="checkbox" :checked="isSoundEnabled(sound)" :disabled="!sounds.enabled" @change="setSoundEnabled(sound, $event)" />
+                  <span>{{ sound.label }}</span>
+                  <input type="checkbox" :checked="sound.enabled" :disabled="!sounds.settings.master.enabled || sound.phase !== 'ready'" @change="sound.setEnabled(($event.target as HTMLInputElement).checked)" />
                 </label>
                 <label><span>音效</span>
-                  <select :value="getSelectedDropdownValue(sound)" :disabled="!sounds.enabled" :aria-label="`${soundEventLabels[sound]}音效`" @change="onSoundSelectChange(sound, $event)">
-                    <option v-for="preset in presetOptions" :key="preset.id" :value="preset.id">{{ preset.name }}</option>
-                    <option v-if="getCustomRecord(sound)" :value="CUSTOM_OPTION_VALUE">自定义：{{ getCustomRecord(sound)!.name }}</option>
+                  <select :value="sound.selectedChoice" :disabled="!sounds.settings.master.enabled || sound.phase !== 'ready'" :aria-label="`${sound.label}音效`" @change="sound.select(($event.target as HTMLSelectElement).value)">
+                    <option v-for="choice in sound.choices" :key="choice.key" :value="choice.key">{{ choice.label }}</option>
                   </select>
                 </label>
               </div>
-              <input :ref="setCustomFileInput(sound)" type="file" :accept="CUSTOM_ACCEPT" :data-sound="sound" hidden @change="onCustomFileChosen(sound, $event)" />
+              <input :ref="setCustomFileInput(sound.event)" type="file" :accept="sounds.settings.customAccept" :data-sound="sound.event" hidden @change="onCustomFileChosen(sound, $event)" />
               <div class="sound-event-actions">
-                <button class="secondary-button" type="button" :disabled="!sounds.enabled || customBusy[sound]" :aria-label="`试听${soundEventLabels[sound]}音效`" @click="sounds.preview(sound)"><Play :size="14" />试听</button>
-                <button class="secondary-button" type="button" :disabled="!sounds.enabled || customBusy[sound]" :aria-label="`${getCustomRecord(sound) ? '替换' : '上传'}${soundEventLabels[sound]}自定义音效`" @click="triggerCustomUpload(sound)"><Upload :size="14" />{{ getCustomRecord(sound) ? '替换' : '上传' }}自定义</button>
-                <button v-if="getCustomRecord(sound)" class="secondary-button danger-text" type="button" :disabled="!sounds.enabled || customBusy[sound]" :aria-label="`删除${soundEventLabels[sound]}自定义音效`" @click="removeCustomSound(sound)"><Trash2 :size="14" />删除自定义</button>
-                <span v-if="customError[sound]" class="form-error">{{ customError[sound] }}</span>
+                <button class="secondary-button" type="button" :disabled="!sounds.settings.master.enabled || sound.phase !== 'ready'" :aria-label="`试听${sound.label}音效`" @click="sound.preview()"><Play :size="14" />试听</button>
+                <button class="secondary-button" type="button" :disabled="!sounds.settings.master.enabled || sound.phase !== 'ready'" :aria-label="`${sound.custom.state === 'empty' ? '上传' : '替换'}${sound.label}自定义音效`" @click="triggerCustomUpload(sound)"><Upload :size="14" />{{ sound.custom.state === 'empty' ? '上传' : '替换' }}自定义</button>
+                <button v-if="sound.custom.state !== 'empty'" class="secondary-button danger-text" type="button" :disabled="!sounds.settings.master.enabled || sound.phase !== 'ready'" :aria-label="`删除${sound.label}自定义音效`" @click="removeCustomSound(sound)"><Trash2 :size="14" />删除自定义</button>
+                <span v-if="sound.issue" class="form-error">{{ sound.issue.message }}</span>
               </div>
             </div>
           </div>

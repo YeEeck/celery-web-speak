@@ -276,7 +276,7 @@ async function logout() {
   if (loggingOut.value) return
   loggingOut.value = true
   try {
-    await voice.leave({ playLeaveSound: true })
+    await voice.leave({ intent: 'active' })
     await app.logout()
   } catch (error) {
     toast.showError(error instanceof Error ? error.message : '退出登录失败')
@@ -537,7 +537,7 @@ async function leaveGuild() {
     await request(`/api/guilds/${guild.id}/leave`, { method: 'POST' })
     if (voice.connectedGuildId === guild.id) {
       try {
-        await voice.leave({ notifyGuild: false, playLeaveSound: true })
+        await voice.leave({ notifyGuild: false, intent: 'active' })
       } catch {
         // 后端已经清理目标服务器的语音参与者，继续刷新成员状态。
       }
@@ -660,7 +660,7 @@ function closeChangelog() {
             type="button"
             :title="voice.status === 'connecting' ? '取消语音连接' : '断开语音'"
             :aria-label="voice.status === 'connecting' ? '取消语音连接' : '断开语音'"
-            @click="voice.leave({ playLeaveSound: true })"
+            @click="voice.leave({ intent: 'active' })"
           ><LogOut :size="18" /></button>
         </div>
         <p v-if="voice.transmissionModeError" class="voice-control-error" role="alert">{{ voice.transmissionModeError }}</p>

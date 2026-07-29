@@ -2,13 +2,14 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, request } from '../api'
 import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildBootstrapData, GuildMemberPayload, GuildSummary, Message, OnlineClient, User, VoiceRoom } from '../types'
-import { useSoundStore } from './sounds'
+import { useApplicationSoundStore } from './application-sounds'
 import { activeChannelKey, emptyMessageState, isCompleteUser, mapGuildMember, savedChannelID, savedGuildID, type MessageState } from './app-utils'
 import { useSocket } from './app-socket'
 
 type AuthPayload = { user: User }
 
 export const useAppStore = defineStore('app', () => {
+  const sounds = useApplicationSoundStore()
   const ready = ref(false)
   const user = ref<User | null>(null)
   const users = ref<User[]>([])
@@ -321,7 +322,9 @@ export const useAppStore = defineStore('app', () => {
         readState.unreadCount = Math.min(readState.unreadCount + 1, retention)
       }
       readState.latestMessageId = message.id
-      if (message.channelId === activeTextChannelId.value && message.userId !== user.value?.id) useSoundStore().play('message')
+      if (message.channelId === activeTextChannelId.value && message.userId !== user.value?.id) {
+        sounds.signal('text-message-received')
+      }
     } else if (type === 'message_deleted') {
       const payload = data as { channelId?: number; id: number }
       const channelId = payload.channelId ?? activeTextChannelId.value

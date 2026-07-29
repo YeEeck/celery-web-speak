@@ -19,7 +19,7 @@ import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMoni
 import { VoiceAudioContextController } from '../audio/VoiceAudioContextController'
 import type { Channel, VoiceCredentials } from '../types'
 import { useAppStore } from './app'
-import { useSoundStore } from './sounds'
+import { useApplicationSoundStore } from './application-sounds'
 import {
   DEFAULT_AUDIO_BITRATE_KBPS,
   DEFAULT_DEVICE_ID,
@@ -64,7 +64,7 @@ export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils'
 
 interface LeaveOptions {
   notifyGuild?: boolean
-  playLeaveSound?: boolean
+  intent?: 'active'
 }
 
 interface EndedVoiceSession {
@@ -165,7 +165,8 @@ export const useVoiceStore = defineStore('voice', () => {
     activeOutputId.value,
     joined.value,
   ))
-  const sounds = useSoundStore()
+  const sounds = useApplicationSoundStore()
+  syncApplicationSoundPlayback()
   const mutedSpeakingReminderInputDeviceId = computed(() => resolvedPreferredDeviceId('input'))
   const shouldRunMutedSpeakingReminder = computed(() => (
     status.value === 'connected'
@@ -173,8 +174,7 @@ export const useVoiceStore = defineStore('voice', () => {
     && !deafenedPreference.value
     && !guildMuted.value
     && mutedSpeakingReminderEnabled.value
-    && sounds.enabled
-    && sounds.volume > 0
+    && sounds.mutedSpeakingReminderAudible
     && devicePermissionState.value === 'granted'
   ))
   const mutedSpeakingReminder = new MutedSpeakingReminderMonitor({
@@ -272,7 +272,7 @@ export const useVoiceStore = defineStore('voice', () => {
       mutedSpeakingReminderVisible.value = false
       mutedSpeakingReminderTimer = null
     }, 3_000)
-    sounds.playMutedSpeakingReminder()
+    sounds.signal('muted-speaking-reminder')
   }
 
   function clearMutedSpeakingReminder() {
@@ -361,7 +361,7 @@ export const useVoiceStore = defineStore('voice', () => {
   async function join(channelId: number) {
     if (room && connectedChannelId.value === channelId) return
     if (status.value === 'connecting') return
-    if (room) await leave({ playLeaveSound: true })
+    if (room) await leave({ intent: 'active' })
     await destroyVoiceAudioContext()
     voiceSession += 1
     mutedSpeakingReminder.resetFailure()
@@ -378,7 +378,7 @@ export const useVoiceStore = defineStore('voice', () => {
     guildMuted.value = false
     deafened.value = deafenedPreference.value
     muted.value = deafenedPreference.value || !microphoneEnabledPreference.value
-    useSoundStore().setSuppressed(deafenedPreference.value)
+    syncApplicationSoundPlayback()
     try {
       const channel = app.voiceChannels.find((item) => item.id === channelId)
       if (!channel) throw new Error('语音频道不存在')
@@ -436,7 +436,7 @@ export const useVoiceStore = defineStore('voice', () => {
       await refreshDevices(false)
       syncParticipants()
       participantSoundsReady = true
-      if (!deafened.value) useSoundStore().play('join')
+      sounds.signal('voice-self-joined')
       app.requestVoiceRoomsRefresh()
     } catch (error) {
       if (session !== voiceSession) return
@@ -447,7 +447,7 @@ export const useVoiceStore = defineStore('voice', () => {
       clearConnectedChannelSummary()
       status.value = 'error'
       guildMuted.value = false
-      useSoundStore().setSuppressed(false)
+      syncApplicationSoundPlayback()
       syncIdlePreferenceState()
       errorMessage.value = error instanceof Error ? error.message : '无法连接语音频道'
       throw error
@@ -457,7 +457,6 @@ export const useVoiceStore = defineStore('voice', () => {
   async function leave(options: LeaveOptions = {}) {
     const app = useAppStore()
     const targetRoom = room
-    const wasDeafened = deafened.value
     const guildId = connectedGuildId.value
     rememberEndedSession()
     mutedSpeakingReminder.stop()
@@ -481,11 +480,8 @@ export const useVoiceStore = defineStore('voice', () => {
     deafenedSyncError.value = ''
     transmissionModeError.value = ''
     microphoneActivity.destroy()
-    const sounds = useSoundStore()
-    if (wasJoined && options.playLeaveSound && !wasDeafened) {
-      sounds.play('leave', { bypassRateLimit: true })
-    }
-    sounds.setSuppressed(false)
+    if (wasJoined && options.intent === 'active') sounds.signal('voice-self-left')
+    syncApplicationSoundPlayback()
     syncIdlePreferenceState()
     if (wasJoined && guildId !== null && options.notifyGuild !== false) {
       await request(`/api/guilds/${guildId}/voice/leave`, { method: 'POST' })
@@ -809,9 +805,16 @@ export const useVoiceStore = defineStore('voice', () => {
 
   function applyOutputDeviceSelection(deviceId: string) {
     activeOutputId.value = deviceId
-    useSoundStore().setOutputDevice(deviceId)
+    syncApplicationSoundPlayback()
     document.querySelectorAll<HTMLAudioElement>('#voice-audio-root audio').forEach((element) => {
       void setAudioSink(element, deviceId)
+    })
+  }
+
+  function syncApplicationSoundPlayback() {
+    sounds.followPlayback({
+      deafened: joined.value && deafened.value,
+      outputDeviceId: activeOutputId.value,
     })
   }
 
@@ -830,7 +833,7 @@ export const useVoiceStore = defineStore('voice', () => {
         if (appAudio.applicationAudioState.value === 'playing') await appAudio.pauseApplicationAudio(true)
         deafened.value = true
         muted.value = true
-        useSoundStore().setSuppressed(true)
+        syncApplicationSoundPlayback()
       } else {
         await target.startAudio()
         if (session !== voiceSession || room !== target) return
@@ -851,7 +854,7 @@ export const useVoiceStore = defineStore('voice', () => {
         if (shouldEnableMicrophone) await attachMicrophoneGain(target)
         deafened.value = false
         muted.value = !shouldEnableMicrophone
-        useSoundStore().setSuppressed(false)
+        syncApplicationSoundPlayback()
         if (appAudio.isAutoPaused() && appAudio.applicationAudioState.value === 'paused') {
           await appAudio.resumeApplicationAudio(true)
         }
@@ -911,7 +914,7 @@ export const useVoiceStore = defineStore('voice', () => {
           deafenedSyncError.value = ''
           microphoneActivity.destroy()
           void destroyVoiceAudioContext()
-          useSoundStore().setSuppressed(false)
+          syncApplicationSoundPlayback()
           syncIdlePreferenceState()
           useAppStore().requestVoiceRoomsRefresh()
         }
@@ -922,7 +925,9 @@ export const useVoiceStore = defineStore('voice', () => {
     if (room !== target) return
     syncParticipants()
     useAppStore().requestVoiceRoomsRefresh()
-    if (participantSoundsReady && status.value === 'connected') useSoundStore().play(sound)
+    if (participantSoundsReady && status.value === 'connected') {
+      sounds.signal(sound === 'join' ? 'voice-participant-joined' : 'voice-participant-left')
+    }
   }
 
   function attachTrack(track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) {
@@ -1066,7 +1071,7 @@ export const useVoiceStore = defineStore('voice', () => {
 
     const wasDeafened = matchesCurrent ? deafened.value : recentEndedSession?.deafened === true
     recentEndedSession = null
-    if (!wasDeafened) useSoundStore().play('leave', { bypassRateLimit: true })
+    if (!wasDeafened) sounds.signal('voice-moderator-disconnected')
     return true
   }
 

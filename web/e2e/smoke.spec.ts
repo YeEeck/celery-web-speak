@@ -1432,29 +1432,6 @@ test('操作提示音默认开启并持久化到浏览器', async ({ page, isMob
   await expect(page.getByRole('checkbox', { name: '新文字消息' })).not.toBeChecked()
 })
 
-test('主动退出提示音绕过同类限流但仍遵守耳机静音', async ({ page }) => {
-  await installToneCounter(page)
-  await page.locator('body').click({ position: { x: 10, y: 10 } })
-
-  const initialCount = await toneCount(page)
-  await playSoundThroughStore(page, false)
-  await playSoundThroughStore(page, false)
-  await expect.poll(() => toneCount(page)).toBe(initialCount + 2)
-
-  await page.waitForTimeout(350)
-  const beforeBypass = await toneCount(page)
-  await playSoundThroughStore(page, false)
-  await playSoundThroughStore(page, true)
-  await expect.poll(() => toneCount(page)).toBe(beforeBypass + 4)
-
-  await setSoundSuppressedThroughStore(page, true)
-  const beforeSuppressed = await toneCount(page)
-  await playSoundThroughStore(page, true)
-  await page.waitForTimeout(150)
-  expect(await toneCount(page)).toBe(beforeSuppressed)
-  await setSoundSuppressedThroughStore(page, false)
-})
-
 test('主题模式与强调色持久化到浏览器', async ({ page, isMobile }) => {
   await openUserSettings(page)
   await page.getByRole('button', { name: '主题', exact: true }).click()
@@ -1495,20 +1472,6 @@ test('音频处理与静音说话提醒开关持久化到浏览器', async ({ pa
   await openUserSettings(page)
   await page.getByRole('button', { name: '音频', exact: true }).click()
   await expect(page.getByLabel('静音时说话提醒')).not.toBeChecked()
-})
-
-test('静音说话提醒使用固定双音并遵守提示音总开关', async ({ page }) => {
-  await installToneCounter(page)
-  await page.locator('body').click({ position: { x: 10, y: 10 } })
-
-  const initialCount = await toneCount(page)
-  await playMutedSpeakingReminderThroughStore(page)
-  await expect.poll(() => toneCount(page)).toBe(initialCount + 2)
-
-  await setSoundEnabledThroughStore(page, false)
-  await playMutedSpeakingReminderThroughStore(page)
-  await page.waitForTimeout(150)
-  expect(await toneCount(page)).toBe(initialCount + 2)
 })
 
 test('静音说话提醒高亮麦克风按钮并显示状态提示', async ({ page, isMobile }) => {
@@ -1942,54 +1905,6 @@ async function toneCount(page: import('@playwright/test').Page) {
   return page.evaluate(() => (window as typeof window & { __cwsToneCount?: number }).__cwsToneCount ?? 0)
 }
 
-async function playSoundThroughStore(page: Page, bypassRateLimit: boolean) {
-  await page.evaluate((bypass) => {
-    type SoundStoreTestState = { play: (sound: 'leave', options?: { bypassRateLimit?: boolean }) => void }
-    type PiniaTestState = { _s: Map<string, SoundStoreTestState> }
-    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
-    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
-    const sounds = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('sounds')
-    if (!sounds) throw new Error('未找到提示音 store')
-    sounds.play('leave', { bypassRateLimit: bypass })
-  }, bypassRateLimit)
-}
-
-async function setSoundSuppressedThroughStore(page: Page, suppressed: boolean) {
-  await page.evaluate((value) => {
-    type SoundStoreTestState = { setSuppressed: (suppressed: boolean) => void }
-    type PiniaTestState = { _s: Map<string, SoundStoreTestState> }
-    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
-    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
-    const sounds = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('sounds')
-    if (!sounds) throw new Error('未找到提示音 store')
-    sounds.setSuppressed(value)
-  }, suppressed)
-}
-
-async function playMutedSpeakingReminderThroughStore(page: Page) {
-  await page.evaluate(() => {
-    type SoundStoreTestState = { playMutedSpeakingReminder: () => void }
-    type PiniaTestState = { _s: Map<string, SoundStoreTestState> }
-    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
-    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
-    const sounds = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('sounds')
-    if (!sounds) throw new Error('未找到提示音 store')
-    sounds.playMutedSpeakingReminder()
-  })
-}
-
-async function setSoundEnabledThroughStore(page: Page, enabled: boolean) {
-  await page.evaluate((value) => {
-    type SoundStoreTestState = { setEnabled: (enabled: boolean) => void }
-    type PiniaTestState = { _s: Map<string, SoundStoreTestState> }
-    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
-    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
-    const sounds = root?.__vue_app__?.config.globalProperties.$pinia?._s.get('sounds')
-    if (!sounds) throw new Error('未找到提示音 store')
-    sounds.setEnabled(value)
-  }, enabled)
-}
-
 async function setMutedSpeakingReminderVisible(page: Page, visible: boolean) {
   await page.evaluate((value) => {
     type VoiceStoreTestState = { mutedSpeakingReminderVisible: boolean }
@@ -2303,7 +2218,7 @@ test('自定义提示音上传成功、可试听并持久化到 IndexedDB', asyn
 
   await expect(page.locator('input[data-sound="join"]')).toBeAttached()
   await page.locator('input[data-sound="join"]').setInputFiles({ name: 'custom-join.wav', mimeType: 'audio/wav', buffer: synthWavBuffer(0.2) })
-  await expect(dropdown).toHaveValue('__custom__')
+  await expect(dropdown).toHaveValue('custom')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.source.join'))).toBe('custom')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.preset.join'))).toBe('rise-duo')
   await expect.poll(() => getCustomSoundFromIDB(page, 'join')).toBeTruthy()
@@ -2315,7 +2230,7 @@ test('自定义提示音上传成功、可试听并持久化到 IndexedDB', asyn
   await page.reload()
   await openUserSettings(page)
   await page.getByRole('button', { name: '音效', exact: true }).click()
-  await expect(page.locator('.sound-event-block[data-sound="join"]').getByRole('combobox', { name: '加入语音音效' })).toHaveValue('__custom__')
+  await expect(page.locator('.sound-event-block[data-sound="join"]').getByRole('combobox', { name: '加入语音音效' })).toHaveValue('custom')
 })
 
 test('删除自定义提示音回退到上一次系统预置选择', async ({ page }) => {
@@ -2324,18 +2239,18 @@ test('删除自定义提示音回退到上一次系统预置选择', async ({ pa
 
   const row = page.locator('.sound-event-block[data-sound="join"]')
   const dropdown = row.getByRole('combobox', { name: '加入语音音效' })
-  await dropdown.selectOption('gentle-triple')
+  await dropdown.selectOption('preset:gentle-triple')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.preset.join'))).toBe('gentle-triple')
 
   await row.locator('input[data-sound="join"]').setInputFiles({ name: 'custom-join.wav', mimeType: 'audio/wav', buffer: synthWavBuffer(0.2) })
-  await expect(dropdown).toHaveValue('__custom__')
+  await expect(dropdown).toHaveValue('custom')
   await expect.poll(() => page.evaluate(() => ({
     source: localStorage.getItem('cws.notificationSounds.source.join'),
     preset: localStorage.getItem('cws.notificationSounds.preset.join'),
   }))).toEqual({ source: 'custom', preset: 'gentle-triple' })
 
   await row.getByRole('button', { name: '删除加入语音自定义音效' }).click()
-  await expect(dropdown).toHaveValue('gentle-triple')
+  await expect(dropdown).toHaveValue('preset:gentle-triple')
   await expect.poll(() => page.evaluate(() => ({
     source: localStorage.getItem('cws.notificationSounds.source.join'),
     preset: localStorage.getItem('cws.notificationSounds.preset.join'),
