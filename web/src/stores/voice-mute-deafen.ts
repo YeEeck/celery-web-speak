@@ -6,7 +6,7 @@ import {
   getSavedBoolean,
   saveBoolean,
   type VoiceTransmissionMode,
-} from './voice-utils'
+} from './voice-utils.ts'
 
 export type VoiceStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
