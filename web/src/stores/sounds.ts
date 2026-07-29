@@ -161,21 +161,7 @@ export const useSoundStore = defineStore('sounds', () => {
     const now = performance.now()
     if (!options.bypassRateLimit && now - lastPlayed[sound] < MIN_INTERVAL_MS) return
     lastPlayed[sound] = now
-
-    const target = context
-    const ready = target.state === 'running' ? Promise.resolve() : target.resume()
-    void ready.then(async () => {
-      if (target.state !== 'running' || volume.value === 0 || suppressed.value || !enabled.value || !isSoundEnabled(sound)) return
-      await applyOutputDevice(target)
-      if (getSource(sound) === 'custom') {
-        const buffer = await getCustomBuffer(sound)
-        if (!buffer) return
-        if (target.state !== 'running' || volume.value === 0 || suppressed.value || !enabled.value || !isSoundEnabled(sound)) return
-        scheduleCustomSound(target, buffer, volume.value)
-      } else {
-        scheduleSound(target, volume.value, getSoundPreset(sound))
-      }
-    }).catch(() => undefined)
+    resolveAndPlay(sound, context, true)
   }
 
   function playMutedSpeakingReminder() {
@@ -191,28 +177,26 @@ export const useSoundStore = defineStore('sounds', () => {
     })
   }
 
-  function previewPreset(sound: NotificationSound) {
-    const target = getAudioContext()
+  function preview(sound: NotificationSound) {
     if (suppressed.value) return
-    const ready = target.state === 'running' ? Promise.resolve() : target.resume()
-    void ready.then(async () => {
-      if (target.state !== 'running' || volume.value === 0 || suppressed.value) return
-      await applyOutputDevice(target)
-      scheduleSound(target, volume.value, getSoundPreset(sound))
-    }).catch(() => undefined)
+    resolveAndPlay(sound, getAudioContext(), false)
   }
 
-  function previewCustom(sound: NotificationSound) {
-    const target = getAudioContext()
-    if (suppressed.value) return
+  function resolveAndPlay(sound: NotificationSound, target: AudioContext, requireEnabled: boolean) {
     const ready = target.state === 'running' ? Promise.resolve() : target.resume()
     void ready.then(async () => {
       if (target.state !== 'running' || volume.value === 0 || suppressed.value) return
+      if (requireEnabled && (!enabled.value || !isSoundEnabled(sound))) return
       await applyOutputDevice(target)
-      const buffer = await getCustomBuffer(sound)
-      if (!buffer) return
-      if (target.state !== 'running' || volume.value === 0 || suppressed.value) return
-      scheduleCustomSound(target, buffer, volume.value)
+      if (getSource(sound) === 'custom') {
+        const buffer = await getCustomBuffer(sound)
+        if (!buffer) return
+        if (target.state !== 'running' || volume.value === 0 || suppressed.value) return
+        if (requireEnabled && (!enabled.value || !isSoundEnabled(sound))) return
+        scheduleCustomSound(target, buffer, volume.value)
+      } else {
+        scheduleSound(target, volume.value, getSoundPreset(sound))
+      }
     }).catch(() => undefined)
   }
 
@@ -406,8 +390,7 @@ export const useSoundStore = defineStore('sounds', () => {
     removeInteractionUnlock,
     play,
     playMutedSpeakingReminder,
-    previewPreset,
-    previewCustom,
+    preview,
     setEnabled,
     setVolume,
     setSoundEnabled,

@@ -221,14 +221,6 @@ async function removeCustomSound(sound: NotificationSound) {
   }
 }
 
-function previewPreset(sound: NotificationSound) {
-  sounds.previewPreset(sound)
-}
-
-function previewCustom(sound: NotificationSound) {
-  sounds.previewCustom(sound)
-}
-
 const themeModes: { value: 'system' | 'light' | 'dark'; label: string }[] = [
   { value: 'system', label: '跟随系统' },
   { value: 'light', label: '亮色' },
@@ -375,15 +367,13 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
               </div>
               <input :ref="setCustomFileInput(sound)" type="file" :accept="CUSTOM_ACCEPT" :data-sound="sound" hidden @change="onCustomFileChosen(sound, $event)" />
               <div class="sound-event-actions">
-                <button class="secondary-button" type="button" :disabled="!sounds.enabled || customBusy[sound]" :aria-label="`试听${soundEventLabels[sound]}预置音效`" @click="previewPreset(sound)"><Play :size="14" />试听预置</button>
-                <button class="secondary-button" type="button" :disabled="!sounds.enabled || !getCustomRecord(sound) || customBusy[sound]" :aria-label="`试听${soundEventLabels[sound]}自定义音效`" @click="previewCustom(sound)"><Play :size="14" />试听自定义</button>
+                <button class="secondary-button" type="button" :disabled="!sounds.enabled || customBusy[sound]" :aria-label="`试听${soundEventLabels[sound]}音效`" @click="sounds.preview(sound)"><Play :size="14" />试听</button>
                 <button class="secondary-button" type="button" :disabled="!sounds.enabled || customBusy[sound]" :aria-label="`${getCustomRecord(sound) ? '替换' : '上传'}${soundEventLabels[sound]}自定义音效`" @click="triggerCustomUpload(sound)"><Upload :size="14" />{{ getCustomRecord(sound) ? '替换' : '上传' }}自定义</button>
                 <button v-if="getCustomRecord(sound)" class="secondary-button danger-text" type="button" :disabled="!sounds.enabled || customBusy[sound]" :aria-label="`删除${soundEventLabels[sound]}自定义音效`" @click="removeCustomSound(sound)"><Trash2 :size="14" />删除自定义</button>
                 <span v-if="customError[sound]" class="form-error">{{ customError[sound] }}</span>
               </div>
             </div>
           </div>
-          <p class="profile-hint">自定义音效支持 MP3、WAV、OGG、M4A 与 WEBM；单文件 ≤ 512 KB、时长 ≤ 3 秒；保存在本机 IndexedDB，不上传服务器。</p>
         </section>
 
         <section v-else-if="tab === 'theme'" class="settings-section">

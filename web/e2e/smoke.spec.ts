@@ -1398,9 +1398,9 @@ test('操作提示音默认开启并持久化到浏览器', async ({ page, isMob
 
   const masterSwitch = page.getByLabel('启用提示音')
   const soundVolume = page.getByLabel('提示音音量')
-  const joinSwitch = page.getByLabel('加入语音')
-  const leaveSwitch = page.getByLabel('退出语音')
-  const messageSwitch = page.getByLabel('新文字消息')
+  const joinSwitch = page.getByRole('checkbox', { name: '加入语音' })
+  const leaveSwitch = page.getByRole('checkbox', { name: '退出语音' })
+  const messageSwitch = page.getByRole('checkbox', { name: '新文字消息' })
   await expect(masterSwitch).toBeChecked()
   await expect(soundVolume).toHaveValue('0.6')
   await expect(joinSwitch).toBeChecked()
@@ -1428,8 +1428,8 @@ test('操作提示音默认开启并持久化到浏览器', async ({ page, isMob
   await page.getByRole('button', { name: '音效', exact: true }).click()
   await expect(page.getByLabel('启用提示音')).not.toBeChecked()
   await expect(page.getByLabel('提示音音量')).toHaveValue('0.35')
-  await expect(page.getByLabel('加入语音')).not.toBeChecked()
-  await expect(page.getByLabel('新文字消息')).not.toBeChecked()
+  await expect(page.getByRole('checkbox', { name: '加入语音' })).not.toBeChecked()
+  await expect(page.getByRole('checkbox', { name: '新文字消息' })).not.toBeChecked()
 })
 
 test('主动退出提示音绕过同类限流但仍遵守耳机静音', async ({ page }) => {
@@ -2296,6 +2296,11 @@ test('自定义提示音上传成功、可试听并持久化到 IndexedDB', asyn
 
   const row = page.locator('.sound-event-block[data-sound="join"]')
   const dropdown = row.getByRole('combobox', { name: '加入语音音效' })
+
+  const presetBefore = await toneCount(page)
+  await row.getByRole('button', { name: '试听加入语音音效' }).click()
+  await expect.poll(() => toneCount(page)).toBe(presetBefore + 2)
+
   await expect(page.locator('input[data-sound="join"]')).toBeAttached()
   await page.locator('input[data-sound="join"]').setInputFiles({ name: 'custom-join.wav', mimeType: 'audio/wav', buffer: synthWavBuffer(0.2) })
   await expect(dropdown).toHaveValue('__custom__')
@@ -2303,12 +2308,8 @@ test('自定义提示音上传成功、可试听并持久化到 IndexedDB', asyn
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.preset.join'))).toBe('rise-duo')
   await expect.poll(() => getCustomSoundFromIDB(page, 'join')).toBeTruthy()
 
-  const presetBefore = await toneCount(page)
-  await row.getByRole('button', { name: '试听加入语音预置音效' }).click()
-  await expect.poll(() => toneCount(page)).toBe(presetBefore + 2)
-
   const customBefore = await bufferSourceCount(page)
-  await row.getByRole('button', { name: '试听加入语音自定义音效' }).click()
+  await row.getByRole('button', { name: '试听加入语音音效' }).click()
   await expect.poll(() => bufferSourceCount(page)).toBe(customBefore + 1)
 
   await page.reload()
