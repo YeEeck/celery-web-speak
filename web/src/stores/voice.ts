@@ -913,17 +913,6 @@ export const useVoiceStore = defineStore('voice', () => {
     })
   }
 
-  function applicationAudioPublishOptions() {
-    const settings = connectedPublishSettings.value
-    return {
-      source: Track.Source.ScreenShareAudio,
-      audioPreset: { maxBitrate: settings.backgroundAudioBitrateKbps * 1000 },
-      dtx: false,
-      red: settings.backgroundAudioRedEnabled,
-      forceStereo: true,
-    }
-  }
-
   async function enableMicrophone(enabled: boolean) {
     const target = room
     if (!target) return
