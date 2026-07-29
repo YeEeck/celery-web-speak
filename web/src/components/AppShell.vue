@@ -123,12 +123,6 @@ watch(() => app.activeGuildId === voice.connectedGuildId && app.voiceChannels.so
 watch(() => voice.connectedGuildId === null || app.guilds.some((guild) => guild.id === voice.connectedGuildId && guild.joined), (hasMembership) => {
   if (!hasMembership && voice.joined) void voice.leave({ notifyGuild: false })
 })
-watch(() => app.activeGuildId === voice.connectedGuildId ? app.user?.voiceMuted : undefined, (value) => {
-  if (value !== undefined) void voice.syncGuildMute(value)
-}, { immediate: true })
-watch(() => app.socketStatus, (value) => {
-  if (value === 'online') voice.retryDeafenedSync()
-})
 watch(() => app.activeGuildId, () => {
   closeGuildActionMenu()
   closeChannelActionMenu()
