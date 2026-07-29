@@ -23,6 +23,7 @@ external interface 按三类调用意图区分：
 type ApplicationSoundOccurrence =
   | 'voice-self-joined'
   | 'voice-self-left'
+  | 'voice-moderator-disconnected'
   | 'voice-participant-joined'
   | 'voice-participant-left'
   | 'text-message-received'
@@ -86,6 +87,7 @@ interface OperationSoundControl {
 
 - 成功加入语音后发出 `voice-self-joined`。
 - 真实主动退出语音后发出 `voice-self-left`；空闲状态下重复请求离开不构成事件。
+- 与当前或刚结束的语音会话匹配到管理员语音断开时发出 `voice-moderator-disconnected`；其他强制移除不构成该事件。
 - 排除频道删除、成员资格移除、页面关闭、刷新与异常断线等被动离开。
 - 初始参与者同步与重连完成后才报告真实参与者加入或退出。
 - 把耳机静音与首选输出设备同步给 `followPlayback`。
@@ -99,7 +101,7 @@ interface OperationSoundControl {
 
 - 把合格领域事件映射到操作提示音槽或固定提醒双音。
 - 组合总开关、音量、事件开关、耳机静音、来源、限流与输出设备政策。
-- 让每个真实 `voice-self-left` 绕过退出提示音的 300ms 时间窗；不维护语音会话去重状态。
+- 让每个真实 `voice-self-left` 与 `voice-moderator-disconnected` 绕过退出提示音的 300ms 时间窗；不维护语音会话去重状态。
 
 ## 状态不变量
 
@@ -139,7 +141,7 @@ interface OperationSoundControl {
 - 加入、退出和消息分别拥有独立的 300ms 时间窗。
 - 事件通过总开关、事件开关、音量与耳机静音检查后立即占用时间窗，再开始异步输出路由与播放调度。
 - 被设置抑制的事件不占用时间窗；已接受但随后播放失败的事件仍占用。
-- 每个真实主动退出事件绕过退出提示音时间窗。
+- 每个真实主动退出事件与匹配的管理员语音断开事件绕过退出提示音时间窗。
 
 ### 试听
 
