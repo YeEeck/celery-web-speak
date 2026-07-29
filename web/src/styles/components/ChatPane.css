@@ -37,13 +37,13 @@
 .composer-area { padding: 16px 16px max(16px, env(safe-area-inset-bottom)); }
 .composer { min-height: 84px; display: grid; grid-template-rows: auto 38px; background: var(--elevated); border-radius: 6px; padding: 2px 4px 2px 12px; }
 .composer.disabled { opacity: .62; }
-.composer textarea { width: 100%; resize: none; overflow-y: auto; scrollbar-color: var(--scrollbar) transparent; scrollbar-gutter: stable; scrollbar-width: thin; border: 0; background: transparent; padding: 10px 0; line-height: 22px; max-height: 144px; outline: none; }
-.composer textarea::-webkit-scrollbar { width: 6px; }
+.composer textarea { width: 100%; resize: none; overflow-y: auto; scrollbar-gutter: stable; border: 0; background: transparent; padding: 10px 0; line-height: 22px; max-height: 144px; outline: none; }
+.composer textarea::-webkit-scrollbar { width: 4px; }
 .composer textarea::-webkit-scrollbar-track { background: transparent; }
 .composer textarea::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--scrollbar); }
 .composer textarea::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
-.composer:focus-within textarea { scrollbar-color: var(--faint) transparent; }
 .composer:focus-within textarea::-webkit-scrollbar-thumb, .composer textarea::-webkit-scrollbar-thumb:hover { background: var(--faint); }
+@supports not selector(::-webkit-scrollbar) { .composer:focus-within textarea { scrollbar-color: var(--faint) transparent; } }
 .composer-actions { min-width: 0; height: 38px; display: flex; align-items: center; justify-content: flex-end; }
 .character-count { color: var(--faint); font-size: 9px; padding: 0 8px; }.character-count.near { color: var(--yellow); }
 .send-button { width: 38px; height: 38px; flex: 0 0 38px; display: grid; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--code-fg); cursor: pointer; transition: var(--t-colors); }

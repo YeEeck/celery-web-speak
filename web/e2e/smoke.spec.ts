@@ -984,6 +984,10 @@ test('消息编辑器使用全宽文本区和底部操作行', async ({ page, is
     const send = element.querySelector('.send-button')!.getBoundingClientRect()
     const textarea = element.querySelector('textarea')!
     const inputStyle = getComputedStyle(textarea)
+    const messageList = document.querySelector('.message-list')!
+    const verticalTrackRule = Array.from(document.styleSheets)
+      .flatMap((sheet) => Array.from(sheet.cssRules))
+      .find((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText.endsWith('::-webkit-scrollbar-track:vertical'))
     return {
       composerRight: composer.right,
       composerBottom: composer.bottom,
@@ -996,8 +1000,12 @@ test('消息编辑器使用全宽文本区和底部操作行', async ({ page, is
       sendBottom: send.bottom,
       overflowY: inputStyle.overflowY,
       scrollbarGutter: inputStyle.scrollbarGutter,
-      scrollbarWidth: getComputedStyle(textarea, '::-webkit-scrollbar').width,
+      standardScrollbarWidth: inputStyle.scrollbarWidth,
+      standardScrollbarColor: inputStyle.scrollbarColor,
+      globalWebkitScrollbarWidth: getComputedStyle(messageList, '::-webkit-scrollbar').width,
+      webkitScrollbarWidth: getComputedStyle(textarea, '::-webkit-scrollbar').width,
       scrollbarTrack: getComputedStyle(textarea, '::-webkit-scrollbar-track').backgroundColor,
+      verticalTrackMargin: verticalTrackRule?.style.marginBlock,
       scrollbarButton: getComputedStyle(textarea, '::-webkit-scrollbar-button').display,
     }
   })
@@ -1006,8 +1014,12 @@ test('消息编辑器使用全宽文本区和底部操作行', async ({ page, is
   expect(layout.inputScrollHeight).toBeGreaterThan(layout.inputClientHeight)
   expect(layout.overflowY).toBe('auto')
   expect(layout.scrollbarGutter).toContain('stable')
-  expect(layout.scrollbarWidth).toBe('6px')
+  expect(layout.standardScrollbarWidth).toBe('auto')
+  expect(layout.standardScrollbarColor).toBe('auto')
+  expect(layout.globalWebkitScrollbarWidth).toBe('6px')
+  expect(layout.webkitScrollbarWidth).toBe('4px')
   expect(layout.scrollbarTrack).toBe('rgba(0, 0, 0, 0)')
+  expect(layout.verticalTrackMargin).toBe('4px')
   expect(layout.scrollbarButton).toBe('none')
   expect(layout.composerRight - layout.inputRight).toBeCloseTo(4, 0)
   expect(layout.actionsTop).toBeGreaterThanOrEqual(layout.inputBottom)

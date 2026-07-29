@@ -8,13 +8,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 button:disabled { cursor: not-allowed; opacity: .52; }
 h1, h2, h3, p { margin: 0; }
 
-/* 全局滚动条基线：透明轨道、细、胶囊滑块、hover 变亮。
-   ::-webkit-scrollbar-button 在部分 Windows Chrome 版本压不住原生箭头，
-   此处仅作尽力去除，不强求跨平台一致。默认色走 var(--scrollbar)，hover
-   借次要文本灰 var(--faint)，梯度平滑且不引入新 token。 */
-* { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
-*::-webkit-scrollbar { width: 8px; height: 8px; }
+/* 全局滚动条基线：Chromium/Safari 使用 WebKit 伪元素，Firefox 使用
+   标准属性。不要在 Chromium 中同时设置非 auto 的 scrollbar-width/color，
+   否则标准滚动条会覆盖 ::-webkit-scrollbar-button 并恢复 Windows 箭头。 */
+*::-webkit-scrollbar { width: 6px; height: 6px; }
 *::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-track:vertical { margin-block: 4px; }
 *::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--scrollbar); }
 *::-webkit-scrollbar-thumb:hover { background: var(--faint); }
 *::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
+}
