@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { buildMicrophoneCaptureOptions } from '../src/audio/microphoneCaptureOptions.ts'
 
-test('disables automatic gain while preserving other microphone preferences', () => {
+test('enables automatic gain while preserving other microphone preferences', () => {
   assert.deepEqual(buildMicrophoneCaptureOptions({
     deviceId: 'preferred-microphone',
     echoCancellation: true,
@@ -11,7 +11,7 @@ test('disables automatic gain while preserving other microphone preferences', ()
     deviceId: 'preferred-microphone',
     echoCancellation: true,
     noiseSuppression: false,
-    autoGainControl: false,
+    autoGainControl: true,
     channelCount: 1,
   })
 })

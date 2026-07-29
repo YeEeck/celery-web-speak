@@ -9,7 +9,7 @@ export function buildMicrophoneCaptureOptions(preferences: MicrophoneCapturePref
     deviceId: preferences.deviceId,
     echoCancellation: preferences.echoCancellation,
     noiseSuppression: preferences.noiseSuppression,
-    autoGainControl: false,
+    autoGainControl: true,
     channelCount: 1,
   }
 }
