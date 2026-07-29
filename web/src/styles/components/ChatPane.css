@@ -38,7 +38,7 @@
 .composer { min-height: 84px; display: grid; grid-template-rows: auto 38px; background: var(--elevated); border-radius: 6px; padding: 2px 4px 2px 12px; }
 .composer.disabled { opacity: .62; }
 .composer textarea { width: 100%; resize: none; overflow-y: auto; scrollbar-gutter: stable; border: 0; background: transparent; padding: 10px 0; line-height: 22px; max-height: 144px; outline: none; }
-.composer textarea::-webkit-scrollbar { width: 6px; }
+.composer textarea::-webkit-scrollbar { width: 4px; }
 .composer textarea::-webkit-scrollbar-track { background: transparent; }
 .composer textarea::-webkit-scrollbar-thumb { border-radius: 999px; background: var(--scrollbar); }
 .composer textarea::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
