@@ -5,12 +5,13 @@ import {
   type ApplicationSoundAudioAdapter,
   type DecodedCustomSound,
 } from '../src/application-sounds/core.ts'
-import type { OperationSoundEvent, SoundPresetId } from '../src/application-sounds/patterns.ts'
+import { MUTED_SPEAKING_NOTES, type OperationSoundEvent, type SoundPresetId } from '../src/application-sounds/patterns.ts'
 import type {
   CustomSoundRecord,
   CustomSoundStorageAdapter,
   SoundPreferenceAdapter,
 } from '../src/application-sounds/storage.ts'
+import { BrowserApplicationSoundAudioAdapter } from '../src/application-sounds/web-audio.ts'
 
 class MemoryPreferences implements SoundPreferenceAdapter {
   readonly values = new Map<string, string>()
@@ -277,3 +278,135 @@ test('projects muted-speaking audibility and keeps reminder outside operation li
   await harness.sounds.dispose()
   assert.equal(harness.audio.disposed, true)
 })
+
+test('applies the latest output route revision before playback', async () => {
+  const firstRoute = deferred<void>()
+  const context = new FakeAudioContext((deviceId) => (
+    deviceId === 'speaker-a' ? firstRoute.promise : Promise.resolve()
+  ))
+  const adapter = createBrowserAudioAdapter(context)
+
+  adapter.followOutput('speaker-a')
+  const decode = adapter.decode(new Blob(['audio']))
+  await Promise.resolve()
+  adapter.followOutput('speaker-b')
+  firstRoute.resolve()
+  await decode
+  await adapter.playMutedSpeakingReminder(0.5)
+
+  assert.deepEqual(context.sinkIds, ['speaker-a', 'speaker-b'])
+})
+
+test('falls back to the default output when routing fails', async () => {
+  const diagnostics: string[] = []
+  const context = new FakeAudioContext((deviceId) => (
+    deviceId === 'missing-speaker'
+      ? Promise.reject(new Error('missing output'))
+      : Promise.resolve()
+  ))
+  const adapter = createBrowserAudioAdapter(context, diagnostics)
+
+  adapter.followOutput('missing-speaker')
+  await adapter.decode(new Blob(['audio']))
+  await adapter.playMutedSpeakingReminder(0.5)
+
+  assert.deepEqual(context.sinkIds, ['missing-speaker', ''])
+  assert.deepEqual(diagnostics, ['提示音输出设备切换失败，将回退到系统默认设备'])
+})
+
+test('schedules the fixed muted-speaking reminder note pattern', async () => {
+  const context = new FakeAudioContext()
+  const adapter = createBrowserAudioAdapter(context)
+  await adapter.decode(new Blob(['audio']))
+
+  await adapter.playMutedSpeakingReminder(0.5)
+
+  assert.equal(context.oscillators.length, MUTED_SPEAKING_NOTES.length)
+  for (const [index, note] of MUTED_SPEAKING_NOTES.entries()) {
+    const oscillator = context.oscillators[index]
+    assert.deepEqual(oscillator.frequency.values, [
+      { kind: 'set', value: note.from, time: context.currentTime + 0.005 + note.delay },
+      { kind: 'ramp', value: note.to, time: context.currentTime + 0.005 + note.delay + note.duration },
+    ])
+    assert.equal(oscillator.startedAt, context.currentTime + 0.005 + note.delay)
+    assert.equal(oscillator.stoppedAt, context.currentTime + 0.015 + note.delay + note.duration)
+  }
+})
+
+function createBrowserAudioAdapter(context: FakeAudioContext, diagnostics: string[] = []) {
+  return new BrowserApplicationSoundAudioAdapter({
+    createContext: () => context as unknown as AudioContext,
+    interactionTarget: new EventTarget(),
+    diagnose: (message) => diagnostics.push(message),
+  })
+}
+
+class FakeAudioContext {
+  readonly currentTime = 4
+  readonly destination = {}
+  readonly oscillators: FakeOscillator[] = []
+  readonly sinkIds: string[] = []
+  state: AudioContextState = 'running'
+  private readonly route: (deviceId: string) => Promise<void>
+
+  constructor(route: (deviceId: string) => Promise<void> = () => Promise.resolve()) {
+    this.route = route
+  }
+
+  async decodeAudioData() {
+    return { duration: 1 }
+  }
+
+  async resume() {
+    this.state = 'running'
+  }
+
+  async close() {
+    this.state = 'closed'
+  }
+
+  async setSinkId(deviceId: string) {
+    this.sinkIds.push(deviceId)
+    await this.route(deviceId)
+  }
+
+  createGain() {
+    return new FakeGain()
+  }
+
+  createOscillator() {
+    const oscillator = new FakeOscillator()
+    this.oscillators.push(oscillator)
+    return oscillator
+  }
+}
+
+class FakeGain {
+  readonly gain = new FakeAudioParam()
+  connect() {}
+  disconnect() {}
+}
+
+class FakeOscillator {
+  readonly frequency = new FakeAudioParam()
+  type: OscillatorType = 'sine'
+  startedAt = -1
+  stoppedAt = -1
+
+  connect() {}
+  addEventListener() {}
+  start(time: number) { this.startedAt = time }
+  stop(time: number) { this.stoppedAt = time }
+}
+
+class FakeAudioParam {
+  readonly values: Array<{ kind: 'set' | 'ramp'; value: number; time: number }> = []
+
+  setValueAtTime(value: number, time: number) {
+    this.values.push({ kind: 'set', value, time })
+  }
+
+  exponentialRampToValueAtTime(value: number, time: number) {
+    this.values.push({ kind: 'ramp', value, time })
+  }
+}

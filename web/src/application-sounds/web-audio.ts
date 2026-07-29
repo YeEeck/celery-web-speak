@@ -1,5 +1,5 @@
-import type { ApplicationSoundAudioAdapter, DecodedCustomSound } from './core'
-import { MUTED_SPEAKING_NOTES, SOUND_PRESETS, type NotePattern, type SoundPresetId } from './patterns'
+import type { ApplicationSoundAudioAdapter, DecodedCustomSound } from './core.ts'
+import { MUTED_SPEAKING_NOTES, SOUND_PRESETS, type NotePattern, type SoundPresetId } from './patterns.ts'
 
 interface WebAudioDependencies {
   createContext: () => AudioContext
@@ -8,14 +8,18 @@ interface WebAudioDependencies {
 }
 
 export class BrowserApplicationSoundAudioAdapter implements ApplicationSoundAudioAdapter {
+  private readonly dependencies: WebAudioDependencies
   private context: AudioContext | null = null
   private listenersInstalled = false
   private outputDeviceId = ''
   private routeRevision = 0
   private appliedRouteRevision = -1
+  private queuedRoute: { context: AudioContext; revision: number } | null = null
   private routeQueue = Promise.resolve()
 
-  constructor(private readonly dependencies: WebAudioDependencies) {}
+  constructor(dependencies: WebAudioDependencies) {
+    this.dependencies = dependencies
+  }
 
   start() {
     if (this.listenersInstalled) return
@@ -82,6 +86,7 @@ export class BrowserApplicationSoundAudioAdapter implements ApplicationSoundAudi
     if (!this.context || this.context.state === 'closed') {
       this.context = this.dependencies.createContext()
       this.appliedRouteRevision = -1
+      this.queuedRoute = null
       this.enqueueOutputRoute(this.context, this.routeRevision)
     }
     return this.context
@@ -103,6 +108,8 @@ export class BrowserApplicationSoundAudioAdapter implements ApplicationSoundAudi
   }
 
   private enqueueOutputRoute(context: AudioContext, revision: number) {
+    if (this.queuedRoute?.context === context && this.queuedRoute.revision === revision) return
+    this.queuedRoute = { context, revision }
     const apply = async () => {
       if (context !== this.context || revision !== this.routeRevision) return
       const routable = context as AudioContext & { setSinkId?: (deviceId: string) => Promise<void> }
