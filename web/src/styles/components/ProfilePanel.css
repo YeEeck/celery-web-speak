@@ -23,9 +23,13 @@
 .accent-swatch.active { border-color: var(--text); }
 .accent-swatch-inner { width: 26px; height: 26px; border-radius: 50%; }
 
-.sound-event-list { display: grid; gap: 12px; }
+.sound-event-list { display: grid; gap: 14px; }
+.sound-event-block { display: grid; gap: 8px; }
 .sound-event-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }
 .sound-event-row .setting-toggle { min-height: 42px; }
+.sound-event-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sound-event-actions .secondary-button { min-height: 30px; padding: 0 10px; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; }
+.sound-event-actions .form-error { font-size: 11px; }
 
 .avatar-editor-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
 .avatar-editor-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

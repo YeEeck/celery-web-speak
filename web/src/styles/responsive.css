@@ -52,6 +52,7 @@
   .guild-rename-row { grid-template-columns: 1fr; }
   .guild-rename-row button { width: 100%; }
   .sound-event-row { grid-template-columns: 1fr; }
+  .sound-event-block { gap: 10px; }
   .profile-audio-layout { grid-template-columns: 1fr; gap: 12px; }
   .profile-audio-nav { display: flex; gap: 4px; padding: 0 0 10px; border: 0; border-bottom: 1px solid var(--line); }
   .profile-audio-nav button { flex: 1; justify-content: center; }
