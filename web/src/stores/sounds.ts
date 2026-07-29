@@ -109,6 +109,14 @@ export const useSoundStore = defineStore('sounds', () => {
   const joinSource = ref<SoundSource>(getSavedSource('join'))
   const leaveSource = ref<SoundSource>(getSavedSource('leave'))
   const messageSource = ref<SoundSource>(getSavedSource('message'))
+  ;(['join', 'leave', 'message'] as NotificationSound[]).forEach((s) => {
+    if (localStorage.getItem(`${STORAGE_PREFIX}.source.${s}`) !== 'custom') {
+      localStorage.setItem(`${STORAGE_PREFIX}.source.${s}`, 'preset')
+    }
+    if (!localStorage.getItem(`${STORAGE_PREFIX}.preset.${s}`)) {
+      localStorage.setItem(`${STORAGE_PREFIX}.preset.${s}`, DEFAULT_PRESETS[s])
+    }
+  })
   const joinCustom = ref<CustomSoundRecord | null>(null)
   const leaveCustom = ref<CustomSoundRecord | null>(null)
   const messageCustom = ref<CustomSoundRecord | null>(null)

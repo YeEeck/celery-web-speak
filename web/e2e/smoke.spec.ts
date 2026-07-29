@@ -2293,11 +2293,11 @@ test('自定义提示音上传成功、可试听并持久化到 IndexedDB', asyn
 
   await installToneCounter(page)
   await installBufferSourceCounter(page)
-  await page.locator('body').click({ position: { x: 10, y: 10 } })
 
   const row = page.locator('.sound-event-block[data-sound="join"]')
   const dropdown = row.getByRole('combobox', { name: '加入语音音效' })
-  await row.locator('input[data-sound="join"]').setInputFiles({ name: 'custom-join.wav', mimeType: 'audio/wav', buffer: synthWavBuffer(0.2) })
+  await expect(page.locator('input[data-sound="join"]')).toBeAttached()
+  await page.locator('input[data-sound="join"]').setInputFiles({ name: 'custom-join.wav', mimeType: 'audio/wav', buffer: synthWavBuffer(0.2) })
   await expect(dropdown).toHaveValue('__custom__')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.source.join'))).toBe('custom')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.preset.join'))).toBe('rise-duo')
@@ -2347,7 +2347,7 @@ test('上传校验拒绝过大、非法格式与过长音频的文件', async ({
   await page.getByRole('button', { name: '音效', exact: true }).click()
 
   const row = page.locator('.sound-event-block[data-sound="leave"]')
-  const fileInput = row.locator('input[data-sound="leave"]')
+  const fileInput = page.locator('input[data-sound="leave"]')
 
   await fileInput.setInputFiles({ name: 'big.wav', mimeType: 'audio/wav', buffer: Buffer.alloc(600 * 1024) })
   await expect(row.locator('.form-error')).toHaveText('音频大小不能超过 512 KB')
