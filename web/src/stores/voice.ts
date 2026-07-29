@@ -251,6 +251,7 @@ export const useVoiceStore = defineStore('voice', () => {
       preferredOutputId.value = preference.deviceId
       preferredOutputLabel.value = preference.label
       saveDevicePreference(PREFERRED_OUTPUT_DEVICE_KEY, preference)
+      syncApplicationSoundPlayback()
     }
     preferenceRevision += 1
   }
@@ -502,6 +503,7 @@ export const useVoiceStore = defineStore('voice', () => {
     if (!room || status.value === 'connecting') {
       deafened.value = deafenedPreference.value
       muted.value = deafenedPreference.value || !microphoneEnabledPreference.value
+      syncApplicationSoundPlayback()
       return
     }
     const target = room
@@ -536,6 +538,7 @@ export const useVoiceStore = defineStore('voice', () => {
     if (!room || status.value === 'connecting') {
       deafened.value = deafenedPreference.value
       muted.value = deafenedPreference.value || !microphoneEnabledPreference.value
+      syncApplicationSoundPlayback()
       return
     }
     const target = room
@@ -728,7 +731,10 @@ export const useVoiceStore = defineStore('voice', () => {
       inputDevices.value = inputResult.status === 'fulfilled' ? inputResult.value : []
       outputDevices.value = outputResult.status === 'fulfilled' ? outputResult.value : []
       const target = room
-      if (!target) return
+      if (!target) {
+        syncApplicationSoundPlayback()
+        return
+      }
       const nextInput = target.getActiveDevice('audioinput') ?? activeInputId.value
       const nextOutput = target.getActiveDevice('audiooutput') ?? activeOutputId.value
       activeInputId.value = nextInput || DEFAULT_DEVICE_ID
@@ -813,8 +819,10 @@ export const useVoiceStore = defineStore('voice', () => {
 
   function syncApplicationSoundPlayback() {
     sounds.followPlayback({
-      deafened: joined.value && deafened.value,
-      outputDeviceId: activeOutputId.value,
+      deafened: deafened.value,
+      outputDeviceId: room !== null && status.value !== 'connecting'
+        ? activeOutputId.value
+        : resolvedPreferredDeviceId('output'),
     })
   }
 
