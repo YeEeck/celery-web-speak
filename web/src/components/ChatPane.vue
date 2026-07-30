@@ -18,8 +18,10 @@ const list = ref<HTMLElement | null>(null)
 const composer = ref<HTMLTextAreaElement | null>(null)
 const atBottom = ref(true)
 const dateLabelReference = ref(new Date())
+const liveMessageIds = ref<ReadonlySet<number>>(new Set())
 let markReadTimer: number | undefined
 let dateLabelTimer: number | undefined
+const liveMessageTimers = new Map<number, number>()
 let restoringChannel = false
 let programmaticScroll = false
 
@@ -74,6 +76,7 @@ watch(() => [app.activeTextChannelId, app.messages.at(-1)?.id] as const, async (
     return
   }
   if (messageID <= previousID) return
+  markLiveMessage(messageID)
   if (atBottom.value) {
     await nextTick()
     await scrollToLatestStable()
@@ -83,8 +86,21 @@ watch(() => [app.activeTextChannelId, app.messages.at(-1)?.id] as const, async (
 onBeforeUnmount(() => {
   if (markReadTimer) window.clearTimeout(markReadTimer)
   if (dateLabelTimer) window.clearTimeout(dateLabelTimer)
+  liveMessageTimers.forEach((timer) => window.clearTimeout(timer))
   if (app.activeTextChannelId !== null && list.value) app.setChannelScroll(app.activeTextChannelId, list.value.scrollTop, atBottom.value)
 })
+
+function markLiveMessage(messageID: number) {
+  liveMessageIds.value = new Set(liveMessageIds.value).add(messageID)
+  const previousTimer = liveMessageTimers.get(messageID)
+  if (previousTimer) window.clearTimeout(previousTimer)
+  liveMessageTimers.set(messageID, window.setTimeout(() => {
+    const next = new Set(liveMessageIds.value)
+    next.delete(messageID)
+    liveMessageIds.value = next
+    liveMessageTimers.delete(messageID)
+  }, 220))
+}
 
 async function send() {
   const value = content.value.trim()
@@ -289,7 +305,7 @@ function roleLabel(role: string) {
             :ref="measureElement"
             :data-index="row.virtualRow.index"
             :data-message-id="row.message?.id"
-            :class="['virtual-message-row', { 'history-row': row.virtualRow.index === 0 }]"
+            :class="['virtual-message-row', { 'history-row': row.virtualRow.index === 0, 'live-message': row.message && liveMessageIds.has(row.message.id) }]"
             :style="{ transform: `translateY(${row.virtualRow.start}px)` }"
           >
             <template v-if="row.virtualRow.index === 0">
@@ -326,9 +342,11 @@ function roleLabel(role: string) {
           </div>
         </div>
       </div>
-      <button v-if="!atBottom" class="jump-to-latest" @click="scrollToLatest">
-        <ArrowDown :size="15" />{{ app.activeUnreadCount ? `${app.activeUnreadCount} 条新消息` : '回到最新消息' }}
-      </button>
+      <Transition name="motion-popover">
+        <button v-if="!atBottom" class="jump-to-latest" @click="scrollToLatest">
+          <ArrowDown :size="15" />{{ app.activeUnreadCount ? `${app.activeUnreadCount} 条新消息` : '回到最新消息' }}
+        </button>
+      </Transition>
     </div>
 
     <footer class="composer-area">

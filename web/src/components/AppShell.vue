@@ -735,8 +735,8 @@ function closeChangelog() {
     <ChatPane :members-visible="membersVisible" @channels="channelsOpen = true" @members="toggleMembers" @message-menu="openMessageActionMenu" @open-profile="openProfileFromMessage" />
     <MemberList @open-member="openMemberCard" />
 
-    <div v-if="channelsOpen" class="drawer-scrim" @click="channelsOpen = false" />
-    <div v-if="membersOpen" class="drawer-scrim member-scrim" @click="membersOpen = false">
+    <div v-if="channelsOpen" class="drawer-scrim motion-scrim-static" @click="channelsOpen = false" />
+    <div v-if="membersOpen" class="drawer-scrim member-scrim motion-scrim-static motion-drawer-right-static" @click="membersOpen = false">
       <MemberList :drawer="true" @close="membersOpen = false" @open-member="openMemberCard" @click.stop />
     </div>
 
@@ -805,7 +805,7 @@ function closeChangelog() {
       @close="closeProfileCard"
     />
     <div class="action-toast-stack" role="region" aria-live="polite" aria-label="操作反馈">
-      <div v-for="item in toast.toasts" :key="item.id" :class="['action-toast', item.type]" role="status" @mouseenter="toast.pause(item.id)" @mouseleave="toast.resume(item.id)">
+      <div v-for="item in toast.toasts" :key="item.id" :class="['action-toast', 'motion-toast-static', item.type]" role="status" @mouseenter="toast.pause(item.id)" @mouseleave="toast.resume(item.id)">
         <span>{{ item.message }}</span>
         <button class="action-toast-close" type="button" title="关闭" aria-label="关闭提示" @click="toast.dismiss(item.id)"><X :size="14" /></button>
       </div>
@@ -815,14 +815,15 @@ function closeChangelog() {
     <LogoutDialog v-if="logoutOpen" :busy="loggingOut" :voice-joined="voice.joined" @cancel="closeLogoutDialog" @confirm="logout" />
     <ProfilePanel
       v-if="profileOpen"
+      class="motion-modal-static"
       :initial-tab="profileInitialTab"
       :initial-audio-sub-nav="profileInitialAudioSubNav"
       @close="closeProfile"
       @changelog="changelogOpen = true"
     />
-    <GuildAdminPanel v-if="adminOpen" :initial-tab="adminInitialTab" :initial-channel-id="adminInitialChannelId" @close="closeGuildAdmin" />
-    <PlatformAdminPanel v-if="platformAdminOpen" @close="platformAdminOpen = false" />
-    <PlatformGuildsPanel v-if="platformOpen" :initial-guild-id="platformInitialGuildId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
-    <ChangelogModal v-if="changelogOpen" @close="closeChangelog" />
+    <GuildAdminPanel v-if="adminOpen" class="motion-modal-static" :initial-tab="adminInitialTab" :initial-channel-id="adminInitialChannelId" @close="closeGuildAdmin" />
+    <PlatformAdminPanel v-if="platformAdminOpen" class="motion-modal-static" @close="platformAdminOpen = false" />
+    <PlatformGuildsPanel v-if="platformOpen" class="motion-modal-static" :initial-guild-id="platformInitialGuildId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
+    <ChangelogModal v-if="changelogOpen" class="motion-modal-static" @close="closeChangelog" />
   </main>
 </template>

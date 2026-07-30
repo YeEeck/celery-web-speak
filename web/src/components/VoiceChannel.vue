@@ -92,7 +92,7 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
       <ChevronRight v-if="!connected" :size="16" />
     </button>
 
-    <div v-if="connected" class="voice-members">
+    <TransitionGroup v-if="connected" name="motion-list" tag="div" class="voice-members">
       <div v-for="participant in voice.participants" :key="participant.identity" class="voice-member">
         <button
           :class="['voice-member-main', { 'local-participant': participant.isLocal, active: selectedId === participant.userId }]"
@@ -125,7 +125,7 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
         <span v-if="userFor(participant)?.voiceMuted" class="guild-muted">已禁言</span>
       </div>
       <p v-if="voice.status === 'reconnecting'" class="voice-notice"><Signal :size="14" /> 正在恢复语音连接</p>
-    </div>
+    </TransitionGroup>
     <div v-else-if="previewParticipants.length" class="voice-members voice-members-preview">
       <div v-for="participant in previewParticipants" :key="participant.identity" class="voice-member">
         <div class="voice-member-main">

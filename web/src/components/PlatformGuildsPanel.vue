@@ -23,6 +23,7 @@ const deleteConfirmation = ref('')
 const showDeleteConfirmation = ref(false)
 const busy = ref(false)
 const loading = ref(false)
+const listMotionEnabled = ref(false)
 const createNameInput = ref<HTMLInputElement | null>(null)
 const iconFile = ref<File | null>(null)
 const cropperOpen = ref(false)
@@ -50,6 +51,8 @@ watch(selectedGuild, (guild) => {
 
 onMounted(async () => {
   await refresh()
+  await nextTick()
+  listMotionEnabled.value = true
   if (props.createOnOpen) await nextTick(() => createNameInput.value?.focus())
 })
 
@@ -220,12 +223,12 @@ async function deleteGuild() {
             <input v-model.trim="newOwnerUsername" maxlength="32" placeholder="所有者完整登录名" aria-label="所有者完整登录名" />
             <button class="primary-button" type="submit" :disabled="busy || !newGuildName || !newOwnerUsername"><Plus :size="17" />创建</button>
           </form>
-          <nav aria-label="平台服务器列表">
+          <TransitionGroup :name="listMotionEnabled ? 'motion-list' : undefined" tag="nav" aria-label="平台服务器列表">
             <button v-for="guild in guilds" :key="guild.id" type="button" :class="{ active: guild.id === selectedGuildId }" @click="selectedGuildId = guild.id">
               <GuildIcon :name="guild.name" :guild="guild" />
               <span><strong>{{ guild.name }}</strong><small>{{ guild.joined ? '已加入' : '仅管理信息' }}</small></span>
             </button>
-          </nav>
+          </TransitionGroup>
         </aside>
 
         <div v-if="selectedGuild" class="platform-guild-detail">

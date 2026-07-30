@@ -17,6 +17,7 @@ const invites = ref<Invite[]>([])
 const inviteCursor = ref('')
 const invitesHasMore = ref(false)
 const loadingInvites = ref(false)
+const inviteMotionEnabled = ref(false)
 const generatedCode = ref('')
 const inviteUses = ref(1)
 const inviteDays = ref(7)
@@ -43,6 +44,8 @@ onMounted(async () => {
     toast.showError(error instanceof Error ? error.message : '邀请码加载失败')
   }
   selectedUserId.value = manageableUsers.value[0]?.id ?? null
+  await nextTick()
+  inviteMotionEnabled.value = true
 })
 
 async function loadPlatformUsers() {
@@ -234,7 +237,7 @@ function selectTab(nextTab: 'users' | 'invites') {
       </nav>
 
       <div ref="adminContent" :class="['admin-content', { contained: tab === 'users' }]">
-        <section v-if="tab === 'users'" class="user-admin-layout">
+        <section v-if="tab === 'users'" class="user-admin-layout motion-content-in">
           <aside class="admin-user-list">
             <button
               v-for="member in manageableUsers"
@@ -259,7 +262,7 @@ function selectTab(nextTab: 'users' | 'invites') {
           </div>
         </section>
 
-        <section v-else class="account-admin-grid">
+        <section v-else class="account-admin-grid motion-content-in">
           <form class="settings-section" @submit.prevent="createUser">
             <h3><UserPlus :size="18" />预先创建账号</h3>
             <label><span>登录名</span><input v-model.trim="newUsername" required minlength="3" maxlength="32" /></label>
@@ -277,7 +280,7 @@ function selectTab(nextTab: 'users' | 'invites') {
             </div>
             <button class="primary-button" :disabled="busy" @click="createInvite"><Ticket :size="17" />生成邀请码</button>
             <div v-if="generatedCode" class="generated-code"><code>{{ generatedCode }}</code><button class="icon-button" title="复制新邀请码" @click="copyCode(generatedCode)"><Clipboard :size="18" /></button></div>
-            <div class="invite-list" aria-label="邀请码列表">
+            <TransitionGroup :name="inviteMotionEnabled ? 'motion-list' : undefined" tag="div" class="invite-list" aria-label="邀请码列表">
               <article v-for="invite in invites" :key="invite.id" :class="['invite-row', { inactive: inviteStatus(invite) !== 'active' }]">
                 <div class="invite-row-heading">
                   <code v-if="invite.code">{{ invite.code }}</code>
@@ -295,14 +298,15 @@ function selectTab(nextTab: 'users' | 'invites') {
                   <button class="icon-button danger" title="永久删除邀请码" @click="deleteInvite(invite)"><Trash2 :size="17" /></button>
                 </div>
               </article>
-              <p v-if="!loadingInvites && invites.length === 0" class="invite-empty">暂无邀请码</p>
-            </div>
+              <p v-if="!loadingInvites && invites.length === 0" key="empty" class="invite-empty">暂无邀请码</p>
+            </TransitionGroup>
             <button v-if="invitesHasMore" class="secondary-button invite-load-more" :disabled="loadingInvites" @click="loadMoreInvites">{{ loadingInvites ? '正在加载' : '加载更多' }}</button>
           </section>
         </section>
       </div>
-      <div v-if="deleteTarget" class="account-delete-backdrop" @mousedown.self="closeDeleteDialog" @keydown.esc.stop="closeDeleteDialog">
-        <section class="account-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="account-delete-title" aria-describedby="account-delete-description">
+      <Transition name="motion-modal">
+        <div v-if="deleteTarget" class="account-delete-backdrop" @mousedown.self="closeDeleteDialog" @keydown.esc.stop="closeDeleteDialog">
+          <section class="account-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="account-delete-title" aria-describedby="account-delete-description">
           <header>
             <div><h3 id="account-delete-title">永久删除账号？</h3><p id="account-delete-description">该操作无法恢复。账号会立即退出登录和语音，历史消息将显示为“已删除用户”。</p></div>
             <button class="icon-button" title="关闭" :disabled="busy" @click="closeDeleteDialog"><X :size="19" /></button>
@@ -315,8 +319,9 @@ function selectTab(nextTab: 'users' | 'invites') {
             <button class="secondary-button" :disabled="busy" @click="closeDeleteDialog">取消</button>
             <button class="account-delete-confirm" :disabled="busy || deleteConfirmation !== deleteTarget.username" @click="deleteUser"><Trash2 :size="16" />{{ busy ? '正在删除' : '永久删除' }}</button>
           </div>
-        </section>
-      </div>
+          </section>
+        </div>
+      </Transition>
     </section>
   </div>
 </template>
