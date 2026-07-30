@@ -71,19 +71,21 @@ func (m GuildMember) ActiveAt(now time.Time) bool {
 }
 
 type User struct {
-	ID                int64      `json:"id"`
-	Username          string     `json:"username"`
-	DisplayName       string     `json:"displayName"`
-	Role              Role       `json:"role"`
-	VoiceMuted        bool       `json:"voiceMuted,omitempty"`
-	TextMuted         bool       `json:"textMuted,omitempty"`
-	PermanentlyBanned bool       `json:"permanentlyBanned"`
-	TemporaryBanUntil *time.Time `json:"temporaryBanUntil,omitempty"`
-	IsPlatformAdmin   bool       `json:"isPlatformAdmin"`
-	SuspendedAt       *time.Time `json:"suspendedAt,omitempty"`
-	CreatedAt         time.Time  `json:"createdAt"`
-	AvatarVersion     int        `json:"avatarVersion"`
-	HasAvatar         bool       `json:"hasAvatar"`
+	ID                 int64      `json:"id"`
+	Username           string     `json:"username"`
+	DisplayName        string     `json:"displayName"`
+	Bio                string     `json:"bio,omitempty"`
+	Role               Role       `json:"role"`
+	VoiceMuted         bool       `json:"voiceMuted,omitempty"`
+	TextMuted          bool       `json:"textMuted,omitempty"`
+	PermanentlyBanned  bool       `json:"permanentlyBanned"`
+	TemporaryBanUntil  *time.Time `json:"temporaryBanUntil,omitempty"`
+	IsPlatformAdmin    bool       `json:"isPlatformAdmin"`
+	SuspendedAt        *time.Time `json:"suspendedAt,omitempty"`
+	CreatedAt          time.Time  `json:"createdAt"`
+	OnlineSecondsTotal int64      `json:"onlineSecondsTotal"`
+	AvatarVersion      int        `json:"avatarVersion"`
+	HasAvatar          bool       `json:"hasAvatar"`
 }
 
 type Channel struct {

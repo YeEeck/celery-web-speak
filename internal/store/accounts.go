@@ -66,9 +66,13 @@ VALUES (?, ?, ?, 'member', 0, ?, ?)`, username, displayName, string(passwordHash
 	return s.UserByID(ctx, id)
 }
 
-func (s *Store) UpdateProfile(ctx context.Context, userID int64, displayName, currentPassword, newPassword string) (User, error) {
+func (s *Store) UpdateProfile(ctx context.Context, userID int64, displayName, bio, currentPassword, newPassword string) (User, error) {
 	displayName = strings.TrimSpace(displayName)
 	if err := validateDisplayName(displayName); err != nil {
+		return User{}, err
+	}
+	bio = strings.TrimSpace(bio)
+	if err := validateBio(bio); err != nil {
 		return User{}, err
 	}
 
@@ -94,12 +98,12 @@ func (s *Store) UpdateProfile(ctx context.Context, userID int64, displayName, cu
 			return User{}, err
 		}
 		if _, err := tx.ExecContext(ctx, `
-UPDATE users SET display_name = ?, password_hash = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
-			displayName, string(newHash), formatTime(s.now()), userID); err != nil {
+UPDATE users SET display_name = ?, bio = ?, password_hash = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+			displayName, bio, string(newHash), formatTime(s.now()), userID); err != nil {
 			return User{}, err
 		}
 	} else if _, err := tx.ExecContext(ctx, `
-UPDATE users SET display_name = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`, displayName, formatTime(s.now()), userID); err != nil {
+UPDATE users SET display_name = ?, bio = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`, displayName, bio, formatTime(s.now()), userID); err != nil {
 		return User{}, err
 	}
 	if err := tx.Commit(); err != nil {

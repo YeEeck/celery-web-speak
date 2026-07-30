@@ -95,13 +95,14 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		DisplayName     string `json:"displayName"`
+		Bio             string `json:"bio"`
 		CurrentPassword string `json:"currentPassword"`
 		NewPassword     string `json:"newPassword"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	user, err := s.store.UpdateProfile(r.Context(), currentUser(r).ID, input.DisplayName, input.CurrentPassword, input.NewPassword)
+	user, err := s.store.UpdateProfile(r.Context(), currentUser(r).ID, input.DisplayName, input.Bio, input.CurrentPassword, input.NewPassword)
 	if err != nil {
 		if errors.Is(err, store.ErrInvalidLogin) {
 			writeError(w, http.StatusBadRequest, "invalid_password", "当前密码不正确")

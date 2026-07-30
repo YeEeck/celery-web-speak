@@ -149,6 +149,27 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if err := s.ensureGuildIconColumns(ctx); err != nil {
 		return fmt.Errorf("migrate guild icon columns: %w", err)
 	}
+	if err := s.ensureUserProfileColumns(ctx); err != nil {
+		return fmt.Errorf("migrate user profile columns: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ensureUserProfileColumns(ctx context.Context) error {
+	for _, column := range []struct{ name, decl string }{
+		{"bio", "TEXT CHECK(length(bio) <= 200)"},
+		{"online_seconds_total", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		has, err := s.tableHasColumn(ctx, "users", column.name)
+		if err != nil {
+			return err
+		}
+		if !has {
+			if _, err := s.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN "+column.name+" "+column.decl); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -461,11 +482,12 @@ func (s *Store) CreateUser(ctx context.Context, username, displayName, password 
 func (s *Store) Authenticate(ctx context.Context, username, password string) (User, error) {
 	var user User
 	var passwordHash, createdAt string
+	var bio sql.NullString
 	var platformAdmin, permanentlyBanned, hasAvatar int
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, password_hash, permanently_banned, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
+SELECT id, username, display_name, bio, online_seconds_total, password_hash, permanently_banned, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
 FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(username)).Scan(
-		&user.ID, &user.Username, &user.DisplayName, &passwordHash,
+		&user.ID, &user.Username, &user.DisplayName, &bio, &user.OnlineSecondsTotal, &passwordHash,
 		&permanentlyBanned, &createdAt, &platformAdmin,
 		&user.AvatarVersion, &hasAvatar,
 	)
@@ -478,6 +500,7 @@ FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(usernam
 	if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)) != nil {
 		return User{}, ErrInvalidLogin
 	}
+	user.Bio = bio.String
 	user.PermanentlyBanned = permanentlyBanned != 0
 	user.IsPlatformAdmin = platformAdmin != 0
 	user.Role = platformRole(user.IsPlatformAdmin)
@@ -492,11 +515,12 @@ FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(usernam
 func (s *Store) UserByID(ctx context.Context, id int64) (User, error) {
 	var user User
 	var createdAt string
+	var bio sql.NullString
 	var platformAdmin, permanentlyBanned, hasAvatar int
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, permanently_banned, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
+SELECT id, username, display_name, bio, online_seconds_total, permanently_banned, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
 FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
-		&user.ID, &user.Username, &user.DisplayName,
+		&user.ID, &user.Username, &user.DisplayName, &bio, &user.OnlineSecondsTotal,
 		&permanentlyBanned, &createdAt, &platformAdmin,
 		&user.AvatarVersion, &hasAvatar,
 	)
@@ -506,6 +530,7 @@ FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 	if err != nil {
 		return User{}, fmt.Errorf("get user: %w", err)
 	}
+	user.Bio = bio.String
 	user.PermanentlyBanned = permanentlyBanned != 0
 	user.IsPlatformAdmin = platformAdmin != 0
 	user.Role = platformRole(user.IsPlatformAdmin)
@@ -604,6 +629,13 @@ func validateDisplayName(value string) error {
 func validatePassword(value string) error {
 	if len(value) < 10 || len(value) > 128 {
 		return errors.New("password must contain 10 to 128 characters")
+	}
+	return nil
+}
+
+func validateBio(value string) error {
+	if length := len([]rune(value)); length > 200 {
+		return errors.New("bio must contain at most 200 characters")
 	}
 	return nil
 }
