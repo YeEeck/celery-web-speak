@@ -27,9 +27,11 @@ const tab = ref<'account' | 'audio' | 'sound' | 'theme'>(props.initialTab)
 const audioSubNav = ref<'input' | 'output'>(props.initialAudioSubNav)
 
 const displayName = ref(app.user!.displayName)
+const bio = ref(app.user!.bio ?? '')
 const currentPassword = ref('')
 const newPassword = ref('')
 const savingDisplayName = ref(false)
+const savingBio = ref(false)
 const savingPassword = ref(false)
 const passwordError = ref('')
 
@@ -111,10 +113,22 @@ async function saveDisplayName() {
   savingDisplayName.value = true
   try {
     await toast.runAction(async () => {
-      await app.updateProfile({ displayName: displayName.value })
+      await app.updateProfile({ displayName: displayName.value, bio: bio.value })
     }, '显示名称已保存')
   } finally {
     savingDisplayName.value = false
+  }
+}
+
+async function saveBio() {
+  if ([...bio.value].length > 200) return
+  savingBio.value = true
+  try {
+    await toast.runAction(async () => {
+      await app.updateProfile({ displayName: app.user!.displayName, bio: bio.value.trim() })
+    }, '简介已保存')
+  } finally {
+    savingBio.value = false
   }
 }
 
@@ -129,6 +143,7 @@ async function savePassword() {
     await toast.runAction(async () => {
       await app.updateProfile({
         displayName: app.user!.displayName,
+        bio: bio.value,
         currentPassword: currentPassword.value,
         newPassword: newPassword.value,
       })
@@ -203,6 +218,14 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           <label><span>显示名称</span><input v-model.trim="displayName" maxlength="32" /></label>
           <div class="profile-save-row">
             <button class="primary-button" :disabled="savingDisplayName || !displayName.trim()" @click="saveDisplayName"><Save :size="17" />{{ savingDisplayName ? '保存中' : '保存显示名称' }}</button>
+          </div>
+          <label class="profile-bio-label">
+            <span>个人简介</span>
+            <textarea v-model="bio" maxlength="200" rows="3" placeholder="介绍一下你自己" aria-label="个人简介" />
+            <small class="profile-bio-count" :class="{ near: [...bio].length > 180 }">{{ [...bio].length }} / 200</small>
+          </label>
+          <div class="profile-save-row">
+            <button class="primary-button" :disabled="savingBio || [...bio].length > 200" @click="saveBio"><Save :size="17" />{{ savingBio ? '保存中' : '保存简介' }}</button>
           </div>
           <h3><UserRound :size="18" />修改密码</h3>
           <div class="two-column">

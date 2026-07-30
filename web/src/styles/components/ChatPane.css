@@ -22,6 +22,10 @@
 .message-date-divider::before, .message-date-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
 .message-date-divider span { flex: 0 0 auto; }
 .message-row:hover { background: var(--row-hover-bg); }
+.message-author-avatar { padding: 0; border: 0; background: transparent; border-radius: 50%; display: inline-flex; cursor: pointer; transition: filter var(--dur-fast) var(--ease); }
+.message-author-avatar:hover { filter: brightness(1.06); }
+.message-author-name { padding: 0 1px; border: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 700; text-align: left; cursor: pointer; border-radius: 3px; }
+.message-author-name:hover { text-decoration: underline; }
 .message-body { min-width: 0; }
 .message-body header { min-height: 20px; display: flex; align-items: center; gap: 7px; }
 .message-body header strong { color: var(--text); }.message-body time { color: var(--faint); font-size: 10px; }

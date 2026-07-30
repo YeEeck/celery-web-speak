@@ -10,7 +10,7 @@ const monthDayFormatter = new Intl.DateTimeFormat('zh-CN', { month: 'long', day:
 const fullDateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
 
 defineProps<{ membersVisible: boolean }>()
-const emit = defineEmits<{ channels: []; members: []; messageMenu: [message: Message, trigger: HTMLElement | null, x: number, y: number] }>()
+const emit = defineEmits<{ channels: []; members: []; messageMenu: [message: Message, trigger: HTMLElement | null, x: number, y: number]; openProfile: [userId: number, trigger: HTMLElement | null, x: number, y: number] }>()
 const app = useAppStore()
 const content = ref('')
 const sending = ref(false)
@@ -119,6 +119,12 @@ function openMessageMenu(message: Message, event: MouseEvent) {
   const trigger = event.currentTarget as HTMLElement | null
   const bounds = trigger?.getBoundingClientRect()
   emit('messageMenu', message, trigger, event.clientX || (bounds?.right ?? 0), event.clientY || (bounds?.top ?? 0))
+}
+
+function openMessageAuthorProfile(message: Message, event: MouseEvent) {
+  const trigger = event.currentTarget as HTMLElement | null
+  const bounds = trigger?.getBoundingClientRect()
+  emit('openProfile', message.userId, trigger, event.clientX || (bounds?.left ?? 0), event.clientY || (bounds?.top ?? 0))
 }
 
 async function loadEarlierMessages() {
@@ -304,10 +310,12 @@ function roleLabel(role: string) {
                 <span>{{ row.dateLabel }}</span>
               </div>
               <article class="message-row" @contextmenu="openMessageMenu(row.message, $event)">
-                <UserAvatar :name="row.message.displayName" :size="40" :user="app.users.find((u) => u.id === row.message?.userId)" />
+                <button class="message-author-avatar" type="button" :title="`查看${row.message.displayName}的个人信息`" :aria-label="`查看${row.message.displayName}的个人信息`" @click="openMessageAuthorProfile(row.message, $event)">
+                  <UserAvatar :name="row.message.displayName" :size="40" :user="app.users.find((u) => u.id === row.message?.userId)" />
+                </button>
                 <div class="message-body" data-user-content>
                   <header>
-                    <strong>{{ row.message.displayName }}</strong>
+                    <button class="message-author-name" type="button" @click="openMessageAuthorProfile(row.message, $event)">{{ row.message.displayName }}</button>
                     <span v-if="roleLabel(row.message.role)" :class="['role-chip', row.message.role]">{{ roleLabel(row.message.role) }}</span>
                     <time><span class="time-short">{{ formatTime(row.message.createdAt) }}</span><span class="time-full">{{ formatFullTime(row.message.createdAt) }}</span></time>
                   </header>

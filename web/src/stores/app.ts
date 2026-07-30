@@ -223,11 +223,12 @@ export const useAppStore = defineStore('app', () => {
     await markChannelRead(activeTextChannelId.value)
   }
 
-  async function updateProfile(payload: { displayName: string; currentPassword?: string; newPassword?: string }) {
+  async function updateProfile(payload: { displayName: string; bio?: string; currentPassword?: string; newPassword?: string }) {
     const result = await request<{ user: User }>('/api/me', {
       method: 'PATCH',
       body: JSON.stringify({
         displayName: payload.displayName,
+        bio: payload.bio ?? '',
         currentPassword: payload.currentPassword ?? '',
         newPassword: payload.newPassword ?? '',
       }),

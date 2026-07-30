@@ -11,6 +11,7 @@ const props = defineProps<{ channel: Channel; actionMenuUserId?: number | null }
 const emit = defineEmits<{
   channelMenu: [channel: Channel, trigger: HTMLElement, x: number, y: number]
   participantMenu: [channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number]
+  participantCard: [channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number]
 }>()
 const app = useAppStore()
 const voice = useVoiceStore()
@@ -57,6 +58,12 @@ function openParticipantMenu(participant: VoiceParticipant, event: MouseEvent) {
   emit('participantMenu', props.channel, participant, trigger, event.clientX || bounds.right + 4, event.clientY || bounds.top)
 }
 
+function openParticipantCard(participant: VoiceParticipant, event: MouseEvent) {
+  const trigger = event.currentTarget as HTMLElement
+  const bounds = trigger.getBoundingClientRect()
+  emit('participantCard', props.channel, participant, trigger, event.clientX || (bounds.left + 1), event.clientY || (bounds.top + 1))
+}
+
 function openParticipantKeyboardMenu(participant: VoiceParticipant, event: KeyboardEvent) {
   if (participant.isLocal || (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))) return
   event.preventDefault()
@@ -88,11 +95,10 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
         <button
           class="voice-member-main"
           :class="{ 'local-participant': participant.isLocal }"
-          :title="participant.isLocal ? undefined : '打开参与者操作'"
-          :aria-label="participant.isLocal ? `${participant.name}（你）` : `${participant.name}的语音参与者操作`"
-          :aria-haspopup="participant.isLocal ? undefined : 'dialog'"
-          :aria-expanded="participant.isLocal ? undefined : actionMenuUserId === participant.userId"
-          @click="openParticipantMenu(participant, $event)"
+          :title="participant.isLocal ? '查看自己的个人信息' : `${participant.name}的个人信息`"
+          :aria-label="participant.isLocal ? `${participant.name}（你）` : `${participant.name}的个人信息`"
+          :aria-haspopup="'dialog'"
+          @click="openParticipantCard(participant, $event)"
           @contextmenu.prevent="openParticipantMenu(participant, $event)"
           @keydown="openParticipantKeyboardMenu(participant, $event)"
         >

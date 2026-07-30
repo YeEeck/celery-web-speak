@@ -12,6 +12,7 @@ import LeaveGuildDialog from './LeaveGuildDialog.vue'
 import LogoutDialog from './LogoutDialog.vue'
 import MemberList from './MemberList.vue'
 import PlatformGuildsPanel from './PlatformGuildsPanel.vue'
+import ProfileCard from './ProfileCard.vue'
 import ProfilePanel from './ProfilePanel.vue'
 import GuildActionMenu from './GuildActionMenu.vue'
 import GuildIcon from './GuildIcon.vue'
@@ -24,7 +25,7 @@ import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
 import { useVoiceShortcuts } from '../stores/voice-shortcuts'
-import type { Channel, GuildSummary, Message, VersionResponse } from '../types'
+import type { Channel, GuildSummary, Message, UserProfile, User, VersionResponse } from '../types'
 
 const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
 
@@ -80,6 +81,15 @@ const voiceParticipantActionMenu = ref<{
   trigger: HTMLElement | null
 } | null>(null)
 const participantManagementPending = ref(false)
+const profileCard = ref<{ userId: number; x: number; y: number; trigger: HTMLElement | null } | null>(null)
+const profileCardData = ref<UserProfile | null>(null)
+const profileCardLoading = ref(false)
+const profileCardFailed = ref(false)
+let profileCardVersion = 0
+const profileCardMember = computed(() => {
+  if (!profileCard.value) return null
+  return app.users.find((user) => user.id === profileCard.value!.userId) ?? null
+})
 const accountTrigger = ref<HTMLButtonElement | null>(null)
 const accountMenuOpen = ref(false)
 const logoutOpen = ref(false)
@@ -128,6 +138,7 @@ watch(() => app.activeGuildId, () => {
   closeChannelActionMenu()
   closeMessageActionMenu()
   closeVoiceParticipantActionMenu()
+  closeProfileCard()
 })
 watch(() => channelActionMenu.value === null || app.channels.some((channel) => channel.id === channelActionMenu.value?.channel.id), (exists) => {
   if (!exists) closeChannelActionMenu()
@@ -180,6 +191,7 @@ function closeTemporaryDrawers() {
   membersOpen.value = false
   closeAccountMenu()
   closeVoiceParticipantActionMenu()
+  closeProfileCard()
 }
 
 function selectTextChannel(channelId: number) {
@@ -465,6 +477,60 @@ async function disconnectVoiceParticipant(participant: VoiceParticipant) {
   }
 }
 
+function openProfileCard(userId: number, trigger: HTMLElement, x: number, y: number) {
+  if (profileCard.value?.userId === userId) {
+    closeProfileCard(true)
+    return
+  }
+  closeAccountMenu()
+  closeGuildActionMenu()
+  closeChannelActionMenu()
+  closeMessageActionMenu()
+  closeVoiceParticipantActionMenu()
+  profileCard.value = { userId, x, y, trigger }
+  profileCardData.value = null
+  profileCardFailed.value = false
+  profileCardLoading.value = true
+  const version = ++profileCardVersion
+  void fetchProfileCard(userId, version)
+}
+
+async function fetchProfileCard(userId: number, version: number) {
+  try {
+    const result = await request<{ profile: UserProfile }>(`/api/users/${userId}/profile`)
+    if (version !== profileCardVersion) return
+    profileCardData.value = result.profile
+    profileCardFailed.value = false
+  } catch {
+    if (version !== profileCardVersion) return
+    profileCardFailed.value = true
+  } finally {
+    if (version === profileCardVersion) profileCardLoading.value = false
+  }
+}
+
+function closeProfileCard(restoreFocus = false) {
+  const trigger = profileCard.value?.trigger
+  ++profileCardVersion
+  profileCard.value = null
+  profileCardData.value = null
+  profileCardLoading.value = false
+  profileCardFailed.value = false
+  if (restoreFocus) void nextTick(() => trigger?.focus())
+}
+
+function openMemberCard(user: User, trigger: HTMLElement, x: number, y: number) {
+  openProfileCard(user.id, trigger, x, y)
+}
+
+function openVoiceParticipantCard(_channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number) {
+  openProfileCard(participant.userId, trigger, x, y)
+}
+
+function openProfileFromMessage(userId: number, trigger: HTMLElement | null, x: number, y: number) {
+  openProfileCard(userId, trigger ?? (document.activeElement as HTMLElement) ?? null, x, y)
+}
+
 async function copyChannelName(channel: Channel) {
   closeChannelActionMenu(true)
   try {
@@ -624,6 +690,7 @@ function closeChangelog() {
           :action-menu-user-id="voiceParticipantActionMenu?.channelId === channel.id ? voiceParticipantActionMenu.userId : null"
           @channel-menu="openChannelActionMenu"
           @participant-menu="openVoiceParticipantActionMenu"
+          @participant-card="openVoiceParticipantCard"
         />
         <div v-if="app.activeGuild" class="category-heading"><span>文字频道</span></div>
         <button
@@ -662,12 +729,12 @@ function closeChangelog() {
       <UserControls @settings="openVoiceSettings" />
     </aside>
 
-    <ChatPane :members-visible="membersVisible" @channels="channelsOpen = true" @members="toggleMembers" @message-menu="openMessageActionMenu" />
-    <MemberList />
+    <ChatPane :members-visible="membersVisible" @channels="channelsOpen = true" @members="toggleMembers" @message-menu="openMessageActionMenu" @open-profile="openProfileFromMessage" />
+    <MemberList @open-member="openMemberCard" />
 
     <div v-if="channelsOpen" class="drawer-scrim" @click="channelsOpen = false" />
     <div v-if="membersOpen" class="drawer-scrim member-scrim" @click="membersOpen = false">
-      <MemberList :drawer="true" @close="membersOpen = false" @click.stop />
+      <MemberList :drawer="true" @close="membersOpen = false" @open-member="openMemberCard" @click.stop />
     </div>
 
     <div id="voice-audio-root" aria-hidden="true" />
@@ -720,6 +787,19 @@ function closeChangelog() {
       @close="closeVoiceParticipantActionMenu"
       @server-mute="setParticipantServerMute"
       @disconnect="disconnectVoiceParticipant"
+    />
+    <ProfileCard
+      v-if="profileCard"
+      :user-id="profileCard.userId"
+      :profile="profileCardData"
+      :member="profileCardMember"
+      :loading="profileCardLoading"
+      :failed="profileCardFailed"
+      :x="profileCard.x"
+      :y="profileCard.y"
+      :trigger="profileCard.trigger"
+      :is-self="profileCard.userId === app.user?.id"
+      @close="closeProfileCard"
     />
     <div class="action-toast-stack" role="region" aria-live="polite" aria-label="操作反馈">
       <div v-for="item in toast.toasts" :key="item.id" :class="['action-toast', item.type]" role="status" @mouseenter="toast.pause(item.id)" @mouseleave="toast.resume(item.id)">

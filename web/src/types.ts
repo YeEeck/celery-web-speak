@@ -27,15 +27,26 @@ export interface User {
   id: number
   username: string
   displayName: string
+  bio?: string
   role: PlatformRole | GuildRole
   voiceMuted: boolean
   textMuted: boolean
   permanentlyBanned: boolean
   temporaryBanUntil?: string
   createdAt: string
+  onlineSecondsTotal?: number
   isPlatformAdmin?: boolean
   avatarVersion: number
   hasAvatar: boolean
+}
+
+export interface UserProfile {
+  id: number
+  username: string
+  displayName: string
+  bio: string
+  onlineSecondsTotal: number
+  createdAt: string
 }
 
 export interface Message {

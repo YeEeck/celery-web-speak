@@ -18,6 +18,7 @@
 @import './components/AccountMenu.css';
 @import './components/dialogs.css';
 @import './components/ProfilePanel.css';
+@import './components/ProfileCard.css';
 @import './components/GuildAdminPanel.css';
 @import './components/PlatformAdminPanel.css';
 @import './components/PlatformGuildsPanel.css';
