@@ -44,15 +44,18 @@ onMounted(async () => {
   window.addEventListener('resize', closeOnViewportChange)
   window.addEventListener('scroll', closeOnViewportChange, true)
   await nextTick()
+  const triggerBounds = props.trigger?.getBoundingClientRect()
   const bounds = panel.value?.getBoundingClientRect()
-  if (!bounds) return
+  if (!triggerBounds || !bounds) return
   const margin = 8
+  const gap = 8
   const maxWidth = window.innerWidth - bounds.width - margin
   const maxHeight = window.innerHeight - bounds.height - margin
-  const openRight = props.x <= window.innerWidth / 2
-  const proposedLeft = openRight ? props.x : props.x - bounds.width
+  const center = triggerBounds.left + triggerBounds.width / 2
+  const openRight = center <= window.innerWidth / 2
+  const proposedLeft = openRight ? triggerBounds.right + gap : triggerBounds.left - gap - bounds.width
   left.value = Math.min(Math.max(margin, proposedLeft), maxWidth)
-  top.value = Math.min(Math.max(margin, props.y), maxHeight)
+  top.value = Math.min(Math.max(margin, triggerBounds.top), maxHeight)
   positioned.value = true
 })
 
