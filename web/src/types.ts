@@ -46,6 +46,7 @@ export interface UserProfile {
   displayName: string
   bio: string
   onlineSecondsTotal: number
+  voiceSecondsTotal?: number
   createdAt: string
 }
 

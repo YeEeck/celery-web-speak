@@ -139,6 +139,7 @@ function remainingBan(member: User): string {
           <dl class="profile-card-facts">
             <div><dt>角色</dt><dd>{{ roleLabel(member.role) }}</dd></div>
             <div><dt>入服时间</dt><dd>{{ formatDate(member.createdAt) }}</dd></div>
+            <div v-if="profile.voiceSecondsTotal != null"><dt>语音时长</dt><dd>{{ formatDuration(profile.voiceSecondsTotal) }}</dd></div>
           </dl>
           <div class="profile-card-badges">
             <span v-if="member.voiceMuted" class="profile-card-pill danger"><MicOff :size="13" />语音禁言</span>

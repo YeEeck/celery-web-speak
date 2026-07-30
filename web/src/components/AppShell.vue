@@ -81,7 +81,7 @@ const voiceParticipantActionMenu = ref<{
   trigger: HTMLElement | null
 } | null>(null)
 const participantManagementPending = ref(false)
-const profileCard = ref<{ userId: number; x: number; y: number; trigger: HTMLElement | null; onClose: (() => void) | null } | null>(null)
+const profileCard = ref<{ userId: number; x: number; y: number; trigger: HTMLElement | null; onClose: (() => void) | null; guildId: number | null } | null>(null)
 const profileCardData = ref<UserProfile | null>(null)
 const profileCardLoading = ref(false)
 const profileCardFailed = ref(false)
@@ -477,7 +477,7 @@ async function disconnectVoiceParticipant(participant: VoiceParticipant) {
   }
 }
 
-function openProfileCard(userId: number, trigger: HTMLElement, x: number, y: number, onClose: (() => void) | null) {
+function openProfileCard(userId: number, trigger: HTMLElement, x: number, y: number, onClose: (() => void) | null, guildId: number | null) {
   if (profileCard.value?.userId === userId) {
     closeProfileCard(true)
     return
@@ -487,7 +487,7 @@ function openProfileCard(userId: number, trigger: HTMLElement, x: number, y: num
   closeChannelActionMenu()
   closeMessageActionMenu()
   closeVoiceParticipantActionMenu()
-  profileCard.value = { userId, x, y, trigger, onClose }
+  profileCard.value = { userId, x, y, trigger, onClose, guildId }
   profileCardData.value = null
   profileCardFailed.value = false
   profileCardLoading.value = true
@@ -497,7 +497,8 @@ function openProfileCard(userId: number, trigger: HTMLElement, x: number, y: num
 
 async function fetchProfileCard(userId: number, version: number) {
   try {
-    const result = await request<{ profile: UserProfile }>(`/api/users/${userId}/profile`)
+    const params = profileCard.value?.guildId != null ? `?guild_id=${profileCard.value.guildId}` : ''
+    const result = await request<{ profile: UserProfile }>(`/api/users/${userId}/profile${params}`)
     if (version !== profileCardVersion) return
     profileCardData.value = result.profile
     profileCardFailed.value = false
@@ -522,15 +523,15 @@ function closeProfileCard(restoreFocus = false) {
 }
 
 function openMemberCard(user: User, trigger: HTMLElement, x: number, y: number, onClose: () => void) {
-  openProfileCard(user.id, trigger, x, y, onClose)
+  openProfileCard(user.id, trigger, x, y, onClose, app.activeGuildId)
 }
 
-function openVoiceParticipantCard(_channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number, onClose: () => void) {
-  openProfileCard(participant.userId, trigger, x, y, onClose)
+function openVoiceParticipantCard(channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number, onClose: () => void) {
+  openProfileCard(participant.userId, trigger, x, y, onClose, channel.guildId ?? app.activeGuildId)
 }
 
 function openProfileFromMessage(userId: number, trigger: HTMLElement | null, x: number, y: number) {
-  openProfileCard(userId, trigger ?? (document.activeElement as HTMLElement) ?? null, x, y, null)
+  openProfileCard(userId, trigger ?? (document.activeElement as HTMLElement) ?? null, x, y, null, null)
 }
 
 async function copyChannelName(channel: Channel) {
