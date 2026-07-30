@@ -45,3 +45,32 @@ func (s *Server) internalError(w http.ResponseWriter, operation string, err erro
 	s.logger.Error(operation, "error", err)
 	writeError(w, http.StatusInternalServerError, "internal_error", "服务器处理请求时出现错误")
 }
+
+// handleGetUserProfile returns the global profile fields shown on a personal
+// info card: display name, username, bio, platform online time and account
+// creation time. It is readable only by users who share at least one guild
+// membership with the target.
+func (s *Server) handleGetUserProfile(w http.ResponseWriter, r *http.Request) {
+	id, ok := parsePathID(w, r, "id")
+	if !ok {
+		return
+	}
+	requester := currentUser(r)
+	if id != requester.ID {
+		shared, err := s.store.SharedGuild(r.Context(), requester.ID, id)
+		if err != nil {
+			s.internalError(w, "check shared guild", err)
+			return
+		}
+		if !shared && !requester.IsPlatformAdmin {
+			writeError(w, http.StatusForbidden, "not_in_shared_guild", "无法查看该用户的资料")
+			return
+		}
+	}
+	profile, err := s.store.UserProfile(r.Context(), id)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"profile": profile})
+}

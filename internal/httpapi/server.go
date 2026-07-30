@@ -70,6 +70,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/me/avatar", s.requireAuth(http.HandlerFunc(s.handleUploadMyAvatar)))
 	mux.Handle("DELETE /api/me/avatar", s.requireAuth(http.HandlerFunc(s.handleDeleteMyAvatar)))
 	mux.Handle("GET /api/users/{id}/avatar", s.requireAuth(http.HandlerFunc(s.handleGetUserAvatar)))
+	mux.Handle("GET /api/users/{id}/profile", s.requireAuth(http.HandlerFunc(s.handleGetUserProfile)))
 	mux.Handle("DELETE /api/users/{id}/avatar", s.requirePlatformAdmin(http.HandlerFunc(s.handleAdminDeleteAvatar)))
 	mux.Handle("GET /api/bootstrap", s.requireAuth(http.HandlerFunc(s.handleBootstrap)))
 	mux.Handle("GET /api/platform/guilds", s.requirePlatformAdmin(http.HandlerFunc(s.handlePlatformGuilds)))
