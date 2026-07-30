@@ -5,6 +5,14 @@
   --dur-fast: 100ms;
   --dur: 150ms;
   --ease: ease;
+  --motion-instant: 100ms;
+  --motion-float: 160ms;
+  --motion-spatial: 220ms;
+  --motion-exit-fast: 80ms;
+  --motion-exit-float: 120ms;
+  --motion-exit-spatial: 160ms;
+  --motion-ease-out: cubic-bezier(.2, .8, .2, 1);
+  --motion-ease-in: cubic-bezier(.4, 0, 1, 1);
   --t-colors: color var(--dur) var(--ease), background-color var(--dur) var(--ease), border-color var(--dur) var(--ease);
   --t-fast: color var(--dur-fast) var(--ease), background-color var(--dur-fast) var(--ease);
 }

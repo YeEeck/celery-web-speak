@@ -120,10 +120,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <section
+  <section
       ref="menu"
-      class="voice-device-menu"
+      class="voice-device-menu motion-origin-bottom"
       :class="{ positioned }"
       :style="{ left: `${left}px`, top: `${top}px`, maxHeight: maxHeight === null ? undefined : `${maxHeight}px` }"
       role="menu"
@@ -162,6 +161,5 @@ onBeforeUnmount(() => {
         ><LoaderCircle v-if="permissionBusy" :size="16" class="spin" /><RefreshCw v-else :size="16" />重新请求麦克风权限</button>
         <button type="button" role="menuitem" @click="openSettings"><Settings2 :size="16" />语音设置</button>
       </div>
-    </section>
-  </Teleport>
+  </section>
 </template>

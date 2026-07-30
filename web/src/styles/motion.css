@@ -1,0 +1,334 @@
+:where(
+  .primary-button,
+  .secondary-button,
+  .danger-button,
+  .icon-button,
+  .send-button,
+  .account-trigger,
+  .transmission-mode-button,
+  .voice-participant-audio-toggle,
+  .voice-participant-volume-value
+) {
+  transition-property: color, background-color, border-color, scale;
+  transition-duration: var(--dur), var(--dur), var(--dur), var(--motion-instant);
+  transition-timing-function: var(--ease), var(--ease), var(--ease), var(--motion-ease-out);
+}
+
+:where(
+  .primary-button,
+  .secondary-button,
+  .danger-button,
+  .icon-button,
+  .send-button,
+  .account-trigger,
+  .transmission-mode-button,
+  .voice-participant-audio-toggle,
+  .voice-participant-volume-value
+):active:not(:disabled) {
+  scale: .98;
+}
+
+.motion-popover-enter-active {
+  transform-origin: top center;
+  transition: opacity var(--motion-float) var(--motion-ease-out), transform var(--motion-float) var(--motion-ease-out);
+}
+
+.motion-popover-leave-active {
+  transform-origin: top center;
+  pointer-events: none;
+  transition: opacity var(--motion-exit-float) var(--motion-ease-in), transform var(--motion-exit-float) var(--motion-ease-in);
+}
+
+.motion-popover-enter-from,
+.motion-popover-leave-to {
+  opacity: 0;
+  transform: translateY(5px) scale(.98);
+}
+
+@keyframes motion-popover-static-in {
+  from { opacity: 0; transform: translateY(5px) scale(.98); }
+}
+
+.motion-popover-static {
+  transform-origin: top center;
+  animation: motion-popover-static-in var(--motion-float) var(--motion-ease-out);
+}
+
+.motion-popover.motion-origin-bottom,
+.motion-popover-enter-active.motion-origin-bottom,
+.motion-popover-leave-active.motion-origin-bottom {
+  transform-origin: center bottom;
+}
+
+.motion-popover.motion-origin-left,
+.motion-popover-enter-active.motion-origin-left,
+.motion-popover-leave-active.motion-origin-left {
+  transform-origin: left center;
+}
+
+.motion-popover.motion-origin-right,
+.motion-popover-enter-active.motion-origin-right,
+.motion-popover-leave-active.motion-origin-right {
+  transform-origin: right center;
+}
+
+.motion-modal-enter-active,
+.motion-modal-leave-active {
+  transition: background-color var(--motion-spatial) var(--motion-ease-out);
+}
+
+.motion-modal-leave-active {
+  pointer-events: none;
+  transition-duration: var(--motion-exit-spatial);
+  transition-timing-function: var(--motion-ease-in);
+}
+
+.motion-modal-enter-active > :is(section, div),
+.motion-modal-leave-active > :is(section, div) {
+  transition: opacity var(--motion-spatial) var(--motion-ease-out), transform var(--motion-spatial) var(--motion-ease-out);
+}
+
+.motion-modal-leave-active > :is(section, div) {
+  transition-duration: var(--motion-exit-spatial);
+  transition-timing-function: var(--motion-ease-in);
+}
+
+.motion-modal-enter-from,
+.motion-modal-leave-to {
+  background-color: transparent;
+}
+
+.motion-modal-enter-from > :is(section, div),
+.motion-modal-leave-to > :is(section, div) {
+  opacity: 0;
+  transform: translateY(8px) scale(.985);
+}
+
+@keyframes motion-modal-backdrop-in {
+  from { background-color: transparent; }
+}
+
+@keyframes motion-modal-panel-in {
+  from { opacity: 0; transform: translateY(8px) scale(.985); }
+}
+
+.motion-modal-static {
+  animation: motion-modal-backdrop-in var(--motion-spatial) var(--motion-ease-out);
+}
+
+.motion-modal-static > :is(section, div) {
+  animation: motion-modal-panel-in var(--motion-spatial) var(--motion-ease-out);
+}
+
+.motion-scrim-enter-active,
+.motion-scrim-leave-active {
+  transition: opacity var(--motion-spatial) var(--motion-ease-out);
+}
+
+.motion-scrim-leave-active {
+  pointer-events: none;
+  transition-duration: var(--motion-exit-spatial);
+  transition-timing-function: var(--motion-ease-in);
+}
+
+.motion-scrim-enter-from,
+.motion-scrim-leave-to {
+  opacity: 0;
+}
+
+.motion-drawer-right-enter-active,
+.motion-drawer-right-leave-active {
+  transition: opacity var(--motion-spatial) var(--motion-ease-out);
+}
+
+.motion-drawer-right-leave-active {
+  pointer-events: none;
+  transition-duration: var(--motion-exit-spatial);
+  transition-timing-function: var(--motion-ease-in);
+}
+
+.motion-drawer-right-enter-active > .member-list,
+.motion-drawer-right-leave-active > .member-list {
+  transition: transform var(--motion-spatial) var(--motion-ease-out);
+}
+
+.motion-drawer-right-leave-active > .member-list {
+  transition-duration: var(--motion-exit-spatial);
+  transition-timing-function: var(--motion-ease-in);
+}
+
+.motion-drawer-right-enter-from,
+.motion-drawer-right-leave-to {
+  opacity: 0;
+}
+
+.motion-drawer-right-enter-from > .member-list,
+.motion-drawer-right-leave-to > .member-list {
+  transform: translateX(100%);
+}
+
+.motion-toast-enter-active,
+.motion-toast-leave-active,
+.motion-toast-move {
+  transition: opacity var(--motion-float) var(--motion-ease-out), transform var(--motion-float) var(--motion-ease-out);
+}
+
+.motion-toast-leave-active {
+  position: absolute;
+  pointer-events: none;
+  transition-duration: var(--motion-exit-float);
+  transition-timing-function: var(--motion-ease-in);
+}
+
+.motion-toast-enter-from,
+.motion-toast-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(.98);
+}
+
+.motion-content-enter-active {
+  transition: opacity var(--motion-instant) var(--motion-ease-out), transform var(--motion-instant) var(--motion-ease-out);
+}
+
+.motion-content-enter-from {
+  opacity: 0;
+  transform: translateY(3px);
+}
+
+.motion-list-enter-active,
+.motion-list-leave-active,
+.motion-list-move {
+  transition: opacity var(--motion-float) var(--motion-ease-out), transform var(--motion-float) var(--motion-ease-out);
+}
+
+.motion-list-leave-active {
+  pointer-events: none;
+}
+
+.motion-list-enter-from,
+.motion-list-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+@keyframes motion-content-in {
+  from { opacity: 0; transform: translateY(3px); }
+}
+
+.motion-content-in {
+  animation: motion-content-in var(--motion-instant) var(--motion-ease-out);
+}
+
+:where(.form-error, .form-success, .voice-control-error, .voice-preference-feedback, .guild-delete-confirmation, .account-delete-confirm) {
+  animation: motion-content-in var(--motion-instant) var(--motion-ease-out);
+}
+
+@keyframes motion-message-in {
+  from { opacity: 0; transform: translateY(4px); }
+}
+
+.virtual-message-row.live-message .message-row {
+  animation: motion-message-in var(--motion-float) var(--motion-ease-out);
+}
+
+@keyframes motion-pulse {
+  0%, 100% { opacity: .45; }
+  50% { opacity: 1; }
+}
+
+@keyframes motion-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes motion-scrim-static-in {
+  from { opacity: 0; }
+}
+
+@keyframes motion-drawer-right-static-in {
+  from { transform: translateX(100%); }
+}
+
+@keyframes motion-toast-static-in {
+  from { opacity: 0; transform: translateY(-8px) scale(.98); }
+}
+
+.motion-scrim-static {
+  animation: motion-scrim-static-in var(--motion-spatial) var(--motion-ease-out);
+}
+
+.motion-drawer-right-static > .member-list {
+  animation: motion-drawer-right-static-in var(--motion-spatial) var(--motion-ease-out);
+}
+
+.motion-toast-static {
+  animation: motion-toast-static-in var(--motion-float) var(--motion-ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(
+    .primary-button,
+    .secondary-button,
+    .danger-button,
+    .icon-button,
+    .send-button,
+    .account-trigger,
+    .transmission-mode-button,
+    .voice-participant-audio-toggle,
+    .voice-participant-volume-value
+  ):active:not(:disabled) {
+    scale: 1;
+  }
+
+  .motion-popover-enter-active,
+  .motion-popover-leave-active,
+  .motion-modal-enter-active,
+  .motion-modal-leave-active,
+  .motion-modal-enter-active > :is(section, div),
+  .motion-modal-leave-active > :is(section, div),
+  .motion-scrim-enter-active,
+  .motion-scrim-leave-active,
+  .motion-drawer-right-enter-active,
+  .motion-drawer-right-leave-active,
+  .motion-drawer-right-enter-active > .member-list,
+  .motion-drawer-right-leave-active > .member-list,
+  .motion-toast-enter-active,
+  .motion-toast-leave-active,
+  .motion-toast-move,
+  .motion-content-enter-active,
+  .motion-list-enter-active,
+  .motion-list-leave-active,
+  .motion-list-move {
+    transition-duration: 80ms;
+    transition-property: opacity;
+  }
+
+  .motion-popover-enter-from,
+  .motion-popover-leave-to,
+  .motion-modal-enter-from > :is(section, div),
+  .motion-modal-leave-to > :is(section, div),
+  .motion-drawer-right-enter-from > .member-list,
+  .motion-drawer-right-leave-to > .member-list,
+  .motion-toast-enter-from,
+  .motion-toast-leave-to,
+  .motion-content-enter-from,
+  .motion-list-enter-from,
+  .motion-list-leave-to {
+    transform: none;
+  }
+
+  .motion-modal-static,
+  .motion-modal-static > :is(section, div),
+  .motion-popover-static,
+  .motion-scrim-static,
+  .motion-drawer-right-static > .member-list,
+  .motion-toast-static,
+  .motion-content-in,
+  :where(.form-error, .form-success, .voice-control-error, .voice-preference-feedback, .guild-delete-confirmation, .account-delete-confirm),
+  .virtual-message-row.live-message .message-row {
+    animation: motion-fade-in 80ms linear;
+  }
+
+  .spin {
+    animation: motion-pulse 1.4s ease-in-out infinite !important;
+  }
+}

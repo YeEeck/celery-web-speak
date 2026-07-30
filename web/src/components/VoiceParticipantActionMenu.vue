@@ -72,7 +72,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <section
       ref="panel"
-      class="voice-participant-action-menu"
+      class="voice-participant-action-menu motion-popover-static"
       :class="{ positioned }"
       :style="{ left: `${left}px`, top: `${top}px` }"
       role="dialog"

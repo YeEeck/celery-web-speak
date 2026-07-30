@@ -44,7 +44,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
-    <div class="modal-backdrop leave-guild-backdrop" @mousedown.self="cancel">
+    <div class="modal-backdrop leave-guild-backdrop motion-modal-static" @mousedown.self="cancel">
       <section ref="panel" class="leave-guild-panel" role="alertdialog" aria-modal="true" aria-labelledby="leave-guild-title" aria-describedby="leave-guild-description" tabindex="-1">
         <h2 id="leave-guild-title">离开“{{ guild.name }}”？</h2>
         <p id="leave-guild-description">你的成员身份将被移除，之后需要由服务器管理员重新添加。你发送的历史消息不会被删除。</p>

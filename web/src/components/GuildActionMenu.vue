@@ -94,7 +94,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <nav
       ref="menu"
-      class="guild-action-menu"
+      class="guild-action-menu motion-popover-static"
       :class="{ positioned }"
       :style="{ left: `${left}px`, top: `${top}px` }"
       role="menu"

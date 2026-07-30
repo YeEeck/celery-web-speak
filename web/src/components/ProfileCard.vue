@@ -21,6 +21,7 @@ const panel = ref<HTMLElement | null>(null)
 const left = ref(props.x)
 const top = ref(props.y)
 const positioned = ref(false)
+const originClass = ref('motion-origin-left')
 
 function handleKeyDown(event: KeyboardEvent) {
   if (event.key !== 'Escape') return
@@ -53,6 +54,7 @@ onMounted(async () => {
   const maxHeight = window.innerHeight - bounds.height - margin
   const center = triggerBounds.left + triggerBounds.width / 2
   const openRight = center <= window.innerWidth / 2
+  originClass.value = openRight ? 'motion-origin-left' : 'motion-origin-right'
   const proposedLeft = openRight ? triggerBounds.right + gap : triggerBounds.left - gap - bounds.width
   left.value = Math.min(Math.max(margin, proposedLeft), maxWidth)
   top.value = Math.min(Math.max(margin, triggerBounds.top), maxHeight)
@@ -115,8 +117,8 @@ function remainingBan(member: User): string {
   <Teleport to="body">
     <section
       ref="panel"
-      class="profile-card"
-      :class="{ positioned }"
+      class="profile-card motion-popover-static"
+      :class="[originClass, { positioned }]"
       :style="{ left: `${left}px`, top: `${top}px` }"
       role="dialog"
       :aria-label="`${profile?.displayName ?? '用户'}的个人信息卡片`"

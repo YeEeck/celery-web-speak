@@ -230,19 +230,21 @@ onBeforeUnmount(() => {
           class="muted-speaking-reminder-tooltip"
           role="status"
         >你正在静音时说话</span>
-        <section
-          v-if="volumeOpen === 'input'"
-          id="microphone-volume-popover"
-          ref="volumePopover"
-          class="voice-volume-popover"
-          :class="{ 'is-muted': microphoneVolumeMuted }"
-          :aria-label="microphoneVolumeLabel"
-          @pointerenter="clearVolumeCloseTimer"
-          @pointerleave="scheduleVolumeClose"
-        >
-          <output>{{ Math.round(voice.microphoneGain * 100) }}%</output>
-          <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" :style="rangeProgressStyle(voice.microphoneGain, 0, 3)" :aria-label="microphoneVolumeLabel" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
-        </section>
+        <Transition name="motion-popover">
+          <section
+            v-if="volumeOpen === 'input'"
+            id="microphone-volume-popover"
+            ref="volumePopover"
+            class="voice-volume-popover motion-origin-bottom"
+            :class="{ 'is-muted': microphoneVolumeMuted }"
+            :aria-label="microphoneVolumeLabel"
+            @pointerenter="clearVolumeCloseTimer"
+            @pointerleave="scheduleVolumeClose"
+          >
+            <output>{{ Math.round(voice.microphoneGain * 100) }}%</output>
+            <input type="range" min="0" max="3" step="0.05" :value="voice.microphoneGain" :style="rangeProgressStyle(voice.microphoneGain, 0, 3)" :aria-label="microphoneVolumeLabel" @input="voice.setMicrophoneGain(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
+          </section>
+        </Transition>
       </div>
       <div
         class="voice-volume-control"
@@ -265,19 +267,21 @@ onBeforeUnmount(() => {
           <LoaderCircle v-if="voice.deafenChanging" :size="18" class="spin" />
           <VolumeX v-else-if="voice.deafened" :size="18" /><Headphones v-else :size="18" />
         </button>
-        <section
-          v-if="volumeOpen === 'output'"
-          id="output-volume-popover"
-          ref="volumePopover"
-          class="voice-volume-popover"
-          :class="{ 'is-muted': voice.deafened }"
-          :aria-label="outputVolumeLabel"
-          @pointerenter="clearVolumeCloseTimer"
-          @pointerleave="scheduleVolumeClose"
-        >
-          <output>{{ Math.round(voice.outputVolume * 100) }}%</output>
-          <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" :style="rangeProgressStyle(voice.outputVolume, 0, 3)" :aria-label="outputVolumeLabel" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
-        </section>
+        <Transition name="motion-popover">
+          <section
+            v-if="volumeOpen === 'output'"
+            id="output-volume-popover"
+            ref="volumePopover"
+            class="voice-volume-popover motion-origin-bottom"
+            :class="{ 'is-muted': voice.deafened }"
+            :aria-label="outputVolumeLabel"
+            @pointerenter="clearVolumeCloseTimer"
+            @pointerleave="scheduleVolumeClose"
+          >
+            <output>{{ Math.round(voice.outputVolume * 100) }}%</output>
+            <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" :style="rangeProgressStyle(voice.outputVolume, 0, 3)" :aria-label="outputVolumeLabel" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" @keydown.esc.prevent="closeVolume(true)" />
+          </section>
+        </Transition>
       </div>
       <button
         v-if="showApplicationAudio"
@@ -295,13 +299,14 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <p v-if="voice.voicePreferenceFeedback" class="voice-preference-feedback" role="status">{{ voice.voicePreferenceFeedback }}</p>
-    <section
-      v-if="showApplicationAudio && applicationAudioPanelOpen"
-      id="application-audio-panel"
-      ref="applicationAudioPanel"
-      class="application-audio-popover"
-      aria-label="背景音控制"
-    >
+    <Transition name="motion-popover">
+      <section
+        v-if="showApplicationAudio && applicationAudioPanelOpen"
+        id="application-audio-panel"
+        ref="applicationAudioPanel"
+        class="application-audio-popover motion-origin-bottom"
+        aria-label="背景音控制"
+      >
       <header><Music2 :size="16" /><strong>应用背景音</strong></header>
       <p v-if="voice.applicationAudioError" class="application-audio-error">{{ voice.applicationAudioError }}</p>
       <button
@@ -324,13 +329,18 @@ onBeforeUnmount(() => {
         <input type="range" min="0" max="1" step="0.01" :value="voice.applicationAudioVolume" :style="rangeProgressStyle(voice.applicationAudioVolume, 0, 1)" @input="voice.setApplicationAudioVolume(Number(($event.target as HTMLInputElement).value))" />
         <output>{{ Math.round(voice.applicationAudioVolume * 100) }}%</output>
       </label>
-    </section>
-    <VoiceDeviceMenu
-      v-if="deviceMenu"
-      :kind="deviceMenu.kind"
-      :trigger="deviceMenu.trigger"
-      @close="closeDeviceMenu"
-      @settings="openVoiceSettings"
-    />
+      </section>
+    </Transition>
+    <Teleport to="body">
+      <Transition name="motion-popover" appear>
+        <VoiceDeviceMenu
+          v-if="deviceMenu"
+          :kind="deviceMenu.kind"
+          :trigger="deviceMenu.trigger"
+          @close="closeDeviceMenu"
+          @settings="openVoiceSettings"
+        />
+      </Transition>
+    </Teleport>
   </footer>
 </template>

@@ -117,8 +117,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <Teleport to="body">
-    <div class="modal-backdrop avatar-cropper-backdrop" @mousedown.self="cancel">
+  <div class="modal-backdrop avatar-cropper-backdrop" @mousedown.self="cancel">
       <section class="avatar-cropper" role="dialog" aria-modal="true" aria-labelledby="avatar-cropper-title">
         <header>
           <h3 id="avatar-cropper-title">{{ props.title }}</h3>
@@ -157,8 +156,7 @@ onBeforeUnmount(() => {
           <button class="primary-button" :disabled="loading" @click="confirm"><Save :size="16" />{{ props.confirmLabel }}</button>
         </footer>
       </section>
-    </div>
-  </Teleport>
+  </div>
 </template>
 
 <style scoped>

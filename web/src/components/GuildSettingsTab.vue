@@ -117,5 +117,9 @@ function cancelCropper() {
       <button class="secondary-button" :disabled="busy || !guildName || guildName === app.activeGuild?.name" @click="renameGuild"><Save :size="16" />保存名称</button>
     </div>
   </section>
-  <ImageCropperModal v-if="cropperOpen && iconFile" :file="iconFile" title="调整服务器图标" confirm-label="设为服务器图标" @cancel="cancelCropper" @confirm="onIconCropped" />
+  <Teleport to="body">
+    <Transition name="motion-modal" appear>
+      <ImageCropperModal v-if="cropperOpen && iconFile" :file="iconFile" title="调整服务器图标" confirm-label="设为服务器图标" @cancel="cancelCropper" @confirm="onIconCropped" />
+    </Transition>
+  </Teleport>
 </template>

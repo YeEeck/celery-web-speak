@@ -57,7 +57,7 @@ function switchMode(next: 'login' | 'register') {
         <p>{{ mode === 'login' ? '使用你的账号进入频道' : '创建一个仅属于此服务器的账号' }}</p>
       </header>
 
-      <form @submit.prevent="submit">
+      <form :key="mode" class="motion-content-in" @submit.prevent="submit">
         <label v-if="mode === 'register'">
           <span>邀请码</span>
           <span class="input-wrap"><KeyRound :size="18" /><input v-model.trim="inviteCode" required autocomplete="one-time-code" /></span>

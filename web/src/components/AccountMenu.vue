@@ -86,7 +86,7 @@ onBeforeUnmount(() => {
     <nav
       id="account-menu"
       ref="menu"
-      class="account-menu"
+      class="account-menu motion-popover-static motion-origin-bottom"
       :class="{ positioned }"
       :style="{ left: `${left}px`, top: `${top}px` }"
       role="menu"

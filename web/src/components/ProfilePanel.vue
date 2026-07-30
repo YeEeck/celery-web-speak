@@ -199,7 +199,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
         <button :class="{ active: tab === 'theme' }" @click="tab = 'theme'"><Palette :size="17" />主题</button>
       </nav>
       <div class="settings-scroll">
-        <section v-if="tab === 'account'" class="settings-section">
+        <section v-if="tab === 'account'" class="settings-section motion-content-in">
           <h3><UserRound :size="18" />头像</h3>
           <div class="avatar-editor-row">
             <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="onAvatarFileChosen" />
@@ -240,12 +240,12 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           <button class="changelog-entry-button" @click="$emit('changelog')">更新日志</button>
         </section>
 
-        <section v-else-if="tab === 'audio'" class="profile-audio-layout">
+        <section v-else-if="tab === 'audio'" class="profile-audio-layout motion-content-in">
           <aside class="profile-audio-nav">
             <button :class="{ active: audioSubNav === 'input' }" @click="audioSubNav = 'input'"><Mic :size="16" />输入</button>
             <button :class="{ active: audioSubNav === 'output' }" @click="audioSubNav = 'output'"><Headphones :size="16" />输出</button>
           </aside>
-          <div v-if="audioSubNav === 'input'">
+          <div v-if="audioSubNav === 'input'" class="motion-content-in">
             <section class="settings-section">
               <h3><Mic :size="18" />输入设备</h3>
               <label>
@@ -278,7 +278,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
               </label>
             </section>
           </div>
-          <div v-else>
+          <div v-else class="motion-content-in">
             <section class="settings-section">
               <h3><Headphones :size="18" />输出设备</h3>
               <label>
@@ -298,7 +298,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           </div>
         </section>
 
-        <section v-else-if="tab === 'sound'" class="settings-section sound-settings">
+        <section v-else-if="tab === 'sound'" class="settings-section sound-settings motion-content-in">
           <h3><BellRing :size="18" />全局</h3>
           <label class="setting-toggle">
             <span>启用提示音</span>
@@ -334,7 +334,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           </div>
         </section>
 
-        <section v-else-if="tab === 'theme'" class="settings-section">
+        <section v-else-if="tab === 'theme'" class="settings-section motion-content-in">
           <h3><Palette :size="18" />外观模式</h3>
           <div class="theme-mode-group">
             <button v-for="mode in themeModes" :key="mode.value" :class="{ active: theme.mode === mode.value }" @click="theme.setMode(mode.value)">{{ mode.label }}</button>
@@ -349,6 +349,10 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
         </section>
       </div>
     </section>
-    <ImageCropperModal v-if="cropperOpen && avatarFile" :file="avatarFile" @cancel="cancelCropper" @confirm="onAvatarCropped" />
+    <Teleport to="body">
+      <Transition name="motion-modal" appear>
+        <ImageCropperModal v-if="cropperOpen && avatarFile" :file="avatarFile" @cancel="cancelCropper" @confirm="onAvatarCropped" />
+      </Transition>
+    </Teleport>
   </div>
 </template>

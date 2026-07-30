@@ -48,9 +48,9 @@ function selectTab(nextTab: 'guild' | 'channel' | 'users') {
       </nav>
 
       <div ref="adminContent" :class="['admin-content', { contained: tab !== 'guild' }]">
-        <GuildSettingsTab v-if="tab === 'guild'" />
-        <ChannelAdminTab v-else-if="tab === 'channel'" :initial-channel-id="initialChannelId" />
-        <MemberAdminTab v-else />
+        <GuildSettingsTab v-if="tab === 'guild'" class="motion-content-in" />
+        <ChannelAdminTab v-else-if="tab === 'channel'" class="motion-content-in" :initial-channel-id="initialChannelId" />
+        <MemberAdminTab v-else class="motion-content-in" />
       </div>
     </section>
   </div>
