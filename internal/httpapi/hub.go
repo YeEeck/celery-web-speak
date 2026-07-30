@@ -60,6 +60,24 @@ type client struct {
 	lastActive atomic.Int64
 }
 
+// PresenceAccumulator persists whole seconds of platform presence onto a
+// user's running total. The hub calls it when an online interval settles
+// (a user goes offline or a periodic flush of an in-flight interval runs).
+// A nil sink makes accumulation a no-op, which keeps the in-memory hub tests
+// free of a store dependency.
+type PresenceAccumulator interface {
+	AddUserOnlineTime(ctx context.Context, userID int64, seconds int64) error
+}
+
+// onlineInterval tracks an in-flight presence segment for a user who is
+// currently online (counts > 0). since is the start of the current segment;
+// accum carries whole-second residuals not yet persisted across flushes so
+// sub-second precision is not lost between periodic flushes.
+type onlineInterval struct {
+	since time.Time
+	accum time.Duration
+}
+
 type Hub struct {
 	mu          sync.RWMutex
 	presenceMu  sync.Mutex
@@ -67,13 +85,17 @@ type Hub struct {
 	counts      map[int64]int
 	kinds       map[int64]ClientKind
 	memberships map[int64]map[int64]struct{}
+	online      map[int64]*onlineInterval
 	lease       time.Duration
 	now         func() time.Time
 	schedule    func(time.Duration, func())
+	sink        PresenceAccumulator
 }
 
-func NewHub() *Hub {
-	return newHub(presenceLeaseDuration)
+func NewHub(sink PresenceAccumulator) *Hub {
+	h := newHub(presenceLeaseDuration)
+	h.sink = sink
+	return h
 }
 
 func newHub(lease time.Duration) *Hub {
@@ -82,6 +104,7 @@ func newHub(lease time.Duration) *Hub {
 		counts:      make(map[int64]int),
 		kinds:       make(map[int64]ClientKind),
 		memberships: make(map[int64]map[int64]struct{}),
+		online:      make(map[int64]*onlineInterval),
 		lease:       lease,
 		now:         time.Now,
 		schedule: func(delay time.Duration, fn func()) {
@@ -119,6 +142,9 @@ func (h *Hub) register(c *client) {
 	c.touch(h.now())
 	h.mu.Lock()
 	h.clients[c] = struct{}{}
+	if h.counts[c.user.ID] == 0 {
+		h.online[c.user.ID] = &onlineInterval{since: h.now()}
+	}
 	h.counts[c.user.ID]++
 	if kind, ok := h.effectiveKindForUserLocked(c.user.ID); ok {
 		h.kinds[c.user.ID] = kind
@@ -164,6 +190,7 @@ func (h *Hub) expire(c *client) {
 		delete(h.counts, c.user.ID)
 		delete(h.kinds, c.user.ID)
 		delete(h.memberships, c.user.ID)
+		h.settleOnlineLocked(c.user.ID)
 	}
 	h.mu.Unlock()
 	h.BroadcastPresence()
@@ -261,6 +288,78 @@ func (h *Hub) RunPresenceBroadcaster(ctx context.Context, interval time.Duration
 			h.BroadcastPresence()
 		}
 	}
+}
+
+// RunOnlineTimeFlusher periodically persists the in-flight presence segments
+// of currently online users without ending them, so a restart loses at most
+// one interval of accumulated time.
+func (h *Hub) RunOnlineTimeFlusher(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			h.flushOnlineTime()
+		}
+	}
+}
+
+// FlushOnlineTime settles every currently in-flight presence segment. Call it
+// during graceful shutdown so segments still open at exit are persisted.
+func (h *Hub) FlushOnlineTime() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for userID := range h.online {
+		h.settleOnlineLocked(userID)
+	}
+}
+
+// flushOnlineTime persists the residual of every online user's in-flight
+// segment without ending the segment, then resets its segment start to now.
+func (h *Hub) flushOnlineTime() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	now := h.now()
+	for userID, iv := range h.online {
+		iv.accum += now.Sub(iv.since)
+		iv.since = now
+		secs := int64(iv.accum / time.Second)
+		if secs > 0 {
+			h.persistOnline(userID, secs)
+			iv.accum -= time.Duration(secs) * time.Second
+		}
+	}
+}
+
+// settleOnlineLocked persists the whole seconds of the user's in-flight
+// segment and drops it. Residual sub-second time is discarded at settle. The
+// caller must hold h.mu.
+func (h *Hub) settleOnlineLocked(userID int64) {
+	iv, ok := h.online[userID]
+	if !ok {
+		return
+	}
+	delete(h.online, userID)
+	if h.sink == nil {
+		return
+	}
+	total := iv.accum + h.now().Sub(iv.since)
+	if secs := int64(total / time.Second); secs > 0 {
+		h.persistOnline(userID, secs)
+	}
+}
+
+// persistOnline writes whole seconds to the store sink. Failures are logged by
+// the caller's expectation; the hub holds no logger, so persistence errors are
+// swallowed to keep presence flow resilient (the next flush retries the delta
+// while the interval is still tracked in memory).
+func (h *Hub) persistOnline(userID int64, seconds int64) {
+	if h.sink == nil {
+		return
+	}
+	_ = h.sink.AddUserOnlineTime(context.Background(), userID, seconds)
 }
 
 func (h *Hub) Broadcast(eventType string, data any) {
@@ -471,6 +570,7 @@ func (h *Hub) DisconnectUser(userID int64) {
 	delete(h.counts, userID)
 	delete(h.kinds, userID)
 	delete(h.memberships, userID)
+	h.settleOnlineLocked(userID)
 	h.mu.Unlock()
 	h.BroadcastPresence()
 }

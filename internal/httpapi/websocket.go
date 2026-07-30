@@ -14,6 +14,7 @@ const (
 	webSocketPingInterval     = 5 * time.Second
 	presenceLeaseDuration     = 15 * time.Second
 	presenceBroadcastInterval = 15 * time.Second
+	onlineTimeFlushInterval   = 60 * time.Second
 	voiceRoomsRefreshMessage  = "refresh_voice_rooms"
 )
 
@@ -37,6 +38,16 @@ func parseClientKind(r *http.Request) ClientKind {
 
 func (s *Server) RunPresenceBroadcaster(ctx context.Context) {
 	s.hub.RunPresenceBroadcaster(ctx, presenceBroadcastInterval)
+}
+
+func (s *Server) RunOnlineTimeFlusher(ctx context.Context) {
+	s.hub.RunOnlineTimeFlusher(ctx, onlineTimeFlushInterval)
+}
+
+// FlushOnlineTime settles every in-flight presence segment. Called during
+// graceful shutdown so segments still open at exit are persisted.
+func (s *Server) FlushOnlineTime() {
+	s.hub.FlushOnlineTime()
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {

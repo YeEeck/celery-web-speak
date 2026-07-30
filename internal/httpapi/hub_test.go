@@ -4,11 +4,123 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/yeck/celery-web-speak/internal/store"
 )
+
+type fakePresenceSink struct {
+	mu     sync.Mutex
+	totals map[int64]int64
+	calls  int
+}
+
+func newFakePresenceSink() *fakePresenceSink {
+	return &fakePresenceSink{totals: make(map[int64]int64)}
+}
+
+func (f *fakePresenceSink) AddUserOnlineTime(_ context.Context, userID int64, seconds int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.totals[userID] += seconds
+	f.calls++
+	return nil
+}
+
+func (f *fakePresenceSink) total(userID int64) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.totals[userID]
+}
+
+func TestHubOnlineTimeAccumulatesAcrossMultiDeviceAndSettlesOnOffline(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	now := base
+	sink := newFakePresenceSink()
+	hub := newHub(15 * time.Second)
+	hub.sink = sink
+	hub.now = func() time.Time { return now }
+
+	first := newClient(store.User{ID: 42})
+	second := newClient(store.User{ID: 42})
+
+	hub.register(first)
+	now = base.Add(2 * time.Second)
+	hub.register(second)
+
+	now = base.Add(5 * time.Second)
+	hub.unregister(first, true)
+
+	now = base.Add(8 * time.Second)
+	hub.unregister(second, true)
+
+	if got := sink.total(42); got != 8 {
+		t.Fatalf("online total = %ds, want 8s (5s+3s, multi-device merged)", got)
+	}
+}
+
+func TestHubOnlineTimeSettlesOnDisconnectUser(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	now := base
+	sink := newFakePresenceSink()
+	hub := newHub(15 * time.Second)
+	hub.sink = sink
+	hub.now = func() time.Time { return now }
+
+	c := newClient(store.User{ID: 42})
+	hub.register(c)
+	now = base.Add(10 * time.Second)
+	hub.DisconnectUser(42)
+
+	if got := sink.total(42); got != 10 {
+		t.Fatalf("online total = %ds, want 10s after DisconnectUser", got)
+	}
+}
+
+func TestHubOnlineTimeFlushPersistsInFlightWithoutEndingSegment(t *testing.T) {
+	base := time.Unix(1_700_000_000, 0)
+	now := base
+	sink := newFakePresenceSink()
+	hub := newHub(15 * time.Second)
+	hub.sink = sink
+	hub.now = func() time.Time { return now }
+
+	c := newClient(store.User{ID: 42})
+	hub.register(c)
+	now = base.Add(7 * time.Second)
+	hub.flushOnlineTime()
+
+	if got := sink.total(42); got != 7 {
+		t.Fatalf("after first flush, online total = %ds, want 7s", got)
+	}
+	if _, stillOnline := hub.online[42]; !stillOnline {
+		t.Fatal("segment ended after flush; flush must keep the user online")
+	}
+
+	now = base.Add(13 * time.Second)
+	hub.flushOnlineTime()
+	if got := sink.total(42); got != 13 {
+		t.Fatalf("after second flush, online total = %ds, want 13s (sub-second residual carried)", got)
+	}
+
+	now = base.Add(21 * time.Second)
+	hub.unregister(c, true)
+	if got := sink.total(42); got != 21 {
+		t.Fatalf("after settle, online total = %ds, want 21s", got)
+	}
+}
+
+func TestHubOnlineTimeNilSinkIsNoOp(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	c := newClient(store.User{ID: 42})
+	hub.register(c)
+	hub.unregister(c, true)
+	if len(hub.online) != 0 {
+		t.Fatalf("online map not empty after offline, len = %d", len(hub.online))
+	}
+}
 
 func TestHubKeepsUserOnlineUntilLastConnectionCloses(t *testing.T) {
 	hub := newHub(15 * time.Second)

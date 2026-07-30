@@ -44,7 +44,7 @@ func New(cfg config.Config, db *store.Store, mediaService *media.Service, logger
 		cfg:    cfg,
 		store:  db,
 		media:  mediaService,
-		hub:    NewHub(),
+		hub:    NewHub(db),
 		logger: logger,
 		limits: make(map[int64][]time.Time),
 	}

@@ -50,6 +50,7 @@ func main() {
 	go api.RunVoiceReconciler(ctx)
 	go api.RunPresenceBroadcaster(ctx)
 	go api.RunGuildMembershipReconciler(ctx)
+	go api.RunOnlineTimeFlusher(ctx)
 	go func() {
 		logger.Info("server started", "addr", cfg.Addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -63,4 +64,5 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error("graceful shutdown", "error", err)
 	}
+	api.FlushOnlineTime()
 }
