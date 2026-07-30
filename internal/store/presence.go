@@ -26,16 +26,54 @@ UPDATE users SET online_seconds_total = online_seconds_total + ? WHERE id = ? AN
 	return nil
 }
 
+// AddGuildVoiceTime accumulates whole seconds of voice participation by a
+// user within a specific guild onto the (user, guild) running total. It is
+// called by the media voice-time accumulator on a periodic snapshot tick.
+func (s *Store) AddGuildVoiceTime(ctx context.Context, guildID, userID int64, seconds int64) error {
+	if seconds <= 0 {
+		return nil
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE guild_members SET voice_seconds_total = voice_seconds_total + ? WHERE guild_id = ? AND user_id = ?`, seconds, guildID, userID)
+	if err != nil {
+		return fmt.Errorf("add guild voice time: %w", err)
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// GuildMemberVoiceSeconds returns the accumulated voice seconds for a user
+// within a guild. Returns ErrNotFound if the user is not a member of that
+// guild.
+func (s *Store) GuildMemberVoiceSeconds(ctx context.Context, guildID, userID int64) (int64, error) {
+	var seconds int64
+	err := s.db.QueryRowContext(ctx, `
+SELECT voice_seconds_total FROM guild_members WHERE guild_id = ? AND user_id = ?`, guildID, userID).Scan(&seconds)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get guild member voice seconds: %w", err)
+	}
+	return seconds, nil
+}
+
 // UserProfile returns the global, server-agnostic fields surfaced on a
 // personal info card: display name, username, bio, platform online time and
 // account creation time. Server-scoped permission info is assembled by the
 // caller from the in-memory guild member list.
+//
+// VoiceSecondsTotal is the server-scoped voice participation time; it is nil
+// when the profile read did not carry a guild_id query parameter.
 type UserProfile struct {
 	ID                 int64     `json:"id"`
 	Username           string    `json:"username"`
 	DisplayName        string    `json:"displayName"`
 	Bio                string    `json:"bio"`
 	OnlineSecondsTotal int64     `json:"onlineSecondsTotal"`
+	VoiceSecondsTotal  *int64    `json:"voiceSecondsTotal,omitempty"`
 	CreatedAt          time.Time `json:"createdAt"`
 }
 

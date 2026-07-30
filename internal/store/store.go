@@ -152,6 +152,22 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if err := s.ensureUserProfileColumns(ctx); err != nil {
 		return fmt.Errorf("migrate user profile columns: %w", err)
 	}
+	if err := s.ensureGuildMemberVoiceSecondsColumn(ctx); err != nil {
+		return fmt.Errorf("migrate guild member voice seconds: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ensureGuildMemberVoiceSecondsColumn(ctx context.Context) error {
+	has, err := s.tableHasColumn(ctx, "guild_members", "voice_seconds_total")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := s.db.ExecContext(ctx, "ALTER TABLE guild_members ADD COLUMN voice_seconds_total INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
