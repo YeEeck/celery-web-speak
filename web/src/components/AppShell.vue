@@ -81,7 +81,7 @@ const voiceParticipantActionMenu = ref<{
   trigger: HTMLElement | null
 } | null>(null)
 const participantManagementPending = ref(false)
-const profileCard = ref<{ userId: number; x: number; y: number; trigger: HTMLElement | null } | null>(null)
+const profileCard = ref<{ userId: number; x: number; y: number; trigger: HTMLElement | null; onClose: (() => void) | null } | null>(null)
 const profileCardData = ref<UserProfile | null>(null)
 const profileCardLoading = ref(false)
 const profileCardFailed = ref(false)
@@ -477,7 +477,7 @@ async function disconnectVoiceParticipant(participant: VoiceParticipant) {
   }
 }
 
-function openProfileCard(userId: number, trigger: HTMLElement, x: number, y: number) {
+function openProfileCard(userId: number, trigger: HTMLElement, x: number, y: number, onClose: (() => void) | null) {
   if (profileCard.value?.userId === userId) {
     closeProfileCard(true)
     return
@@ -487,7 +487,7 @@ function openProfileCard(userId: number, trigger: HTMLElement, x: number, y: num
   closeChannelActionMenu()
   closeMessageActionMenu()
   closeVoiceParticipantActionMenu()
-  profileCard.value = { userId, x, y, trigger }
+  profileCard.value = { userId, x, y, trigger, onClose }
   profileCardData.value = null
   profileCardFailed.value = false
   profileCardLoading.value = true
@@ -511,6 +511,8 @@ async function fetchProfileCard(userId: number, version: number) {
 
 function closeProfileCard(restoreFocus = false) {
   const trigger = profileCard.value?.trigger
+  profileCard.value?.onClose?.()
+  if (profileCard.value) profileCard.value.onClose = null
   ++profileCardVersion
   profileCard.value = null
   profileCardData.value = null
@@ -519,16 +521,16 @@ function closeProfileCard(restoreFocus = false) {
   if (restoreFocus) void nextTick(() => trigger?.focus())
 }
 
-function openMemberCard(user: User, trigger: HTMLElement, x: number, y: number) {
-  openProfileCard(user.id, trigger, x, y)
+function openMemberCard(user: User, trigger: HTMLElement, x: number, y: number, onClose: () => void) {
+  openProfileCard(user.id, trigger, x, y, onClose)
 }
 
-function openVoiceParticipantCard(_channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number) {
-  openProfileCard(participant.userId, trigger, x, y)
+function openVoiceParticipantCard(_channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number, onClose: () => void) {
+  openProfileCard(participant.userId, trigger, x, y, onClose)
 }
 
 function openProfileFromMessage(userId: number, trigger: HTMLElement | null, x: number, y: number) {
-  openProfileCard(userId, trigger ?? (document.activeElement as HTMLElement) ?? null, x, y)
+  openProfileCard(userId, trigger ?? (document.activeElement as HTMLElement) ?? null, x, y, null)
 }
 
 async function copyChannelName(channel: Channel) {

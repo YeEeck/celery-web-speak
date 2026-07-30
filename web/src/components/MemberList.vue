@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { Crown, Globe, Monitor, ShieldCheck, Smartphone, X } from '@lucide/vue'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import type { ClientType, User } from '../types'
 
 defineProps<{ drawer?: boolean }>()
-const emit = defineEmits<{ close: []; openMember: [user: User, trigger: HTMLElement, x: number, y: number] }>()
+const emit = defineEmits<{ close: []; openMember: [user: User, trigger: HTMLElement, x: number, y: number, onClose: () => void] }>()
 const app = useAppStore()
+const selectedId = ref<number | null>(null)
 
 const online = computed(() => sortedUsers.value.filter((user) => app.onlineIds.includes(user.id)))
 const offline = computed(() => sortedUsers.value.filter((user) => !app.onlineIds.includes(user.id)))
@@ -25,7 +26,8 @@ function roleRank(role: string) {
 function openMember(event: MouseEvent | KeyboardEvent, member: User) {
   const trigger = event.currentTarget as HTMLElement
   const bounds = trigger.getBoundingClientRect()
-  emit('openMember', member, trigger, ('clientX' in event ? event.clientX : 0) || (bounds.left + 1), ('clientY' in event ? event.clientY : 0) || (bounds.top + 1))
+  selectedId.value = member.id
+  emit('openMember', member, trigger, ('clientX' in event ? event.clientX : 0) || (bounds.left + 1), ('clientY' in event ? event.clientY : 0) || (bounds.top + 1), () => { selectedId.value = null })
 }
 </script>
 
@@ -34,7 +36,7 @@ function openMember(event: MouseEvent | KeyboardEvent, member: User) {
     <header v-if="drawer" class="drawer-header"><strong>成员</strong><button class="icon-button" title="关闭" @click="$emit('close')"><X :size="20" /></button></header>
     <section>
       <h3>在线 — {{ online.length }}</h3>
-      <div v-for="member in online" :key="member.id" class="member-row" tabindex="0" role="button" :aria-label="`查看${member.displayName}的个人信息`" @click="openMember($event, member)" @keydown.enter="openMember($event, member)">
+      <div v-for="member in online" :key="member.id" :class="['member-row', { active: selectedId === member.id }]" tabindex="0" role="button" :aria-label="`查看${member.displayName}的个人信息`" @click="openMember($event, member)" @keydown.enter="openMember($event, member)">
         <UserAvatar :name="member.displayName" :size="34" :online="true" :user="member" />
         <span><strong>{{ member.displayName }}</strong><small>@{{ member.username }}</small></span>
         <component :is="clientIcons[app.onlineClients[member.id] ?? 'web']" :size="14" class="client-type" :aria-label="clientLabels[app.onlineClients[member.id] ?? 'web']" />
@@ -44,7 +46,7 @@ function openMember(event: MouseEvent | KeyboardEvent, member: User) {
     </section>
     <section v-if="offline.length">
       <h3>离线 — {{ offline.length }}</h3>
-      <div v-for="member in offline" :key="member.id" class="member-row offline" tabindex="0" role="button" :aria-label="`查看${member.displayName}的个人信息`" @click="openMember($event, member)" @keydown.enter="openMember($event, member)">
+      <div v-for="member in offline" :key="member.id" :class="['member-row offline', { active: selectedId === member.id }]" tabindex="0" role="button" :aria-label="`查看${member.displayName}的个人信息`" @click="openMember($event, member)" @keydown.enter="openMember($event, member)">
         <UserAvatar :name="member.displayName" :size="34" :user="member" />
         <span><strong>{{ member.displayName }}</strong><small>@{{ member.username }}</small></span>
         <Crown v-if="member.role === 'owner'" :size="15" class="guild-role" aria-label="服务器所有者" />

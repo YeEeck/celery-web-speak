@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ChevronRight, MicOff, Music2, Signal, Volume2, VolumeX } from '@lucide/vue'
 import { ConnectionQuality } from 'livekit-client'
 import UserAvatar from './UserAvatar.vue'
@@ -11,10 +11,11 @@ const props = defineProps<{ channel: Channel; actionMenuUserId?: number | null }
 const emit = defineEmits<{
   channelMenu: [channel: Channel, trigger: HTMLElement, x: number, y: number]
   participantMenu: [channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number]
-  participantCard: [channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number]
+  participantCard: [channel: Channel, participant: VoiceParticipant, trigger: HTMLElement, x: number, y: number, onClose: () => void]
 }>()
 const app = useAppStore()
 const voice = useVoiceStore()
+const selectedId = ref<number | null>(null)
 
 const connected = computed(() => voice.joined && voice.connectedChannelId === props.channel.id)
 const roomState = computed(() => app.voiceRooms.find((room) => room.channelId === props.channel.id))
@@ -61,7 +62,8 @@ function openParticipantMenu(participant: VoiceParticipant, event: MouseEvent) {
 function openParticipantCard(participant: VoiceParticipant, event: MouseEvent) {
   const trigger = event.currentTarget as HTMLElement
   const bounds = trigger.getBoundingClientRect()
-  emit('participantCard', props.channel, participant, trigger, event.clientX || (bounds.left + 1), event.clientY || (bounds.top + 1))
+  selectedId.value = participant.userId
+  emit('participantCard', props.channel, participant, trigger, event.clientX || (bounds.left + 1), event.clientY || (bounds.top + 1), () => { selectedId.value = null })
 }
 
 function openParticipantKeyboardMenu(participant: VoiceParticipant, event: KeyboardEvent) {
@@ -93,8 +95,7 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
     <div v-if="connected" class="voice-members">
       <div v-for="participant in voice.participants" :key="participant.identity" class="voice-member">
         <button
-          class="voice-member-main"
-          :class="{ 'local-participant': participant.isLocal }"
+          :class="['voice-member-main', { 'local-participant': participant.isLocal, active: selectedId === participant.userId }]"
           :title="participant.isLocal ? '查看自己的个人信息' : `${participant.name}的个人信息`"
           :aria-label="participant.isLocal ? `${participant.name}（你）` : `${participant.name}的个人信息`"
           :aria-haspopup="'dialog'"
