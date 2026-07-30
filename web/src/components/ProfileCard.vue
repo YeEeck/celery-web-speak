@@ -74,6 +74,22 @@ function formatDuration(seconds: number): string {
   return `${pad(h)}:${pad(m)}:${pad(s)}`
 }
 
+function xpIntoLevel(value: NonNullable<UserProfile['voiceProgress']>): number {
+  return Math.max(0, value.xp - value.levelStartXp)
+}
+
+function xpSpanForLevel(value: NonNullable<UserProfile['voiceProgress']>): number {
+  return Math.max(0, value.levelEndXp - value.levelStartXp)
+}
+
+function xpFillPercent(value: NonNullable<UserProfile['voiceProgress']>): number {
+  const span = xpSpanForLevel(value)
+  if (span <= 0) return 0
+  const pct = (xpIntoLevel(value) / span) * 100
+  if (!Number.isFinite(pct)) return 0
+  return Math.min(100, Math.max(0, pct))
+}
+
 function formatDate(value: string | undefined): string {
   if (!value) return '—'
   const date = new Date(value)
@@ -107,9 +123,18 @@ function remainingBan(member: User): string {
       @keydown="handleKeyDown"
     >
       <header class="profile-card-header">
-        <UserAvatar :name="profile?.displayName ?? '用户'" :size="44" :user="member ?? undefined" />
+        <UserAvatar :name="profile?.displayName ?? '用户'" :size="56" :user="member ?? undefined" />
         <div class="profile-card-id">
           <strong>{{ profile?.displayName ?? '用户' }}</strong>
+          <div v-if="profile?.voiceProgress" class="profile-card-xp">
+            <div class="profile-card-xp-head">
+              <span class="profile-card-xp-level">Lv.{{ profile.voiceProgress.level }}</span>
+              <span class="profile-card-xp-num">{{ xpIntoLevel(profile.voiceProgress) }}/{{ xpSpanForLevel(profile.voiceProgress) }}</span>
+            </div>
+            <div class="profile-card-xp-track">
+              <div class="profile-card-xp-fill" :style="{ width: xpFillPercent(profile.voiceProgress) + '%' }"></div>
+            </div>
+          </div>
           <small>@{{ profile?.username ?? '—' }}</small>
         </div>
         <div class="profile-card-flags">

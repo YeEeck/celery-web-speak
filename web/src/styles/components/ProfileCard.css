@@ -1,10 +1,17 @@
 .profile-card { position: fixed; z-index: 75; width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); padding: 10px; border: 1px solid var(--border-strong); border-radius: 8px; overflow-y: auto; visibility: hidden; background: var(--elevated); box-shadow: 0 12px 32px rgba(0,0,0,.46); }
 .profile-card.positioned { visibility: visible; }
 .profile-card-header { display: flex; align-items: center; gap: 12px; padding: 4px 4px 10px; }
-.profile-card-id { min-width: 0; flex: 1; display: grid; gap: 2px; }
+.profile-card-id { min-width: 0; flex: 1; display: grid; gap: 3px; }
 .profile-card-id strong { overflow: hidden; color: var(--text); font-size: 15px; white-space: nowrap; text-overflow: ellipsis; }
 .profile-card-id small { color: var(--faint); font-size: 11px; }
 .profile-card-flags { display: flex; align-items: center; gap: 6px; }
+
+.profile-card-xp { display: grid; gap: 4px; margin-top: 1px; }
+.profile-card-xp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.profile-card-xp-level { font-size: 11px; font-weight: 700; color: var(--brand); }
+.profile-card-xp-num { font-size: 10px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums; }
+.profile-card-xp-track { height: 6px; border-radius: 999px; background: var(--hover); overflow: hidden; }
+.profile-card-xp-fill { height: 100%; border-radius: 999px; background: var(--brand); min-width: 0; }
 .profile-card-flags .guild-role { color: #f5b34a; }
 .profile-card-flags .channel-role { color: var(--brand); }
 .profile-card-self { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: var(--active); color: var(--text); }
