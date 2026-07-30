@@ -35,6 +35,7 @@ func main() {
 	}
 
 	mediaService := media.New(cfg.LiveKitURL, cfg.LiveKitPublicURL, cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
+	mediaService.SetVoiceTimeAccumulator(db)
 	api := httpapi.New(cfg, db, mediaService, logger)
 	server := &http.Server{
 		Addr:              cfg.Addr,
@@ -51,6 +52,7 @@ func main() {
 	go api.RunPresenceBroadcaster(ctx)
 	go api.RunGuildMembershipReconciler(ctx)
 	go api.RunOnlineTimeFlusher(ctx)
+	go api.RunVoiceTimeFlusher(ctx, 60*time.Second)
 	go func() {
 		logger.Info("server started", "addr", cfg.Addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -65,4 +67,5 @@ func main() {
 		logger.Error("graceful shutdown", "error", err)
 	}
 	api.FlushOnlineTime()
+	api.FlushVoiceTime()
 }

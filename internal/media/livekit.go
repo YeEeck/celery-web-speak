@@ -43,17 +43,20 @@ type voiceTarget struct {
 }
 
 type Service struct {
-	apiKey      string
-	apiSecret   string
-	publicURL   string
-	room        roomService
-	keyProvider auth.KeyProvider
-	mu          sync.RWMutex
-	rooms       map[int64]map[int64]VoiceParticipant
-	targets     map[int64]voiceTarget
-	revision    uint64
-	generation  uint64
-	now         func() time.Time
+	apiKey         string
+	apiSecret      string
+	publicURL      string
+	room           roomService
+	keyProvider    auth.KeyProvider
+	mu             sync.RWMutex
+	rooms          map[int64]map[int64]VoiceParticipant
+	targets        map[int64]voiceTarget
+	revision       uint64
+	generation     uint64
+	now            func() time.Time
+	voiceTime      VoiceTimeAccumulator
+	voiceTimeMu    sync.Mutex
+	lastVoiceFlush time.Time
 }
 
 type JoinCredentials struct {

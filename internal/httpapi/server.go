@@ -58,6 +58,38 @@ func New(cfg config.Config, db *store.Store, mediaService *media.Service, logger
 	return s
 }
 
+// RunVoiceTimeFlusher periodically ticks the media-backed voice-time
+// accumulator so a restart loses at most one tick of accumulated time.
+func (s *Server) RunVoiceTimeFlusher(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.TickVoiceTime(ctx)
+		}
+	}
+}
+
+// TickVoiceTime snapshots voice rooms and persists the elapsed seconds since
+// the previous tick. A short timeout bounds the snapshot-walk cost.
+func (s *Server) TickVoiceTime(parent context.Context) {
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
+	s.media.TickVoiceTime(ctx)
+}
+
+// FlushVoiceTime settles the in-flight voice-time segment at graceful
+// shutdown.
+func (s *Server) FlushVoiceTime() {
+	s.media.FlushVoiceTime()
+}
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", s.handleHealth)
