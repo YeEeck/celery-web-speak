@@ -47,10 +47,12 @@ onMounted(async () => {
   const bounds = panel.value?.getBoundingClientRect()
   if (!bounds) return
   const margin = 8
-  const maxLeft = Math.max(margin, window.innerWidth - bounds.width - margin)
-  const maxTop = Math.max(margin, window.innerHeight - bounds.height - margin)
-  left.value = Math.min(Math.max(margin, props.x), maxLeft)
-  top.value = Math.min(Math.max(margin, props.y), maxTop)
+  const maxWidth = window.innerWidth - bounds.width - margin
+  const maxHeight = window.innerHeight - bounds.height - margin
+  const openRight = props.x <= window.innerWidth / 2
+  const proposedLeft = openRight ? props.x : props.x - bounds.width
+  left.value = Math.min(Math.max(margin, proposedLeft), maxWidth)
+  top.value = Math.min(Math.max(margin, props.y), maxHeight)
   positioned.value = true
 })
 

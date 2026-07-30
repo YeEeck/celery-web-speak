@@ -2,7 +2,7 @@
 .voice-member { position: relative; }
 .voice-member-main { width: 100%; min-height: 38px; border: 0; border-radius: 4px; padding: 4px 6px; display: flex; gap: 8px; align-items: center; background: transparent; color: var(--muted); cursor: pointer; transition: var(--t-colors); }
 .voice-member-main:hover { background: var(--hover); color: var(--text); }
-.voice-member-main.local-participant { cursor: default; }
+.voice-member-main.local-participant { cursor: pointer; }
 .voice-members-preview .voice-member-main { cursor: default; }
 .voice-members-preview .voice-member-main:hover { background: transparent; color: var(--muted); }
 .voice-member-name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
