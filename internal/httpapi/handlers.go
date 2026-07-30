@@ -124,6 +124,22 @@ func (s *Server) handleGetUserProfile(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		profile.VoiceSecondsTotal = &seconds
+		xp, err := s.store.GuildMemberVoiceXP(r.Context(), guildID, id)
+		if err != nil {
+			if !errors.Is(err, store.ErrNotFound) {
+				s.internalError(w, "read guild voice xp", err)
+				return
+			}
+			xp = 0
+		}
+		profile.VoiceXPTotal = &xp
+		level, levelStart, levelEnd := store.VoiceLevelAt(xp)
+		profile.VoiceProgress = &store.VoiceProgress{
+			XP:         xp,
+			Level:      level,
+			LevelStart: levelStart,
+			LevelEnd:   levelEnd,
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"profile": profile})
 }

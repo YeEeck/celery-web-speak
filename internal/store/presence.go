@@ -95,14 +95,27 @@ SELECT voice_xp_total FROM guild_members WHERE guild_id = ? AND user_id = ?`, gu
 // applies to VoiceXPTotal, the server-scoped voice XP total from which level
 // and progress are derived.
 type UserProfile struct {
-	ID                 int64     `json:"id"`
-	Username           string    `json:"username"`
-	DisplayName        string    `json:"displayName"`
-	Bio                string    `json:"bio"`
-	OnlineSecondsTotal int64     `json:"onlineSecondsTotal"`
-	VoiceSecondsTotal  *int64    `json:"voiceSecondsTotal,omitempty"`
-	VoiceXPTotal       *int64    `json:"voiceXpTotal,omitempty"`
-	CreatedAt          time.Time `json:"createdAt"`
+	ID                 int64           `json:"id"`
+	Username           string          `json:"username"`
+	DisplayName        string          `json:"displayName"`
+	Bio                string          `json:"bio"`
+	OnlineSecondsTotal int64           `json:"onlineSecondsTotal"`
+	VoiceSecondsTotal  *int64          `json:"voiceSecondsTotal,omitempty"`
+	VoiceXPTotal       *int64          `json:"voiceXpTotal,omitempty"`
+	VoiceProgress      *VoiceProgress  `json:"voiceProgress,omitempty"`
+	CreatedAt          time.Time       `json:"createdAt"`
+}
+
+// VoiceProgress is the server-scoped voice level snapshot surfaced on a
+// personal info card when the profile read carried a guild_id query parameter.
+// All four fields are set jointly by the HTTP handler from the (user, guild)
+// voice_xp_total and the level formula; VoiceProgress itself is nil on
+// unscoped reads.
+type VoiceProgress struct {
+	XP         int64 `json:"xp"`
+	Level      int64 `json:"level"`
+	LevelStart int64 `json:"levelStartXp"`
+	LevelEnd   int64 `json:"levelEndXp"`
 }
 
 func (s *Store) UserProfile(ctx context.Context, userID int64) (UserProfile, error) {

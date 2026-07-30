@@ -170,6 +170,12 @@ func TestGetUserProfileGuildScopedReturnsVoiceSeconds(t *testing.T) {
 	if strings.Contains(unscoped.Body.String(), "voiceSecondsTotal") {
 		t.Fatalf("unscoped response must not carry voiceSecondsTotal, got %s", unscoped.Body.String())
 	}
+	if strings.Contains(unscoped.Body.String(), "voiceXpTotal") {
+		t.Fatalf("unscoped response must not carry voiceXpTotal, got %s", unscoped.Body.String())
+	}
+	if strings.Contains(unscoped.Body.String(), "voiceProgress") {
+		t.Fatalf("unscoped response must not carry voiceProgress, got %s", unscoped.Body.String())
+	}
 
 	// Scoped read: voice_seconds_total reports the accumulated value.
 	scopedPath := "/api/users/" + formatID(admin.ID) + "/profile?guild_id=" + formatID(defaultGuild)
@@ -189,5 +195,27 @@ func TestGetUserProfileGuildScopedReturnsVoiceSeconds(t *testing.T) {
 			got = strconv.FormatInt(*resp.Profile.VoiceSecondsTotal, 10)
 		}
 		t.Fatalf("voiceSecondsTotal = %s, want 7200", got)
+	}
+	if resp.Profile.VoiceXPTotal == nil || *resp.Profile.VoiceXPTotal != 120 {
+		got := "(nil)"
+		if resp.Profile.VoiceXPTotal != nil {
+			got = strconv.FormatInt(*resp.Profile.VoiceXPTotal, 10)
+		}
+		t.Fatalf("voiceXpTotal = %s, want 120", got)
+	}
+	if resp.Profile.VoiceProgress == nil {
+		t.Fatalf("voiceProgress = nil, want {level=2,*}")
+	}
+	if got, want := resp.Profile.VoiceProgress.Level, int64(2); got != want {
+		t.Fatalf("voiceProgress.level = %d, want %d", got, want)
+	}
+	if got, want := resp.Profile.VoiceProgress.XP, int64(120); got != want {
+		t.Fatalf("voiceProgress.xp = %d, want %d", got, want)
+	}
+	if got, want := resp.Profile.VoiceProgress.LevelStart, int64(120); got != want {
+		t.Fatalf("voiceProgress.levelStartXp = %d, want %d", got, want)
+	}
+	if got, want := resp.Profile.VoiceProgress.LevelEnd, int64(210); got != want {
+		t.Fatalf("voiceProgress.levelEndXp = %d, want %d", got, want)
 	}
 }
