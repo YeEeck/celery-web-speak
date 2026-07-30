@@ -40,6 +40,13 @@ export interface User {
   hasAvatar: boolean
 }
 
+export interface VoiceProgress {
+  xp: number
+  level: number
+  levelStartXp: number
+  levelEndXp: number
+}
+
 export interface UserProfile {
   id: number
   username: string
@@ -47,6 +54,8 @@ export interface UserProfile {
   bio: string
   onlineSecondsTotal: number
   voiceSecondsTotal?: number
+  voiceXpTotal?: number
+  voiceProgress?: VoiceProgress
   createdAt: string
 }
 

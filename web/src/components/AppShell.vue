@@ -531,7 +531,7 @@ function openVoiceParticipantCard(channel: Channel, participant: VoiceParticipan
 }
 
 function openProfileFromMessage(userId: number, trigger: HTMLElement | null, x: number, y: number) {
-  openProfileCard(userId, trigger ?? (document.activeElement as HTMLElement) ?? null, x, y, null, null)
+  openProfileCard(userId, trigger ?? (document.activeElement as HTMLElement) ?? null, x, y, null, app.activeGuildId)
 }
 
 async function copyChannelName(channel: Channel) {
