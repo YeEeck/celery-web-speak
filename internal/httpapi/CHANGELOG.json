@@ -1,5 +1,14 @@
 [
   {
+    "version": "0.4.23",
+    "date": "2026-07-31",
+    "changes": [
+      "feat(web): 建立覆盖弹层、菜单、抽屉、Toast、页签与按钮反馈的全局交互动效",
+      "feat(web): 为实时新消息、语音参与者和管理列表补充克制的状态动效",
+      "feat(web): 支持 prefers-reduced-motion，以 80ms 纯透明度反馈替代位移、缩放与持续旋转"
+    ]
+  },
+  {
     "version": "0.4.22",
     "date": "2026-07-30",
     "changes": [
