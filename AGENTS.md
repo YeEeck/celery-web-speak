@@ -14,3 +14,17 @@
 ## Taste
 - 显式优于隐式，简单胜过复杂。优先采用显式的与简单的实现。除非隐式的实现具有更低的语义复杂度与认知负载，同时对应的实现足够成熟。
 - 避免过度设计。在设计、实现时，需要评估当前行为的必要性与实现代价。对于实现代价过大的边界条件处理，应当简化或通知用户决策。
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked as local Markdown under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the five default canonical label strings. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo with `CONTEXT.md` and `docs/adr/` at the root. See `docs/agents/domain.md`.
