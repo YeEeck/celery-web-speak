@@ -134,6 +134,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PATCH /api/guilds/{guildID}/members/{userID}/role", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildMemberRole)))
 	mux.Handle("PATCH /api/guilds/{guildID}/members/{userID}/mute", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildMemberMute)))
 	mux.Handle("PATCH /api/guilds/{guildID}/members/{userID}/ban", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildMemberBan)))
+	mux.Handle("PATCH /api/guilds/{guildID}/members/{userID}/voice-xp", s.requireGuildVoiceXPAdmin(http.HandlerFunc(s.handleGuildMemberVoiceXP)))
 	mux.Handle("DELETE /api/guilds/{guildID}/members/{userID}/temporary-ban", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildClearTemporaryBan)))
 	mux.Handle("POST /api/guilds/{guildID}/members/{userID}/kick", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildRemoveMember)))
 	mux.Handle("POST /api/guilds/{guildID}/channels", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildChannels)))

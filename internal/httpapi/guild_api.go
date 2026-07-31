@@ -65,6 +65,16 @@ func (s *Server) requireGuildAdmin(next http.Handler) http.Handler {
 	}))
 }
 
+func (s *Server) requireGuildVoiceXPAdmin(next http.Handler) http.Handler {
+	return s.requireGuildMember(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !guildMembership(r).Role.IsAdmin() && !currentUser(r).IsPlatformAdmin {
+			writeError(w, http.StatusForbidden, "forbidden", "需要服务器管理员权限")
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
 func (s *Server) requirePlatformAdmin(next http.Handler) http.Handler {
 	return s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !currentUser(r).IsPlatformAdmin {
@@ -360,6 +370,68 @@ func (s *Server) handleGuildMemberMute(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.BroadcastGuild(guildID, "member_updated", member)
 	writeJSON(w, http.StatusOK, map[string]any{"member": member})
+}
+
+func (s *Server) handleGuildMemberVoiceXP(w http.ResponseWriter, r *http.Request) {
+	targetID, ok := parsePathID(w, r, "userID")
+	if !ok {
+		return
+	}
+	actor := currentUser(r)
+	actorMember := guildMembership(r)
+	target, err := s.store.GuildMembership(r.Context(), actorMember.GuildID, targetID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "目标不存在")
+			return
+		}
+		s.internalError(w, "read guild voice xp target", err)
+		return
+	}
+	active, err := s.store.GuildMemberActive(r.Context(), actorMember.GuildID, targetID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "目标不存在")
+			return
+		}
+		s.internalError(w, "check guild voice xp target active state", err)
+		return
+	}
+	if !active {
+		writeError(w, http.StatusNotFound, "not_found", "目标不存在")
+		return
+	}
+	manageAdmins := actor.IsPlatformAdmin || actorMember.Role == store.GuildRoleOwner
+	if target.Role == store.GuildRoleOwner && target.UserID != actor.ID {
+		writeError(w, http.StatusForbidden, "forbidden", "无权管理该服务器成员")
+		return
+	}
+	if target.Role == store.GuildRoleAdmin && !manageAdmins {
+		writeError(w, http.StatusForbidden, "forbidden", "无权管理该服务器成员")
+		return
+	}
+	var input struct {
+		XP *int64 `json:"xp"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.XP == nil || *input.XP < 0 || *input.XP > store.MaxGuildMemberVoiceXP {
+		writeError(w, http.StatusBadRequest, "invalid_voice_xp", "服务器语音经验必须是 0 到 1000000000 的整数")
+		return
+	}
+	change, err := s.store.SetGuildMemberVoiceXP(r.Context(), actorMember.GuildID, actor.ID, targetID, *input.XP)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	beforeLevel, beforeStart, beforeEnd := store.VoiceLevelAt(change.BeforeXP)
+	afterLevel, afterStart, afterEnd := store.VoiceLevelAt(change.AfterXP)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"target": map[string]any{"id": change.UserID, "username": change.Username},
+		"before": store.VoiceProgress{XP: change.BeforeXP, Level: beforeLevel, LevelStart: beforeStart, LevelEnd: beforeEnd},
+		"after":  store.VoiceProgress{XP: change.AfterXP, Level: afterLevel, LevelStart: afterStart, LevelEnd: afterEnd},
+	})
 }
 
 func (s *Server) handleGuildMemberBan(w http.ResponseWriter, r *http.Request) {

@@ -142,8 +142,63 @@ func TestGetUserProfileGuildScopedRejectsNonMemberTarget(t *testing.T) {
 	}
 	scopedPath := "/api/users/" + formatID(target.ID) + "/profile?guild_id=" + formatID(defaultGuild)
 	recorder := serveGuildHTTPRequest(server, adminToken, http.MethodGet, scopedPath, "")
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "target_not_guild_member") {
+	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), `"error":"not_found"`) {
 		t.Fatalf("non-member target scoped read = %d %s", recorder.Code, recorder.Body.String())
+	}
+
+	nonexistentPath := "/api/users/999999/profile?guild_id=" + formatID(defaultGuild)
+	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodGet, nonexistentPath, "")
+	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), `"error":"not_found"`) {
+		t.Fatalf("nonexistent target scoped read = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestGetUserProfileGuildScopedRejectsInactiveTarget(t *testing.T) {
+	db, admin, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	defaultGuild, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := db.CreateUser(ctx, "profile_inactive_target", "非活跃目标", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, defaultGuild, admin.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
+	adminToken, _, err := db.CreateSession(ctx, admin.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopedPath := "/api/users/" + formatID(target.ID) + "/profile?guild_id=" + formatID(defaultGuild)
+
+	if _, err := db.SetGuildMemberBan(ctx, defaultGuild, admin.ID, target.ID, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	recorder := serveGuildHTTPRequest(server, adminToken, http.MethodGet, scopedPath, "")
+	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), `"error":"not_found"`) {
+		t.Fatalf("permanently banned target scoped read = %d %s", recorder.Code, recorder.Body.String())
+	}
+
+	if _, err := db.SetGuildMemberBan(ctx, defaultGuild, admin.ID, target.ID, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	until := time.Now().UTC().Add(time.Hour)
+	if _, err := db.SetGuildMemberBan(ctx, defaultGuild, admin.ID, target.ID, false, &until); err != nil {
+		t.Fatal(err)
+	}
+	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodGet, scopedPath, "")
+	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), `"error":"not_found"`) {
+		t.Fatalf("temporarily banned target scoped read = %d %s", recorder.Code, recorder.Body.String())
+	}
+
+	if err := db.SetPermanentBan(ctx, admin.ID, target.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	recorder = serveGuildHTTPRequest(server, adminToken, http.MethodGet, scopedPath, "")
+	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), `"error":"not_found"`) {
+		t.Fatalf("globally suspended target scoped read = %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 

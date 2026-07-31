@@ -144,6 +144,10 @@ func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "guild_member_banned", "账号当前已被该服务器封禁")
 	case errors.Is(err, store.ErrMessageDeleteForbidden):
 		writeError(w, http.StatusForbidden, "message_delete_forbidden", "只能删除自己发送的消息")
+	case errors.Is(err, store.ErrGuildMemberVoiceXPForbidden):
+		writeError(w, http.StatusForbidden, "forbidden", "无权管理该服务器成员的语音经验")
+	case errors.Is(err, store.ErrInvalidGuildMemberVoiceXP):
+		writeError(w, http.StatusBadRequest, "invalid_voice_xp", "服务器语音经验必须是 0 到 1000000000 的整数")
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 	}

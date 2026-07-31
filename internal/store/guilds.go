@@ -89,7 +89,7 @@ ORDER BY CASE WHEN gm.user_id IS NOT NULL THEN gm.joined_at ELSE g.created_at EN
 	}
 	defer rows.Close()
 	result := make([]GuildSummary, 0)
-for rows.Next() {
+	for rows.Next() {
 		var item GuildSummary
 		var createdAt, updatedAt string
 		var itemHasIcon int
@@ -125,6 +125,42 @@ func (s *Store) GuildMembership(ctx context.Context, guildID, userID int64) (Gui
 	return guildMembership(ctx, s.db, guildID, userID)
 }
 
+// GuildMemberActive reports whether a guild membership can participate in
+// guild-scoped interactions. Both guild-level bans and global account
+// suspension make the membership unavailable.
+func (s *Store) GuildMemberActive(ctx context.Context, guildID, userID int64) (bool, error) {
+	var guildPermanentlyBanned, userPermanentlyBanned int
+	var temporaryBanUntil, suspendedAt sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+SELECT gm.permanently_banned, gm.temporary_ban_until,
+       u.permanently_banned, u.suspended_at
+FROM guild_members gm
+JOIN users u ON u.id = gm.user_id AND u.deleted_at IS NULL
+WHERE gm.guild_id = ? AND gm.user_id = ?`, guildID, userID).Scan(
+		&guildPermanentlyBanned, &temporaryBanUntil,
+		&userPermanentlyBanned, &suspendedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrNotFound
+	}
+	if err != nil {
+		return false, fmt.Errorf("check guild member active state: %w", err)
+	}
+	if guildPermanentlyBanned != 0 || userPermanentlyBanned != 0 || suspendedAt.Valid {
+		return false, nil
+	}
+	if temporaryBanUntil.Valid {
+		until, err := parseTime(temporaryBanUntil.String)
+		if err != nil {
+			return false, fmt.Errorf("parse guild member temporary ban: %w", err)
+		}
+		if until.After(s.now()) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 type guildQueryRower interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
@@ -147,6 +183,8 @@ SELECT gm.guild_id, gm.user_id, u.username, u.display_name,
        u.avatar_version, u.avatar_bytes IS NOT NULL
 FROM guild_members gm JOIN guilds g ON g.id = gm.guild_id JOIN users u ON u.id = gm.user_id
 WHERE gm.guild_id = ? AND u.deleted_at IS NULL
+  AND u.suspended_at IS NULL
+  AND u.permanently_banned = 0
 ORDER BY CASE WHEN g.owner_user_id = gm.user_id THEN 0 WHEN gm.role = 'admin' THEN 1 ELSE 2 END, u.display_name COLLATE NOCASE`, guildID)
 	if err != nil {
 		return nil, err

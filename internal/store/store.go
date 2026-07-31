@@ -18,19 +18,21 @@ import (
 )
 
 var (
-	ErrNotFound                   = errors.New("not found")
-	ErrInvalidLogin               = errors.New("invalid username or password")
-	ErrUsernameExists             = errors.New("username already exists")
-	ErrInvalidInvite              = errors.New("invite is invalid or expired")
-	ErrBanned                     = errors.New("account is banned")
-	ErrLastPlatformAdmin          = errors.New("at least one platform admin is required")
-	ErrSelfAction                 = errors.New("cannot perform this action on yourself")
-	ErrUsernameConfirm            = errors.New("username confirmation does not match")
-	ErrLastChannel                = errors.New("at least one channel of each type is required")
-	ErrChannelLimit               = errors.New("channel limit reached")
-	ErrChannelNameExists          = errors.New("channel name already exists")
-	ErrGuildOwnerTransferRequired = errors.New("guild ownership must be transferred first")
-	ErrMessageDeleteForbidden     = errors.New("only the message author or a guild admin can delete this message")
+	ErrNotFound                    = errors.New("not found")
+	ErrInvalidLogin                = errors.New("invalid username or password")
+	ErrUsernameExists              = errors.New("username already exists")
+	ErrInvalidInvite               = errors.New("invite is invalid or expired")
+	ErrBanned                      = errors.New("account is banned")
+	ErrLastPlatformAdmin           = errors.New("at least one platform admin is required")
+	ErrSelfAction                  = errors.New("cannot perform this action on yourself")
+	ErrUsernameConfirm             = errors.New("username confirmation does not match")
+	ErrLastChannel                 = errors.New("at least one channel of each type is required")
+	ErrChannelLimit                = errors.New("channel limit reached")
+	ErrChannelNameExists           = errors.New("channel name already exists")
+	ErrGuildOwnerTransferRequired  = errors.New("guild ownership must be transferred first")
+	ErrMessageDeleteForbidden      = errors.New("only the message author or a guild admin can delete this message")
+	ErrGuildMemberVoiceXPForbidden = errors.New("not allowed to set guild member voice xp")
+	ErrInvalidGuildMemberVoiceXP   = errors.New("guild member voice xp must be between 0 and 1000000000")
 )
 
 type Store struct {
@@ -516,11 +518,12 @@ func (s *Store) Authenticate(ctx context.Context, username, password string) (Us
 	var passwordHash, createdAt string
 	var bio sql.NullString
 	var platformAdmin, permanentlyBanned, hasAvatar int
+	var suspendedAt sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, bio, online_seconds_total, password_hash, permanently_banned, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
+SELECT id, username, display_name, bio, online_seconds_total, password_hash, permanently_banned, suspended_at, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
 FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(username)).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &bio, &user.OnlineSecondsTotal, &passwordHash,
-		&permanentlyBanned, &createdAt, &platformAdmin,
+		&permanentlyBanned, &suspendedAt, &createdAt, &platformAdmin,
 		&user.AvatarVersion, &hasAvatar,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -534,11 +537,18 @@ FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(usernam
 	}
 	user.Bio = bio.String
 	user.PermanentlyBanned = permanentlyBanned != 0
+	if suspendedAt.Valid {
+		suspended, err := parseTime(suspendedAt.String)
+		if err != nil {
+			return User{}, err
+		}
+		user.SuspendedAt = &suspended
+	}
 	user.IsPlatformAdmin = platformAdmin != 0
 	user.Role = platformRole(user.IsPlatformAdmin)
 	user.HasAvatar = hasAvatar != 0
 	user.CreatedAt, _ = parseTime(createdAt)
-	if user.PermanentlyBanned {
+	if user.PermanentlyBanned || user.SuspendedAt != nil {
 		return User{}, ErrBanned
 	}
 	return user, nil
@@ -549,11 +559,12 @@ func (s *Store) UserByID(ctx context.Context, id int64) (User, error) {
 	var createdAt string
 	var bio sql.NullString
 	var platformAdmin, permanentlyBanned, hasAvatar int
+	var suspendedAt sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, bio, online_seconds_total, permanently_banned, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
+SELECT id, username, display_name, bio, online_seconds_total, permanently_banned, suspended_at, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
 FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &bio, &user.OnlineSecondsTotal,
-		&permanentlyBanned, &createdAt, &platformAdmin,
+		&permanentlyBanned, &suspendedAt, &createdAt, &platformAdmin,
 		&user.AvatarVersion, &hasAvatar,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -564,6 +575,13 @@ FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 	}
 	user.Bio = bio.String
 	user.PermanentlyBanned = permanentlyBanned != 0
+	if suspendedAt.Valid {
+		suspended, err := parseTime(suspendedAt.String)
+		if err != nil {
+			return User{}, err
+		}
+		user.SuspendedAt = &suspended
+	}
 	user.IsPlatformAdmin = platformAdmin != 0
 	user.Role = platformRole(user.IsPlatformAdmin)
 	user.HasAvatar = hasAvatar != 0
@@ -602,7 +620,7 @@ SELECT user_id FROM sessions WHERE token_hash = ? AND expires_at > ?`, hash[:], 
 	if err != nil {
 		return User{}, err
 	}
-	if user.PermanentlyBanned {
+	if user.PermanentlyBanned || user.SuspendedAt != nil {
 		return User{}, ErrBanned
 	}
 	return user, nil

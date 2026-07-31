@@ -20,7 +20,7 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user":    currentUser(r),
+		"user":   currentUser(r),
 		"guilds": guilds,
 	})
 }
@@ -77,7 +77,8 @@ func (s *Server) handleGetUserProfile(w http.ResponseWriter, r *http.Request) {
 		// must be a member of that guild, so the leaked voice time pertains to
 		// a server they already belong to. (Self bypass is implicit: if the
 		// requester is in the guild, so is the target when id == requester.ID.)
-		if _, err := s.store.GuildMembership(r.Context(), guildID, requester.ID); err != nil {
+		requesterMember, err := s.store.GuildMembership(r.Context(), guildID, requester.ID)
+		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				writeError(w, http.StatusForbidden, "not_guild_member", "无法查看该用户在此服务器的资料")
 				return
@@ -85,15 +86,33 @@ func (s *Server) handleGetUserProfile(w http.ResponseWriter, r *http.Request) {
 			s.internalError(w, "check requester guild membership", err)
 			return
 		}
-		// For non-self targets, the target must also be a member of that
+		if !requesterMember.ActiveAt(time.Now()) {
+			writeError(w, http.StatusNotFound, "not_found", "该用户不在此服务器")
+			return
+		}
+		// For non-self targets, the target must also be an active member of that
 		// guild, otherwise their voice seconds there are not derivable.
 		if id != requester.ID {
-			if _, err := s.store.GuildMembership(r.Context(), guildID, id); err != nil {
+			targetMember, err := s.store.GuildMembership(r.Context(), guildID, id)
+			if err != nil {
 				if errors.Is(err, store.ErrNotFound) {
-					writeError(w, http.StatusForbidden, "target_not_guild_member", "该用户不在此服务器")
+					writeError(w, http.StatusNotFound, "not_found", "该用户不在此服务器")
 					return
 				}
 				s.internalError(w, "check target guild membership", err)
+				return
+			}
+			active, err := s.store.GuildMemberActive(r.Context(), guildID, id)
+			if err != nil {
+				if errors.Is(err, store.ErrNotFound) {
+					writeError(w, http.StatusNotFound, "not_found", "该用户不在此服务器")
+					return
+				}
+				s.internalError(w, "check target guild member active state", err)
+				return
+			}
+			if !active || !targetMember.ActiveAt(time.Now()) {
+				writeError(w, http.StatusNotFound, "not_found", "该用户不在此服务器")
 				return
 			}
 		}

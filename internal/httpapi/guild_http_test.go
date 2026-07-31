@@ -314,6 +314,195 @@ func TestGuildRenamePermissions(t *testing.T) {
 	}
 }
 
+func TestGuildMemberVoiceXPCanBeSetByGuildOwner(t *testing.T) {
+	db, owner, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := db.CreateUser(ctx, "voice_xp_target", "经验目标", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, owner.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := db.CreateSession(ctx, owner.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	path := "/api/guilds/" + formatID(guildID) + "/members/" + formatID(target.ID) + "/voice-xp"
+	recorder := serveGuildHTTPRequest(server, token, http.MethodPatch, path, `{"xp":120}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("set guild member voice xp = %d %s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Target struct {
+			ID       int64  `json:"id"`
+			Username string `json:"username"`
+		} `json:"target"`
+		Before store.VoiceProgress `json:"before"`
+		After  store.VoiceProgress `json:"after"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Target.ID != target.ID || response.Target.Username != target.Username {
+		t.Fatalf("target = %+v, want id=%d username=%q", response.Target, target.ID, target.Username)
+	}
+	if response.Before.XP != 0 || response.After.XP != 120 {
+		t.Fatalf("xp transition = %d -> %d, want 0 -> 120", response.Before.XP, response.After.XP)
+	}
+	if response.After.Level != 2 || response.After.LevelStart != 120 || response.After.LevelEnd != 210 {
+		t.Fatalf("after progress = %+v, want level 2 at 120/210", response.After)
+	}
+	got, err := db.GuildMemberVoiceXP(ctx, guildID, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 120 {
+		t.Fatalf("stored voice xp = %d, want 120", got)
+	}
+	if err := db.AddGuildVoiceTime(ctx, guildID, target.ID, 60); err != nil {
+		t.Fatal(err)
+	}
+	got, err = db.GuildMemberVoiceXP(ctx, guildID, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 121 {
+		t.Fatalf("voice xp after later voice minute = %d, want 121", got)
+	}
+}
+
+func TestGuildMemberVoiceXPEnforcesTargetRolesAndInputBounds(t *testing.T) {
+	db, platformAdmin, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+
+	owner, err := db.CreateUser(ctx, "xp_matrix_owner", "经验矩阵所有者", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guild, err := db.CreateGuild(ctx, platformAdmin.ID, "经验矩阵服务器", owner.Username)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinaryAdmin, err := db.CreateUser(ctx, "xp_matrix_admin", "经验矩阵管理员", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := db.CreateUser(ctx, "xp_matrix_member", "经验矩阵成员", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []store.User{ordinaryAdmin, member} {
+		if _, err := db.AddGuildMember(ctx, guild.ID, owner.ID, user.Username); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.SetGuildMemberRole(ctx, guild.ID, owner.ID, ordinaryAdmin.ID, store.GuildRoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	adminToken, _, err := db.CreateSession(ctx, ordinaryAdmin.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerToken, _, err := db.CreateSession(ctx, owner.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberToken, _, err := db.CreateSession(ctx, member.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := func(userID int64) string {
+		return "/api/guilds/" + formatID(guild.ID) + "/members/" + formatID(userID) + "/voice-xp"
+	}
+
+	if recorder := serveGuildHTTPRequest(server, adminToken, http.MethodPatch, path(member.ID), `{"xp":50}`); recorder.Code != http.StatusOK {
+		t.Fatalf("ordinary admin setting member = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := serveGuildHTTPRequest(server, adminToken, http.MethodPatch, path(ordinaryAdmin.ID), `{"xp":50}`); recorder.Code != http.StatusForbidden {
+		t.Fatalf("ordinary admin setting admin = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := serveGuildHTTPRequest(server, adminToken, http.MethodPatch, path(owner.ID), `{"xp":50}`); recorder.Code != http.StatusForbidden {
+		t.Fatalf("ordinary admin setting owner = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := serveGuildHTTPRequest(server, memberToken, http.MethodPatch, path(member.ID), `{"xp":50}`); recorder.Code != http.StatusForbidden {
+		t.Fatalf("ordinary member setting xp = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, path(owner.ID), `{"xp":0}`); recorder.Code != http.StatusOK {
+		t.Fatalf("owner setting self = %d %s", recorder.Code, recorder.Body.String())
+	}
+
+	for _, body := range []string{`{"xp":-1}`, `{"xp":1000000001}`, `{"xp":1.5}`, `{"xp":1,"extra":true}`, `{"xp":1} {"xp":2}`} {
+		recorder := serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, path(member.ID), body)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("invalid xp body %s = %d %s", body, recorder.Code, recorder.Body.String())
+		}
+	}
+
+	if _, err := db.SetGuildMemberBan(ctx, guild.ID, owner.ID, member.ID, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if recorder := serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, path(member.ID), `{"xp":60}`); recorder.Code != http.StatusNotFound {
+		t.Fatalf("banned target setting xp = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := db.SetGuildMemberBan(ctx, guild.ID, owner.ID, ordinaryAdmin.ID, true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if recorder := serveGuildHTTPRequest(server, ownerToken, http.MethodPatch, path(ordinaryAdmin.ID), `{"xp":60}`); recorder.Code != http.StatusNotFound {
+		t.Fatalf("banned admin target setting xp = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPlatformAdminMustJoinGuildForVoiceXPAndCannotSetOwner(t *testing.T) {
+	db, platformAdmin, server := newGuildHTTPTestServer(t)
+	ctx := context.Background()
+	owner, err := db.CreateUser(ctx, "xp_platform_owner", "平台经验所有者", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guild, err := db.CreateGuild(ctx, platformAdmin.ID, "平台经验服务器", owner.Username)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := db.CreateUser(ctx, "xp_platform_target", "平台经验目标", "another-secure-password", store.RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guild.ID, owner.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := db.CreateSession(ctx, platformAdmin.ID, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := func(userID int64) string {
+		return "/api/guilds/" + formatID(guild.ID) + "/members/" + formatID(userID) + "/voice-xp"
+	}
+	if recorder := serveGuildHTTPRequest(server, token, http.MethodPatch, path(target.ID), `{"xp":70}`); recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "guild_membership_required") {
+		t.Fatalf("unjoined platform admin = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := db.JoinGuildAsAdmin(ctx, guild.ID, platformAdmin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if recorder := serveGuildHTTPRequest(server, token, http.MethodPatch, path(target.ID), `{"xp":70}`); recorder.Code != http.StatusOK {
+		t.Fatalf("joined platform admin setting member = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder := serveGuildHTTPRequest(server, token, http.MethodPatch, path(owner.ID), `{"xp":70}`); recorder.Code != http.StatusForbidden {
+		t.Fatalf("joined platform admin setting owner = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := db.SetGuildMemberRole(ctx, guild.ID, owner.ID, platformAdmin.ID, store.GuildRoleMember); err != nil {
+		t.Fatal(err)
+	}
+	if recorder := serveGuildHTTPRequest(server, token, http.MethodPatch, path(target.ID), `{"xp":80}`); recorder.Code != http.StatusOK {
+		t.Fatalf("joined platform admin demoted to member setting member = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestTemporarilyBannedPlatformAdminCannotRestoreGuildSubscription(t *testing.T) {
 	db, owner, server := newGuildHTTPTestServer(t)
 	ctx := context.Background()

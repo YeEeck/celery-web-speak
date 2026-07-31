@@ -4,6 +4,8 @@ import { useVirtualizer } from '@tanstack/vue-virtual'
 import { ArrowDown, ChevronUp, Hash, Menu, Send, Users } from '@lucide/vue'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
+import { useToastStore } from '../stores/toast'
+import { isSlashInput, type CommandFeedback, type SlashSuggestion } from '../slash-commands'
 import type { Message } from '../types'
 
 const monthDayFormatter = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' })
@@ -12,8 +14,12 @@ const fullDateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', mo
 defineProps<{ membersVisible: boolean }>()
 const emit = defineEmits<{ channels: []; members: []; messageMenu: [message: Message, trigger: HTMLElement | null, x: number, y: number]; openProfile: [userId: number, trigger: HTMLElement | null, x: number, y: number] }>()
 const app = useAppStore()
+const toast = useToastStore()
 const content = ref('')
 const sending = ref(false)
+const suggestions = ref<SlashSuggestion[]>([])
+const activeSuggestion = ref(0)
+const suggestionsDismissed = ref(false)
 const list = ref<HTMLElement | null>(null)
 const composer = ref<HTMLTextAreaElement | null>(null)
 const atBottom = ref(true)
@@ -25,24 +31,40 @@ const liveMessageTimers = new Map<number, number>()
 let restoringChannel = false
 let programmaticScroll = false
 
+type TimelineItem =
+  | { kind: 'message'; key: number; message: Message }
+  | { kind: 'feedback'; key: string; feedback: CommandFeedback }
+
+const timelineItems = computed<TimelineItem[]>(() => [
+  ...app.messages.map((message) => ({ kind: 'message' as const, key: message.id, message })),
+  ...app.commandFeedbacks.map((feedback) => ({ kind: 'feedback' as const, key: feedback.id, feedback })),
+].sort((a, b) => {
+  const aTime = new Date(a.kind === 'message' ? a.message.createdAt : a.feedback.createdAt).getTime()
+  const bTime = new Date(b.kind === 'message' ? b.message.createdAt : b.feedback.createdAt).getTime()
+  return aTime - bTime || String(a.key).localeCompare(String(b.key))
+}))
+
 const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>(computed(() => ({
-  count: app.messages.length + 1,
+  count: timelineItems.value.length + 1,
   getScrollElement: () => list.value as HTMLDivElement | null,
   estimateSize: (index: number) => {
     if (index === 0) return app.hasEarlierMessages ? 46 : 205
-    return startsNewDay(index - 1) ? 101 : 68
+    const item = timelineItems.value[index - 1]
+    if (!item) return 68
+    return item.kind === 'feedback' ? 112 : startsNewDay(index - 1) ? 101 : 68
   },
-  getItemKey: (index: number) => index === 0 ? `history-${app.activeTextChannelId}` : (app.messages[index - 1]?.id ?? index),
+  getItemKey: (index: number) => index === 0 ? `history-${app.activeTextChannelId}` : (timelineItems.value[index - 1]?.key ?? index),
   overscan: 10,
 })))
 const visibleRows = computed(() => virtualizer.value.getVirtualItems().map((virtualRow) => {
-  const messageIndex = virtualRow.index - 1
-  const message = virtualRow.index === 0 ? null : app.messages[messageIndex]
-  const showDate = message !== null && startsNewDay(messageIndex)
+  const itemIndex = virtualRow.index - 1
+  const item = virtualRow.index === 0 ? null : timelineItems.value[itemIndex]
+  const message = item?.kind === 'message' ? item.message : null
   return {
     virtualRow,
+    item,
     message,
-    dateLabel: showDate ? formatMessageDate(message.createdAt, dateLabelReference.value) : null,
+    dateLabel: message !== null && startsNewDay(itemIndex) ? formatMessageDate(message.createdAt, dateLabelReference.value) : null,
   }
 }))
 const totalSize = computed(() => virtualizer.value.getTotalSize())
@@ -66,17 +88,20 @@ watch(() => app.activeTextChannelId, async (channelId, previousChannelId) => {
 
 watch(content, (value) => {
   if (app.activeTextChannelId !== null) app.setChannelDraft(app.activeTextChannelId, value)
+  suggestionsDismissed.value = false
+  refreshSuggestions()
 })
 
-watch(() => [app.activeTextChannelId, app.messages.at(-1)?.id] as const, async ([channelId, messageID], previous) => {
-  if (channelId === null || messageID === undefined) return
-  const [previousChannelId, previousID] = previous ?? [null, undefined]
-  if (channelId !== previousChannelId || previousID === undefined) {
+watch(() => [app.activeTextChannelId, timelineItems.value.at(-1)?.key] as const, async ([channelId, itemKey], previous) => {
+  if (channelId === null || itemKey === undefined) return
+  const [previousChannelId, previousKey] = previous ?? [null, undefined]
+  if (channelId !== previousChannelId || previousKey === undefined) {
     await restoreChannelPosition(channelId)
     return
   }
-  if (messageID <= previousID) return
-  markLiveMessage(messageID)
+  if (itemKey === previousKey) return
+  const latest = timelineItems.value.at(-1)
+  if (latest?.kind === 'message') markLiveMessage(latest.message.id)
   if (atBottom.value) {
     await nextTick()
     await scrollToLatestStable()
@@ -102,20 +127,84 @@ function markLiveMessage(messageID: number) {
   }, 220))
 }
 
+function refreshSuggestions() {
+  if (suggestionsDismissed.value || !isSlashInput(content.value)) {
+    suggestions.value = []
+    activeSuggestion.value = 0
+    return
+  }
+  suggestions.value = app.getSlashCommandSuggestions(content.value)
+  if (activeSuggestion.value >= suggestions.value.length) activeSuggestion.value = 0
+}
+
+function acceptSuggestion(suggestion = suggestions.value[activeSuggestion.value]) {
+  if (!suggestion) return
+  content.value = suggestion.value
+  suggestionsDismissed.value = false
+  activeSuggestion.value = 0
+  resizeComposer()
+  void nextTick(() => composer.value?.focus())
+}
+
 async function send() {
   const value = content.value.trim()
-  if (!value || sending.value || app.user?.textMuted || !app.activeTextChannel) return
+  const channelId = app.activeTextChannelId
+  const guildId = app.activeGuildId
+  if (!value || sending.value || channelId === null || guildId === null || !app.activeTextChannel) return
   sending.value = true
   try {
-    await app.sendMessage(value)
-    content.value = ''
-    resizeComposer()
+    if (isSlashInput(value)) {
+      const result = await app.executeSlashCommand(value, channelId)
+      if (result.kind === 'message') {
+        await app.sendMessage(result.content, channelId, guildId)
+        clearCurrentInput(channelId, guildId)
+      } else if (result.clearInput) {
+        clearCurrentInput(channelId, guildId)
+      } else {
+        focusComposer()
+      }
+    } else {
+      await app.sendMessage(value, channelId, guildId)
+      clearCurrentInput(channelId, guildId)
+    }
+  } catch (error) {
+    toast.showError(error instanceof Error ? error.message : '发送消息失败')
+    focusComposer()
   } finally {
     sending.value = false
+    refreshSuggestions()
   }
 }
 
+function clearCurrentInput(channelId: number, guildId: number) {
+  app.setChannelDraft(channelId, '', guildId)
+  if (app.activeGuildId !== guildId || app.activeTextChannelId !== channelId) return
+  content.value = ''
+  resizeComposer()
+}
+
+function focusComposer() {
+  void nextTick(() => composer.value?.focus())
+}
+
 function keydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && suggestions.value.length) {
+    event.preventDefault()
+    suggestionsDismissed.value = true
+    suggestions.value = []
+    return
+  }
+  if (suggestions.value.length && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    event.preventDefault()
+    const delta = event.key === 'ArrowDown' ? 1 : -1
+    activeSuggestion.value = (activeSuggestion.value + delta + suggestions.value.length) % suggestions.value.length
+    return
+  }
+  if (suggestions.value.length && (event.key === 'Tab' || event.key === 'Enter')) {
+    event.preventDefault()
+    acceptSuggestion()
+    return
+  }
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
     void send()
@@ -150,7 +239,7 @@ async function loadEarlierMessages() {
   if (!anchorID || added === 0) return
   await nextTick()
   virtualizer.value.measure()
-  const anchorIndex = app.messages.findIndex((message) => message.id === anchorID)
+  const anchorIndex = timelineItems.value.findIndex((item) => item.kind === 'message' && item.message.id === anchorID)
   if (anchorIndex < 0) return
   virtualizer.value.scrollToIndex(anchorIndex + 1, { align: 'start' })
   for (let attempt = 0; attempt < 3 && anchorOffset !== null && list.value; attempt++) {
@@ -229,10 +318,12 @@ function animationFrame() {
 }
 
 function startsNewDay(messageIndex: number) {
-  const message = app.messages[messageIndex]
-  if (!message) return false
-  const previous = app.messages[messageIndex - 1]
-  return !previous || localDateKey(message.createdAt) !== localDateKey(previous.createdAt)
+  const item = timelineItems.value[messageIndex]
+  if (!item || item.kind !== 'message') return false
+  const message = item.message
+  const previous = timelineItems.value.slice(0, messageIndex).reverse().find((candidate) => candidate.kind === 'message')
+  if (!previous || previous.kind !== 'message') return true
+  return localDateKey(message.createdAt) !== localDateKey(previous.message.createdAt)
 }
 
 function localDateKey(value: string | Date) {
@@ -339,6 +430,14 @@ function roleLabel(role: string) {
                 </div>
               </article>
             </template>
+            <article v-else-if="row.item?.kind === 'feedback'" :class="['command-feedback', row.item.feedback.tone]" :data-feedback-id="row.item.feedback.id">
+              <header class="command-feedback-header">
+                <strong>斜杠指令反馈</strong>
+                <span class="command-feedback-private">仅你可见</span>
+              </header>
+              <strong class="command-feedback-title">{{ row.item.feedback.title }}</strong>
+              <p>{{ row.item.feedback.body }}</p>
+            </article>
           </div>
         </div>
       </div>
@@ -350,11 +449,26 @@ function roleLabel(role: string) {
     </div>
 
     <footer class="composer-area">
+      <div v-if="suggestions.length" class="command-suggestions" role="listbox" aria-label="斜杠指令建议">
+        <button
+          v-for="(suggestion, index) in suggestions"
+          :key="suggestion.id"
+          :class="['command-suggestion', { active: index === activeSuggestion }]"
+          type="button"
+          role="option"
+          :aria-selected="index === activeSuggestion"
+          @mousedown.prevent
+          @click="acceptSuggestion(suggestion)"
+        >
+          <span>{{ suggestion.label }}</span>
+          <small>{{ suggestion.description }}</small>
+        </button>
+      </div>
       <div :class="['composer', { disabled: app.user?.textMuted }]">
         <textarea
           ref="composer"
           v-model="content"
-          :disabled="app.user?.textMuted || !app.activeTextChannel"
+          :disabled="!app.activeTextChannel"
           :placeholder="app.user?.textMuted ? '你已被文字禁言' : `发送消息到 #${app.activeTextChannel?.name ?? '文字频道'}`"
           maxlength="2000"
           rows="1"
@@ -363,7 +477,7 @@ function roleLabel(role: string) {
         />
         <div class="composer-actions">
           <span class="character-count" :class="{ near: content.length > 1800 }">{{ content.length }}/2000</span>
-          <button class="send-button" :disabled="!content.trim() || sending || app.user?.textMuted || !app.activeTextChannel" title="发送消息" @click="send"><Send :size="19" /></button>
+          <button class="send-button" :disabled="!content.trim() || sending || !app.activeTextChannel" title="发送消息" @click="send"><Send :size="19" /></button>
         </div>
       </div>
     </footer>

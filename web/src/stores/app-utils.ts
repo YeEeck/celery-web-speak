@@ -1,14 +1,16 @@
 import type { GuildMemberPayload, User } from '../types'
+import type { CommandFeedback } from '../slash-commands'
 
 export interface MessageState {
   messages: import('../types').Message[]
+  commandFeedbacks: CommandFeedback[]
   hasEarlier: boolean
   loading: boolean
   loaded: boolean
 }
 
 export function emptyMessageState(): MessageState {
-  return { messages: [], hasEarlier: false, loading: false, loaded: false }
+  return { messages: [], commandFeedbacks: [], hasEarlier: false, loading: false, loaded: false }
 }
 
 export function savedChannelID(guildId: number | null) {

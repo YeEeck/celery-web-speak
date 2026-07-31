@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const MaxGuildMemberVoiceXP int64 = 1_000_000_000
+
 // AddUserOnlineTime accumulates whole seconds of platform presence onto the
 // user's running total. It is called by the presence hub when an online
 // interval (or a periodic flush of an in-flight interval) settles.
@@ -95,15 +97,15 @@ SELECT voice_xp_total FROM guild_members WHERE guild_id = ? AND user_id = ?`, gu
 // applies to VoiceXPTotal, the server-scoped voice XP total from which level
 // and progress are derived.
 type UserProfile struct {
-	ID                 int64           `json:"id"`
-	Username           string          `json:"username"`
-	DisplayName        string          `json:"displayName"`
-	Bio                string          `json:"bio"`
-	OnlineSecondsTotal int64           `json:"onlineSecondsTotal"`
-	VoiceSecondsTotal  *int64          `json:"voiceSecondsTotal,omitempty"`
-	VoiceXPTotal       *int64          `json:"voiceXpTotal,omitempty"`
-	VoiceProgress      *VoiceProgress  `json:"voiceProgress,omitempty"`
-	CreatedAt          time.Time       `json:"createdAt"`
+	ID                 int64          `json:"id"`
+	Username           string         `json:"username"`
+	DisplayName        string         `json:"displayName"`
+	Bio                string         `json:"bio"`
+	OnlineSecondsTotal int64          `json:"onlineSecondsTotal"`
+	VoiceSecondsTotal  *int64         `json:"voiceSecondsTotal,omitempty"`
+	VoiceXPTotal       *int64         `json:"voiceXpTotal,omitempty"`
+	VoiceProgress      *VoiceProgress `json:"voiceProgress,omitempty"`
+	CreatedAt          time.Time      `json:"createdAt"`
 }
 
 // VoiceProgress is the server-scoped voice level snapshot surfaced on a
@@ -116,6 +118,129 @@ type VoiceProgress struct {
 	Level      int64 `json:"level"`
 	LevelStart int64 `json:"levelStartXp"`
 	LevelEnd   int64 `json:"levelEndXp"`
+}
+
+// GuildMemberVoiceXPChange is the committed before/after snapshot returned
+// by an administrative absolute XP update.
+type GuildMemberVoiceXPChange struct {
+	UserID   int64
+	Username string
+	BeforeXP int64
+	AfterXP  int64
+}
+
+// SetGuildMemberVoiceXP replaces a member's server voice XP and records the
+// change in the same transaction. It rechecks the actor and target inside the
+// transaction so a role or membership change cannot bypass authorization.
+func (s *Store) SetGuildMemberVoiceXP(ctx context.Context, guildID, actorID, userID, xp int64) (GuildMemberVoiceXPChange, error) {
+	if xp < 0 || xp > MaxGuildMemberVoiceXP {
+		return GuildMemberVoiceXPChange{}, ErrInvalidGuildMemberVoiceXP
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return GuildMemberVoiceXPChange{}, err
+	}
+	defer tx.Rollback()
+
+	var actorRole string
+	var actorPlatformAdmin int
+	var actorUserPermanentlyBanned int
+	var actorSuspendedAt sql.NullString
+	var actorGuildPermanentlyBanned int
+	var actorTemporaryBanUntil sql.NullString
+	if err := tx.QueryRowContext(ctx, `
+SELECT CASE WHEN g.owner_user_id = gm.user_id THEN 'owner' ELSE gm.role END,
+       u.is_platform_admin, u.permanently_banned, u.suspended_at,
+       gm.permanently_banned, gm.temporary_ban_until
+FROM guild_members gm
+JOIN guilds g ON g.id = gm.guild_id
+JOIN users u ON u.id = gm.user_id AND u.deleted_at IS NULL
+WHERE gm.guild_id = ? AND gm.user_id = ?`, guildID, actorID).Scan(
+		&actorRole, &actorPlatformAdmin, &actorUserPermanentlyBanned, &actorSuspendedAt,
+		&actorGuildPermanentlyBanned, &actorTemporaryBanUntil,
+	); errors.Is(err, sql.ErrNoRows) {
+		return GuildMemberVoiceXPChange{}, ErrGuildMemberVoiceXPForbidden
+	} else if err != nil {
+		return GuildMemberVoiceXPChange{}, fmt.Errorf("read guild member voice xp actor: %w", err)
+	}
+	actorTemporarilyBanned, err := temporaryBanActive(s, actorTemporaryBanUntil)
+	if err != nil {
+		return GuildMemberVoiceXPChange{}, fmt.Errorf("parse actor temporary ban: %w", err)
+	}
+	if actorUserPermanentlyBanned != 0 || actorSuspendedAt.Valid || actorGuildPermanentlyBanned != 0 || actorTemporarilyBanned {
+		return GuildMemberVoiceXPChange{}, ErrGuildMemberVoiceXPForbidden
+	}
+
+	var username string
+	var before int64
+	var targetRole string
+	var targetGuildPermanentlyBanned int
+	var temporaryBanUntil sql.NullString
+	var targetUserPermanentlyBanned int
+	var targetSuspendedAt sql.NullString
+	if err := tx.QueryRowContext(ctx, `
+SELECT u.username, gm.voice_xp_total,
+       CASE WHEN g.owner_user_id = gm.user_id THEN 'owner' ELSE gm.role END,
+       gm.permanently_banned, gm.temporary_ban_until,
+       u.permanently_banned, u.suspended_at
+FROM guild_members gm
+JOIN guilds g ON g.id = gm.guild_id
+JOIN users u ON u.id = gm.user_id AND u.deleted_at IS NULL
+WHERE gm.guild_id = ? AND gm.user_id = ?`, guildID, userID).Scan(
+		&username, &before, &targetRole, &targetGuildPermanentlyBanned, &temporaryBanUntil,
+		&targetUserPermanentlyBanned, &targetSuspendedAt,
+	); errors.Is(err, sql.ErrNoRows) {
+		return GuildMemberVoiceXPChange{}, ErrNotFound
+	} else if err != nil {
+		return GuildMemberVoiceXPChange{}, fmt.Errorf("read guild member voice xp target: %w", err)
+	}
+	if targetUserPermanentlyBanned != 0 || targetSuspendedAt.Valid || targetGuildPermanentlyBanned != 0 {
+		return GuildMemberVoiceXPChange{}, ErrNotFound
+	}
+	targetTemporarilyBanned, err := temporaryBanActive(s, temporaryBanUntil)
+	if err != nil {
+		return GuildMemberVoiceXPChange{}, fmt.Errorf("parse target temporary ban: %w", err)
+	}
+	if targetTemporarilyBanned {
+		return GuildMemberVoiceXPChange{}, ErrNotFound
+	}
+
+	canManage := false
+	switch targetRole {
+	case string(GuildRoleOwner):
+		canManage = actorRole == string(GuildRoleOwner) && actorID == userID
+	case string(GuildRoleAdmin):
+		canManage = actorRole == string(GuildRoleOwner) || actorPlatformAdmin != 0
+	default:
+		canManage = actorRole == string(GuildRoleOwner) || actorRole == string(GuildRoleAdmin) || actorPlatformAdmin != 0
+	}
+	if !canManage {
+		return GuildMemberVoiceXPChange{}, ErrGuildMemberVoiceXPForbidden
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+UPDATE guild_members SET voice_xp_total = ?, updated_at = ?
+WHERE guild_id = ? AND user_id = ?`, xp, formatTime(s.now()), guildID, userID); err != nil {
+		return GuildMemberVoiceXPChange{}, fmt.Errorf("set guild member voice xp: %w", err)
+	}
+	if err := insertGuildAudit(ctx, tx, guildID, actorID, &userID, "set_guild_member_voice_xp", fmt.Sprintf("before_xp=%d after_xp=%d", before, xp)); err != nil {
+		return GuildMemberVoiceXPChange{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return GuildMemberVoiceXPChange{}, err
+	}
+	return GuildMemberVoiceXPChange{UserID: userID, Username: username, BeforeXP: before, AfterXP: xp}, nil
+}
+
+func temporaryBanActive(s *Store, value sql.NullString) (bool, error) {
+	if !value.Valid {
+		return false, nil
+	}
+	until, err := parseTime(value.String)
+	if err != nil {
+		return false, err
+	}
+	return until.After(s.now()), nil
 }
 
 func (s *Store) UserProfile(ctx context.Context, userID int64) (UserProfile, error) {

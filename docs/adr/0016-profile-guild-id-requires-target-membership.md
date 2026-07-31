@@ -1,6 +1,6 @@
 # profile handler 鉴权收紧：带 guild_id 即要求 target 是该 guild 成员
 
-`/api/users/{id}/profile` 在请求带 `guild_id` 时，鉴权从"SharedGuild 或本人/平台管理员即可读"收紧为"target 必须是该 guild 成员，否则 403 target_not_guild_member"。这是为了让消息作者触发的卡片也能携带 guild 上下文回带服务器语音时长与等级条（与成员名单行、语音参与者行对齐），付出的代价是：**退服/被踢的原作者，其历史消息点击后将整体 403——头像、简介、在线时长、等级条全看不到**，而非只少一条等级条。原本 SharedGuild 路径下"退服作者仍可读全局 profile"的保守语义被有意舍弃。
+`/api/users/{id}/profile` 在请求带 `guild_id` 时，鉴权从"SharedGuild 或本人/平台管理员即可读"收紧为"target 必须是该 guild 的活跃成员，否则 404 not_found"。这是为了让消息作者触发的卡片也能携带 guild 上下文回带服务器语音时长与等级条（与成员名单行、语音参与者行对齐），付出的代价是：**退服/被踢或停用的原作者，其历史消息点击后将整体 404——头像、简介、在线时长、等级条全看不到**，而非只少一条等级条。原本 SharedGuild 路径下"退服作者仍可读全局 profile"的保守语义被有意舍弃。
 
 ## Considered Options
 

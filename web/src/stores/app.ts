@@ -1,7 +1,8 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, request } from '../api'
-import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildBootstrapData, GuildMemberPayload, GuildSummary, Message, OnlineClient, User, VoiceRoom } from '../types'
+import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildBootstrapData, GuildMemberPayload, GuildSummary, Message, OnlineClient, User, UserProfile, VoiceRoom } from '../types'
+import { getSlashSuggestions, submitSlashCommand, type CommandFeedback, type SlashSubmitResult, type SlashCommandContext, type VoiceXPSetResponse } from '../slash-commands'
 import { useApplicationSoundStore } from './application-sounds'
 import { activeChannelKey, emptyMessageState, isCompleteUser, mapGuildMember, savedChannelID, savedGuildID, type MessageState } from './app-utils'
 import { useSocket } from './app-socket'
@@ -50,6 +51,7 @@ export const useAppStore = defineStore('app', () => {
   const activeTextChannel = computed(() => textChannels.value.find((channel) => channel.id === activeTextChannelId.value) ?? null)
   const activeMessageState = computed(() => activeTextChannelId.value === null ? emptyMessageState() : ensureMessageState(activeTextChannelId.value))
   const messages = computed(() => activeMessageState.value.messages)
+  const commandFeedbacks = computed(() => activeMessageState.value.commandFeedbacks)
   const hasEarlierMessages = computed(() => activeMessageState.value.hasEarlier)
   const loadingEarlierMessages = computed(() => activeMessageState.value.loading)
   const activeUnreadCount = computed(() => activeTextChannelId.value === null ? 0 : channelReadStates.value[activeTextChannelId.value]?.unreadCount ?? 0)
@@ -181,12 +183,50 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  async function sendMessage(content: string) {
-    if (activeTextChannelId.value === null) return
-    if (activeGuildId.value === null) return
-    await request<{ message: Message }>(`/api/guilds/${activeGuildId.value}/channels/${activeTextChannelId.value}/messages`, {
+  async function sendMessage(content: string, channelId = activeTextChannelId.value, guildId = activeGuildId.value) {
+    if (channelId === null || guildId === null) return
+    await request<{ message: Message }>(`/api/guilds/${guildId}/channels/${channelId}/messages`, {
       method: 'POST', body: JSON.stringify({ content }),
     })
+  }
+
+  async function getUserProfile(userId: number, guildId: number): Promise<UserProfile> {
+    const result = await request<{ profile: UserProfile }>(`/api/users/${userId}/profile?guild_id=${guildId}`)
+    return result.profile
+  }
+
+  async function setGuildMemberVoiceXP(guildId: number, userId: number, xp: number): Promise<VoiceXPSetResponse> {
+    return request<VoiceXPSetResponse>(`/api/guilds/${guildId}/members/${userId}/voice-xp`, {
+      method: 'PATCH',
+      body: JSON.stringify({ xp }),
+    })
+  }
+
+  function addCommandFeedback(channelId: number, feedback: CommandFeedback) {
+    const state = ensureMessageState(channelId)
+    state.commandFeedbacks.push(feedback)
+  }
+
+  function slashCommandContext(): SlashCommandContext {
+    return {
+      guildId: activeGuildId.value,
+      currentUser: user.value,
+      guildRole: activeGuild.value?.role ?? null,
+      isPlatformAdmin: user.value?.isPlatformAdmin === true,
+      members: [...users.value],
+      getProfile: getUserProfile,
+      setVoiceXP: setGuildMemberVoiceXP,
+    }
+  }
+
+  function getSlashCommandSuggestions(input: string) {
+    return getSlashSuggestions(input, slashCommandContext())
+  }
+
+  async function executeSlashCommand(input: string, channelId = activeTextChannelId.value): Promise<SlashSubmitResult> {
+    const result = await submitSlashCommand(input, slashCommandContext())
+    if (result.kind === 'feedback' && channelId !== null) addCommandFeedback(channelId, result.feedback)
+    return result
   }
 
   async function loadEarlier() {
@@ -252,8 +292,8 @@ export const useAppStore = defineStore('app', () => {
     return localStorage.getItem(`cws.guild.${activeGuildId.value ?? 0}.channelDraft.${channelId}`) ?? ''
   }
 
-  function setChannelDraft(channelId: number, value: string) {
-    const key = `cws.guild.${activeGuildId.value ?? 0}.channelDraft.${channelId}`
+  function setChannelDraft(channelId: number, value: string, guildId = activeGuildId.value) {
+    const key = `cws.guild.${guildId ?? 0}.channelDraft.${channelId}`
     if (value) localStorage.setItem(key, value)
     else localStorage.removeItem(key)
   }
@@ -473,10 +513,10 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     ready, user, users, guilds, activeGuildId, activeGuild, channels, textChannels, voiceChannels, activeTextChannelId, activeTextChannel,
-    voiceRooms, messages, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
+    voiceRooms, messages, commandFeedbacks, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
     channelReadStates, onlineIds, onlineClients, socketStatus, moderatorVoiceDisconnect, isGuildAdmin, isPlatformAdmin,
     initialize, bootstrap, loadGuildBootstrap, selectGuild, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh: socket.requestVoiceRoomsRefresh,
-    sendMessage, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft,
+    sendMessage, executeSlashCommand, getSlashCommandSuggestions, addCommandFeedback, getUserProfile, setGuildMemberVoiceXP, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,
   }
 })
