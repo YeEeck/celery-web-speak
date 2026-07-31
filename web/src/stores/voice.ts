@@ -31,15 +31,11 @@ import {
   MUTED_SPEAKING_REMINDER_KEY,
   NOISE_SUPPRESSION_KEY,
   OUTPUT_VOLUME_KEY,
-  PREFERRED_INPUT_DEVICE_KEY,
-  PREFERRED_OUTPUT_DEVICE_KEY,
-  buildVoiceDeviceOptions,
   clampVolume,
   compareParticipants,
   defaultConnectedPublishSettings,
   getSavedBackgroundAudioVolume,
   getSavedBoolean,
-  getSavedDevicePreference,
   getSavedLevel,
   getSavedMuted,
   getSavedTransmissionMode,
@@ -51,12 +47,11 @@ import {
   participantUserId,
   saveTransmissionMode,
   saveBoolean,
-  saveDevicePreference,
   setAudioSink,
-  type VoiceDevicePreference,
   type VoiceParticipant,
   type VoiceTransmissionMode,
 } from './voice-utils'
+import { useVoiceDevices } from './voice-devices'
 import { useParticipantVolume } from './voice-participant-volume'
 import { useApplicationAudio } from './voice-application-audio'
 import { useVoiceMuteDeafenModule } from './voice-mute-deafen'
@@ -86,23 +81,6 @@ export const useVoiceStore = defineStore('voice', () => {
   const connectedPublishSettings = ref(defaultConnectedPublishSettings())
   const errorMessage = ref('')
   const participantStates = ref<VoiceParticipant[]>([])
-  const inputDevices = ref<MediaDeviceInfo[]>([])
-  const outputDevices = ref<MediaDeviceInfo[]>([])
-  const activeInputId = ref('')
-  const activeOutputId = ref('')
-  const outputDeviceSelectionSupported = supportsAudioOutputSelection()
-  const savedInputDevice = getSavedDevicePreference(PREFERRED_INPUT_DEVICE_KEY)
-  const savedOutputDevice = getSavedDevicePreference(PREFERRED_OUTPUT_DEVICE_KEY)
-  const preferredInputId = ref(savedInputDevice.deviceId)
-  const preferredInputLabel = ref(savedInputDevice.label)
-  const preferredOutputId = ref(outputDeviceSelectionSupported ? savedOutputDevice.deviceId : DEFAULT_DEVICE_ID)
-  const preferredOutputLabel = ref(outputDeviceSelectionSupported ? savedOutputDevice.label : '系统默认')
-  const devicePermissionState = ref<'idle' | 'requesting' | 'granted' | 'denied'>('idle')
-  const devicePermissionError = ref('')
-  const deviceChangeError = ref('')
-  const deviceChangeErrorKind = ref<'input' | 'output' | null>(null)
-  const deviceChangingKind = ref<'input' | 'output' | null>(null)
-  const deviceChangingId = ref('')
   const microphoneGain = ref(getSavedLevel(MICROPHONE_GAIN_KEY))
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
   const echoCancellation = ref(getSavedBoolean(ECHO_CANCELLATION_KEY, true))
@@ -122,36 +100,12 @@ export const useVoiceStore = defineStore('voice', () => {
   let participantSoundsReady = false
   let voiceSession = 0
   let appliedTransmissionMode: VoiceTransmissionMode | null = null
-  let deviceListenersInstalled = false
-  let deviceInitializationPromise: Promise<boolean> | null = null
-  let permissionRequestPromise: Promise<boolean> | null = null
-  let deviceRefreshPromise: Promise<void> | null = null
   let mutedSpeakingReminderTimer: number | null = null
   let recentEndedSession: EndedVoiceSession | null = null
-
-  if (!outputDeviceSelectionSupported && savedOutputDevice.deviceId !== DEFAULT_DEVICE_ID) {
-    saveDevicePreference(PREFERRED_OUTPUT_DEVICE_KEY, { deviceId: DEFAULT_DEVICE_ID, label: '系统默认' })
-  }
 
   const joined = computed(() => status.value !== 'idle' && status.value !== 'error')
   const connectedAudioBitrateKbps = computed(() => connectedPublishSettings.value.audioBitrateKbps)
   const dtxEnabled = computed(() => transmissionMode.value === 'voice-activity')
-  const inputDeviceOptions = computed(() => buildVoiceDeviceOptions(
-    inputDevices.value,
-    'input',
-    { deviceId: preferredInputId.value, label: preferredInputLabel.value },
-    activeInputId.value,
-    joined.value,
-  ))
-  const outputDeviceOptions = computed(() => buildVoiceDeviceOptions(
-    outputDeviceSelectionSupported ? outputDevices.value : [],
-    'output',
-    outputDeviceSelectionSupported
-      ? { deviceId: preferredOutputId.value, label: preferredOutputLabel.value }
-      : { deviceId: DEFAULT_DEVICE_ID, label: '系统默认' },
-    activeOutputId.value,
-    joined.value,
-  ))
   const sounds = useApplicationSoundStore()
 
   const muteDeafen = useVoiceMuteDeafenModule({
@@ -208,6 +162,54 @@ export const useVoiceStore = defineStore('voice', () => {
     applyConnectionPreferences,
     notifyPreferenceChange,
   } = muteDeafen
+
+  const devices = useVoiceDevices({
+    room: () => room,
+    voiceSession: () => voiceSession,
+    status: () => status.value,
+    joined: () => joined.value,
+    requestMicPermission: async () => {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持麦克风访问')
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      stream.getTracks().forEach((track) => track.stop())
+      return true
+    },
+    getLocalDevices: (kind) => Room.getLocalDevices(kind, false),
+    listenDeviceChange: (callback) => {
+      navigator.mediaDevices?.addEventListener('devicechange', callback)
+    },
+    supportsOutputSelection: () => supportsAudioOutputSelection(),
+    applyOutputSink: (deviceId) => {
+      document.querySelectorAll<HTMLAudioElement>('#voice-audio-root audio').forEach((element) => {
+        void setAudioSink(element, deviceId)
+      })
+    },
+    syncSoundPlayback: () => syncApplicationSoundPlayback(),
+    notifyPreferenceChange,
+  })
+  const {
+    inputDevices,
+    outputDevices,
+    activeInputId,
+    activeOutputId,
+    preferredInputId,
+    preferredOutputId,
+    inputDeviceOptions,
+    outputDeviceOptions,
+    devicePermissionState,
+    devicePermissionError,
+    deviceChangeError,
+    deviceChangeErrorKind,
+    deviceChangingKind,
+    deviceChangingId,
+    switchInput,
+    switchOutput,
+    refreshDevices,
+    initializeDevices,
+    requestMicrophonePermission,
+    resolvedPreferredDeviceId,
+    applyPreferredDevicesToRoom,
+  } = devices
 
   syncApplicationSoundPlayback()
   const mutedSpeakingReminderInputDeviceId = computed(() => resolvedPreferredDeviceId('input'))
@@ -273,20 +275,6 @@ export const useVoiceStore = defineStore('voice', () => {
     navigator.sendBeacon(`/api/guilds/${guildId}/voice/leave`)
   })
 
-  function setPreferredDevice(kind: 'input' | 'output', preference: VoiceDevicePreference) {
-    if (kind === 'input') {
-      preferredInputId.value = preference.deviceId
-      preferredInputLabel.value = preference.label
-      saveDevicePreference(PREFERRED_INPUT_DEVICE_KEY, preference)
-    } else {
-      preferredOutputId.value = preference.deviceId
-      preferredOutputLabel.value = preference.label
-      saveDevicePreference(PREFERRED_OUTPUT_DEVICE_KEY, preference)
-      syncApplicationSoundPlayback()
-    }
-    notifyPreferenceChange()
-  }
-
   function showMutedSpeakingReminder() {
     if (!shouldRunMutedSpeakingReminder.value) return
     mutedSpeakingReminderVisible.value = true
@@ -307,59 +295,6 @@ export const useVoiceStore = defineStore('voice', () => {
   function setMutedSpeakingReminderEnabled(value: boolean) {
     mutedSpeakingReminderEnabled.value = value
     saveBoolean(MUTED_SPEAKING_REMINDER_KEY, value)
-  }
-
-  function devicePreference(kind: 'input' | 'output'): VoiceDevicePreference {
-    return kind === 'input'
-      ? { deviceId: preferredInputId.value, label: preferredInputLabel.value }
-      : { deviceId: preferredOutputId.value, label: preferredOutputLabel.value }
-  }
-
-  function deviceOptions(kind: 'input' | 'output') {
-    return kind === 'input' ? inputDeviceOptions.value : outputDeviceOptions.value
-  }
-
-  function resolvedPreferredDeviceId(kind: 'input' | 'output') {
-    const preference = devicePreference(kind)
-    const available = deviceOptions(kind).some((option) => option.deviceId === preference.deviceId && !option.unavailable)
-    return available ? preference.deviceId : DEFAULT_DEVICE_ID
-  }
-
-  async function initializeDevices() {
-    if (!deviceListenersInstalled) {
-      deviceListenersInstalled = true
-      navigator.mediaDevices?.addEventListener('devicechange', handleDeviceChange)
-    }
-    if (!deviceInitializationPromise) deviceInitializationPromise = requestMicrophonePermission()
-    return deviceInitializationPromise
-  }
-
-  function requestMicrophonePermission() {
-    if (permissionRequestPromise) return permissionRequestPromise
-    permissionRequestPromise = performMicrophonePermissionRequest().finally(() => {
-      permissionRequestPromise = null
-    })
-    return permissionRequestPromise
-  }
-
-  async function performMicrophonePermissionRequest() {
-    devicePermissionState.value = 'requesting'
-    devicePermissionError.value = ''
-    try {
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持麦克风访问')
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      stream.getTracks().forEach((track) => track.stop())
-      devicePermissionState.value = 'granted'
-    } catch (error) {
-      devicePermissionState.value = 'denied'
-      devicePermissionError.value = error instanceof Error ? error.message : '麦克风权限请求失败'
-    }
-    await refreshDevices(false)
-    return devicePermissionState.value === 'granted'
-  }
-
-  function handleDeviceChange() {
-    void refreshDevices(false)
   }
 
   function createVoiceAudioContext() {
@@ -406,7 +341,6 @@ export const useVoiceStore = defineStore('voice', () => {
       connectedChannelName.value = channel.name
       setConnectedChannelSettings(channel)
       await initializeDevices()
-      if (permissionRequestPromise) await permissionRequestPromise
       if (session !== voiceSession) return
       const tokenDeafened = deafenedPreference.value
       const credentials = await request<VoiceCredentials>(`/api/guilds/${guildId}/channels/${channelId}/voice/token`, {
@@ -426,7 +360,7 @@ export const useVoiceStore = defineStore('voice', () => {
           red: channel.audioRedEnabled ?? true,
           forceStereo: false,
         },
-        audioOutput: outputDeviceSelectionSupported ? { deviceId: resolvedPreferredDeviceId('output') } : undefined,
+        audioOutput: devices.supportsOutputSelection ? { deviceId: resolvedPreferredDeviceId('output') } : undefined,
       }))
       room = nextRoom
       if (audioContext) {
@@ -495,64 +429,6 @@ export const useVoiceStore = defineStore('voice', () => {
     if (wasJoined && guildId !== null && options.notifyGuild !== false) {
       await request(`/api/guilds/${guildId}/voice/leave`, { method: 'POST' })
       app.requestVoiceRoomsRefresh()
-    }
-  }
-
-  async function switchInput(deviceId: string) {
-    return switchDevice('input', deviceId)
-  }
-
-  async function switchOutput(deviceId: string) {
-    return switchDevice('output', deviceId)
-  }
-
-  async function switchDevice(kind: 'input' | 'output', deviceId: string) {
-    if (deviceChangingKind.value !== null) return false
-    const option = deviceOptions(kind).find((item) => item.deviceId === deviceId)
-    if (!option || option.unavailable) return false
-    if (kind === 'output' && !outputDeviceSelectionSupported) {
-      setPreferredDevice('output', { deviceId: DEFAULT_DEVICE_ID, label: '系统默认' })
-      return true
-    }
-    deviceChangeError.value = ''
-    deviceChangeErrorKind.value = null
-    const target = room
-    if (!target || status.value === 'connecting') {
-      setPreferredDevice(kind, option)
-      return true
-    }
-    const session = voiceSession
-    const mediaDeviceKind = kind === 'input' ? 'audioinput' : 'audiooutput'
-    const previousDeviceId = kind === 'input'
-      ? activeInputId.value || target.getActiveDevice(mediaDeviceKind) || DEFAULT_DEVICE_ID
-      : activeOutputId.value || target.getActiveDevice(mediaDeviceKind) || DEFAULT_DEVICE_ID
-    deviceChangingKind.value = kind
-    deviceChangingId.value = deviceId
-    try {
-      const changed = await target.switchActiveDevice(mediaDeviceKind, deviceId, true)
-      if (!changed) throw new Error('设备切换未生效')
-      if (session !== voiceSession || room !== target) return false
-      if (kind === 'input') activeInputId.value = deviceId
-      else applyOutputDeviceSelection(deviceId)
-      setPreferredDevice(kind, option)
-      return true
-    } catch (error) {
-      if (session === voiceSession && room === target) {
-        if (previousDeviceId !== deviceId) {
-          await target.switchActiveDevice(mediaDeviceKind, previousDeviceId, true).catch(() => false)
-        }
-        if (session !== voiceSession || room !== target) return false
-        if (kind === 'input') activeInputId.value = previousDeviceId
-        else applyOutputDeviceSelection(previousDeviceId)
-        deviceChangeError.value = error instanceof Error ? error.message : '设备切换失败'
-        deviceChangeErrorKind.value = kind
-      }
-      return false
-    } finally {
-      if (deviceChangingKind.value === kind && deviceChangingId.value === deviceId) {
-        deviceChangingKind.value = null
-        deviceChangingId.value = ''
-      }
     }
   }
 
@@ -639,92 +515,6 @@ export const useVoiceStore = defineStore('voice', () => {
       microphoneChanged: previous.audioBitrateKbps !== next.audioBitrateKbps || previous.audioRedEnabled !== next.audioRedEnabled,
       backgroundAudioChanged: previous.backgroundAudioBitrateKbps !== next.backgroundAudioBitrateKbps || previous.backgroundAudioRedEnabled !== next.backgroundAudioRedEnabled,
     }
-  }
-
-  async function refreshDevices(requestPermissions = false) {
-    if (requestPermissions) {
-      await requestMicrophonePermission()
-      return
-    }
-    if (deviceRefreshPromise) return deviceRefreshPromise
-    deviceRefreshPromise = (async () => {
-      const [inputResult, outputResult] = await Promise.allSettled([
-        Room.getLocalDevices('audioinput', false),
-        Room.getLocalDevices('audiooutput', false),
-      ])
-      inputDevices.value = inputResult.status === 'fulfilled' ? inputResult.value : []
-      outputDevices.value = outputResult.status === 'fulfilled' ? outputResult.value : []
-      const target = room
-      if (!target) {
-        syncApplicationSoundPlayback()
-        return
-      }
-      const nextInput = target.getActiveDevice('audioinput') ?? activeInputId.value
-      const nextOutput = target.getActiveDevice('audiooutput') ?? activeOutputId.value
-      activeInputId.value = nextInput || DEFAULT_DEVICE_ID
-      activeOutputId.value = nextOutput || DEFAULT_DEVICE_ID
-      await fallbackMissingActiveDevice(target, 'input')
-      await fallbackMissingActiveDevice(target, 'output')
-    })().finally(() => {
-      deviceRefreshPromise = null
-    })
-    return deviceRefreshPromise
-  }
-
-  async function fallbackMissingActiveDevice(target: Room, kind: 'input' | 'output') {
-    if (room !== target) return
-    if (kind === 'output' && !outputDeviceSelectionSupported) {
-      activeOutputId.value = DEFAULT_DEVICE_ID
-      return
-    }
-    const activeId = kind === 'input' ? activeInputId.value : activeOutputId.value
-    if (!activeId || activeId === DEFAULT_DEVICE_ID) return
-    const available = (kind === 'input' ? inputDevices.value : outputDevices.value).some((device) => device.deviceId === activeId)
-    if (available) return
-    try {
-      await target.switchActiveDevice(kind === 'input' ? 'audioinput' : 'audiooutput', DEFAULT_DEVICE_ID, true)
-      if (room !== target) return
-      if (kind === 'input') activeInputId.value = DEFAULT_DEVICE_ID
-      else applyOutputDeviceSelection(DEFAULT_DEVICE_ID)
-    } catch {
-      // The browser or LiveKit keeps its own fallback when an explicit switch is unavailable.
-    }
-  }
-
-  async function applyPreferredDevicesToRoom(target: Room, session: number) {
-    const inputId = resolvedPreferredDeviceId('input')
-    try {
-      const changed = await target.switchActiveDevice('audioinput', inputId, true)
-      if (session === voiceSession && room === target && changed) activeInputId.value = inputId
-    } catch {
-      if (inputId !== DEFAULT_DEVICE_ID) {
-        await target.switchActiveDevice('audioinput', DEFAULT_DEVICE_ID, true).catch(() => false)
-      }
-      if (session === voiceSession && room === target) activeInputId.value = DEFAULT_DEVICE_ID
-    }
-    if (session !== voiceSession || room !== target) return
-    if (!outputDeviceSelectionSupported) {
-      applyOutputDeviceSelection(DEFAULT_DEVICE_ID)
-      return
-    }
-    const outputId = resolvedPreferredDeviceId('output')
-    try {
-      const changed = await target.switchActiveDevice('audiooutput', outputId, true)
-      if (session === voiceSession && room === target && changed) applyOutputDeviceSelection(outputId)
-    } catch {
-      if (outputId !== DEFAULT_DEVICE_ID) {
-        await target.switchActiveDevice('audiooutput', DEFAULT_DEVICE_ID, true).catch(() => false)
-      }
-      if (session === voiceSession && room === target) applyOutputDeviceSelection(DEFAULT_DEVICE_ID)
-    }
-  }
-
-  function applyOutputDeviceSelection(deviceId: string) {
-    activeOutputId.value = deviceId
-    syncApplicationSoundPlayback()
-    document.querySelectorAll<HTMLAudioElement>('#voice-audio-root audio').forEach((element) => {
-      void setAudioSink(element, deviceId)
-    })
   }
 
   function syncApplicationSoundPlayback() {
@@ -971,7 +761,7 @@ export const useVoiceStore = defineStore('voice', () => {
     preferredOutputId,
     inputDeviceOptions,
     outputDeviceOptions,
-    outputDeviceSelectionSupported,
+    outputDeviceSelectionSupported: devices.supportsOutputSelection,
     devicePermissionState,
     devicePermissionError,
     deviceChangeError,
