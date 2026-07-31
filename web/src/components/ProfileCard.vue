@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Crown, ShieldCheck, MicOff, MessageSquareOff, Ban } from '@lucide/vue'
 import type { User, UserProfile } from '../types'
+import { voiceLevelColorProgressPercent } from '../utils/voice-level'
 import UserAvatar from './UserAvatar.vue'
 
 const props = defineProps<{
@@ -92,6 +93,10 @@ function xpFillPercent(value: NonNullable<UserProfile['voiceProgress']>): number
   return Math.min(100, Math.max(0, pct))
 }
 
+function levelColorProgress(value: NonNullable<UserProfile['voiceProgress']>): string {
+  return `${voiceLevelColorProgressPercent(value.level)}%`
+}
+
 function formatDate(value: string | undefined): string {
   if (!value) return '—'
   const date = new Date(value)
@@ -130,7 +135,7 @@ function remainingBan(member: User): string {
           <strong>{{ profile?.displayName ?? '用户' }}</strong>
           <div v-if="profile?.voiceProgress" class="profile-card-xp">
             <div class="profile-card-xp-head">
-              <span class="profile-card-xp-level">Lv.{{ profile.voiceProgress.level }}</span>
+              <span class="profile-card-xp-level" :style="{ '--profile-level-color-progress': levelColorProgress(profile.voiceProgress) }">Lv.{{ profile.voiceProgress.level }}</span>
               <span class="profile-card-xp-num">{{ xpIntoLevel(profile.voiceProgress) }}/{{ xpSpanForLevel(profile.voiceProgress) }}</span>
             </div>
             <div class="profile-card-xp-track">

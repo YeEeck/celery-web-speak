@@ -8,7 +8,7 @@
 
 .profile-card-xp { display: grid; gap: 4px; margin-top: 1px; }
 .profile-card-xp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.profile-card-xp-level { font-size: 11px; font-weight: 700; color: var(--brand); }
+.profile-card-xp-level { --profile-level-color-progress: 0%; font-size: 11px; font-weight: 700; color: var(--brand); color: color-mix(in hsl, var(--brand) calc(100% - var(--profile-level-color-progress)), var(--red) var(--profile-level-color-progress)); }
 .profile-card-xp-num { font-size: 10px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums; }
 .profile-card-xp-track { height: 6px; border-radius: 999px; background: var(--hover); overflow: hidden; }
 .profile-card-xp-fill { height: 100%; border-radius: 999px; background: var(--brand); min-width: 0; }
