@@ -1600,6 +1600,28 @@ test('头像菜单集中账户操作且退出登录使用明确确认', async ({
   await expect(page.getByRole('heading', { name: '欢迎回来' })).toBeVisible()
 })
 
+test('服务器栏提供用户设置快捷入口并恢复触发焦点', async ({ page, isMobile }) => {
+  const settingsTrigger = page.getByRole('button', { name: '用户设置', exact: true })
+  const settings = page.getByRole('dialog', { name: '用户设置' })
+
+  await expect(settingsTrigger).toBeVisible()
+  await expect(settingsTrigger).toHaveAttribute('aria-haspopup', 'dialog')
+  if (isMobile) {
+    await page.getByTitle('频道', { exact: true }).click()
+    await expect(page.locator('.channel-sidebar.mobile-drawer-open')).toBeVisible()
+  }
+
+  await settingsTrigger.focus()
+  await page.keyboard.press('Enter')
+  await expect(settings).toBeVisible()
+  await expect(settings.getByRole('button', { name: '账号', exact: true })).toHaveClass(/active/)
+  if (isMobile) await expect(page.locator('.channel-sidebar.mobile-drawer-open')).toHaveCount(0)
+
+  await page.keyboard.press('Escape')
+  await expect(settings).toBeHidden()
+  await expect(settingsTrigger).toBeFocused()
+})
+
 test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page }) => {
   let newestID = 0
   let channelID = 0

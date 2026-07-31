@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { EllipsisVertical, Hash, LogOut, Plus, Radio, ServerCog, X } from '@lucide/vue'
+import { EllipsisVertical, Hash, LogOut, Plus, Radio, ServerCog, Settings, X } from '@lucide/vue'
 import AccountMenu from './AccountMenu.vue'
 import ChannelActionMenu from './ChannelActionMenu.vue'
 import MessageActionMenu from './MessageActionMenu.vue'
@@ -90,6 +90,7 @@ const profileCardMember = computed(() => {
   if (!profileCard.value) return null
   return app.users.find((user) => user.id === profileCard.value!.userId) ?? null
 })
+const settingsTrigger = ref<HTMLButtonElement | null>(null)
 const accountTrigger = ref<HTMLButtonElement | null>(null)
 const accountMenuOpen = ref(false)
 const logoutOpen = ref(false)
@@ -245,11 +246,12 @@ function closeAccountMenu(restoreFocus = false) {
   if (restoreFocus) void nextTick(() => accountTrigger.value?.focus())
 }
 
-function openProfile() {
+function openProfile(trigger: HTMLElement | null = accountTrigger.value) {
   closeAccountMenu()
+  channelsOpen.value = false
   profileInitialTab.value = 'account'
   profileInitialAudioSubNav.value = 'input'
-  profileFocusReturn.value = accountTrigger.value
+  profileFocusReturn.value = trigger ?? accountTrigger.value
   profileOpen.value = true
 }
 
@@ -663,6 +665,15 @@ function closeChangelog() {
         <button v-if="app.isPlatformAdmin" class="guild-button add-guild" type="button" title="创建服务器" @click="openPlatformGuilds(null, true)"><Plus :size="22" /></button>
       </div>
       <div class="rail-account">
+        <button
+          ref="settingsTrigger"
+          class="icon-button settings-trigger"
+          type="button"
+          title="用户设置"
+          aria-label="用户设置"
+          aria-haspopup="dialog"
+          @click="openProfile(settingsTrigger)"
+        ><Settings :size="19" /></button>
         <button
           ref="accountTrigger"
           class="account-trigger"

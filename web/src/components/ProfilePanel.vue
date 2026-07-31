@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, type ComponentPublicInstance } from 'vue'
+import { onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue'
 import { BellRing, Headphones, Mic, Palette, Play, RefreshCw, Save, Trash2, Upload, UserRound, X } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useApplicationSoundStore, type OperationSoundControl, type OperationSoundEvent } from '../stores/application-sounds'
@@ -17,7 +17,7 @@ const props = withDefaults(defineProps<{
   initialTab: 'account',
   initialAudioSubNav: 'input',
 })
-defineEmits<{ close: []; changelog: [] }>()
+const emit = defineEmits<{ close: []; changelog: [] }>()
 const app = useAppStore()
 const voice = useVoiceStore()
 const sounds = useApplicationSoundStore()
@@ -44,7 +44,18 @@ function setCustomFileInput(sound: OperationSoundEvent) {
   }
 }
 
-onMounted(() => void voice.refreshDevices(false))
+function handleKeyDown(event: KeyboardEvent) {
+  if (event.key !== 'Escape') return
+  event.preventDefault()
+  emit('close')
+}
+
+onMounted(() => {
+  document.addEventListener('keydown', handleKeyDown)
+  void voice.refreshDevices(false)
+})
+
+onBeforeUnmount(() => document.removeEventListener('keydown', handleKeyDown))
 
 const avatarFile = ref<File | null>(null)
 const cropperOpen = ref(false)

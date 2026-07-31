@@ -32,7 +32,7 @@
 .rail-status.offline { color: var(--muted); }
 .rail-scroll { flex: 1 1 auto; width: 100%; min-height: 0; padding: 3px 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .rail-scroll::-webkit-scrollbar { display: none; }
-.rail-account { flex: 0 0 auto; width: 52px; padding-top: 10px; border-top: 2px solid var(--active); display: grid; place-items: center; }
+.rail-account { flex: 0 0 auto; width: 52px; padding-top: 10px; border-top: 2px solid var(--active); display: grid; place-items: center; gap: 6px; }
 .account-trigger { position: relative; width: 52px; height: 52px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; background: transparent; cursor: pointer; }
 .account-trigger:hover .avatar { filter: brightness(1.08); }
 .account-trigger[aria-expanded="true"] .avatar { box-shadow: 0 0 0 2px var(--brand); }
