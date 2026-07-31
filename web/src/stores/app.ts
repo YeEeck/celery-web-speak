@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, request } from '../api'
 import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildBootstrapData, GuildMemberPayload, GuildSummary, Message, OnlineClient, User, UserProfile, VoiceRoom } from '../types'
-import { getSlashSuggestions, submitSlashCommand, type CommandFeedback, type SlashSubmitResult, type SlashCommandContext, type VoiceXPSetResponse } from '../slash-commands'
+import { getSlashSuggestions, submitSlashCommand, type CommandFeedback, type SlashCommandActions, type SlashSubmitResult, type SlashCommandContext, type VoiceXPSetResponse } from '../slash-commands'
 import { useApplicationSoundStore } from './application-sounds'
 import { activeChannelKey, emptyMessageState, isCompleteUser, mapGuildMember, savedChannelID, savedGuildID, type MessageState } from './app-utils'
 import { useSocket } from './app-socket'
@@ -214,6 +214,11 @@ export const useAppStore = defineStore('app', () => {
       guildRole: activeGuild.value?.role ?? null,
       isPlatformAdmin: user.value?.isPlatformAdmin === true,
       members: [...users.value],
+    }
+  }
+
+  function slashCommandActions(): SlashCommandActions {
+    return {
       getProfile: getUserProfile,
       setVoiceXP: setGuildMemberVoiceXP,
     }
@@ -224,7 +229,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function executeSlashCommand(input: string, channelId = activeTextChannelId.value): Promise<SlashSubmitResult> {
-    const result = await submitSlashCommand(input, slashCommandContext())
+    const result = await submitSlashCommand(input, slashCommandContext(), slashCommandActions())
     if (result.kind === 'feedback' && channelId !== null) addCommandFeedback(channelId, result.feedback)
     return result
   }

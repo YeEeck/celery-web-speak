@@ -1,4 +1,4 @@
-import { ApiError } from './api'
+import { ApiError } from './api.ts'
 import type { GuildRole, User, UserProfile, VoiceProgress } from './types'
 
 export const MAX_VOICE_XP = 1_000_000_000
@@ -26,6 +26,9 @@ export interface SlashCommandContext {
   guildRole: GuildRole | null
   isPlatformAdmin: boolean
   members: User[]
+}
+
+export interface SlashCommandActions {
   getProfile: (userId: number, guildId: number) => Promise<UserProfile>
   setVoiceXP: (guildId: number, userId: number, xp: number) => Promise<VoiceXPSetResponse>
 }
@@ -40,121 +43,222 @@ export type SlashSubmitResult =
   | { kind: 'message'; content: string }
   | { kind: 'feedback'; feedback: CommandFeedback; clearInput: boolean }
 
+interface ParsedSlashInput {
+  value: string
+  tokens: string[]
+  trailingSpace: boolean
+  root: string
+}
+
+type SlashCommandExecutor = (
+  parsed: ParsedSlashInput,
+  context: SlashCommandContext,
+  actions: SlashCommandActions,
+) => Promise<SlashSubmitResult>
+
+interface SlashSubcommandDefinition {
+  name: string
+  description: string
+  usage: string
+  isVisible: (context: SlashCommandContext) => boolean
+  getSuggestions: (parsed: ParsedSlashInput, context: SlashCommandContext) => SlashSuggestion[]
+  execute: SlashCommandExecutor
+}
+
+interface SlashCommandDefinition {
+  name: string
+  description: string
+  isVisible: (context: SlashCommandContext) => boolean
+  subcommands: readonly SlashSubcommandDefinition[]
+}
+
 let feedbackSequence = 0
+
+const commandDefinitions: readonly SlashCommandDefinition[] = [
+  {
+    name: 'xp',
+    description: '服务器语音经验',
+    isVisible: () => true,
+    subcommands: [
+      {
+        name: 'get',
+        description: '查询服务器语音经验',
+        usage: '/xp get [@登录名]',
+        isVisible: () => true,
+        getSuggestions: (parsed, context) => getMemberSuggestions(parsed, context, 'get'),
+        execute: (parsed, context, actions) => submitGet(parsed, context, actions),
+      },
+      {
+        name: 'set',
+        description: '设置成员服务器语音经验',
+        usage: '/xp set @登录名 <xp>',
+        isVisible: canUseSet,
+        getSuggestions: (parsed, context) => getMemberSuggestions(parsed, context, 'set'),
+        execute: (parsed, context, actions) => submitSet(parsed, context, actions),
+      },
+    ],
+  },
+]
 
 export function isSlashInput(input: string): boolean {
   return input.trimStart().startsWith('/')
 }
 
 export function getSlashSuggestions(input: string, context: SlashCommandContext): SlashSuggestion[] {
+  const parsed = parseSlashInput(input)
+  if (!parsed) return []
+
+  if (parsed.tokens.length === 1 && !parsed.trailingSpace) {
+    return visibleCommands(context)
+      .filter((command) => command.name.startsWith(parsed.root))
+      .map((command) => ({
+        id: command.name,
+        label: `/${command.name}`,
+        description: command.description,
+        value: `/${command.name} `,
+      }))
+  }
+
+  const command = resolveCommand(parsed, context)
+  if (!command) return []
+
+  const subcommandName = parsed.tokens[1]?.toLowerCase() ?? ''
+  const visibleSubcommands = command.subcommands.filter((subcommand) => subcommand.isVisible(context))
+  if (parsed.tokens.length <= 2 && (
+    parsed.trailingSpace || !command.subcommands.some((subcommand) => subcommand.name === subcommandName)
+  )) {
+    return visibleSubcommands
+      .filter((subcommand) => subcommand.name.startsWith(subcommandName))
+      .map((subcommand) => ({
+        id: `${command.name}-${subcommand.name}`,
+        label: `/${command.name} ${subcommand.name}`,
+        description: subcommand.description,
+        value: `/${command.name} ${subcommand.name} `,
+      }))
+  }
+
+  const subcommand = resolveSubcommand(command, parsed)
+  if (!subcommand) return []
+  return subcommand.getSuggestions(parsed, context)
+}
+
+export async function submitSlashCommand(
+  input: string,
+  context: SlashCommandContext,
+  actions: SlashCommandActions,
+): Promise<SlashSubmitResult> {
+  const value = input.trim()
+  if (!value.startsWith('/')) return { kind: 'message', content: value }
+  if (value.startsWith('//')) return { kind: 'message', content: value.slice(1) }
+
+  const parsed = parseSlashInput(value)
+  if (!parsed) return errorResult('未知指令', availableCommands(context))
+  if (context.guildId === null || context.currentUser === null) return errorResult('无法执行指令', '当前没有可用的服务器。')
+
+  const command = resolveCommand(parsed, context)
+  if (!command) return errorResult('未知指令', availableCommands(context))
+
+  const subcommand = resolveSubcommand(command, parsed)
+  if (!subcommand) return errorResult('未知子指令', availableCommands(context))
+  return subcommand.execute(parsed, context, actions)
+}
+
+function parseSlashInput(input: string): ParsedSlashInput | null {
   const value = input.trimStart()
-  if (!value.startsWith('/') || value.startsWith('//')) return []
+  if (!value.startsWith('/') || value.startsWith('//')) return null
 
   const body = value.slice(1)
   const tokens = body.split(/\s+/)
-  const trailingSpace = /\s$/.test(body)
-  const root = tokens[0]?.toLowerCase() ?? ''
-
-  if (tokens.length === 1 && !trailingSpace) {
-    const suggestions: SlashSuggestion[] = []
-    if ('xp'.startsWith(root)) suggestions.push({ id: 'xp', label: '/xp', description: '服务器语音经验', value: '/xp ' })
-    return suggestions
+  return {
+    value,
+    tokens,
+    trailingSpace: /\s$/.test(body),
+    root: tokens[0]?.toLowerCase() ?? '',
   }
+}
 
-  if (root !== 'xp') return []
-  const canSet = canUseSet(context)
-  const subcommand = tokens[1]?.toLowerCase() ?? ''
-  if (tokens.length <= 2 && (trailingSpace || subcommand !== 'get' && subcommand !== 'set')) {
-    const suggestions: SlashSuggestion[] = []
-    if ('get'.startsWith(subcommand)) suggestions.push({ id: 'xp-get', label: '/xp get', description: '查询服务器语音经验', value: '/xp get ' })
-    if (canSet && 'set'.startsWith(subcommand)) suggestions.push({ id: 'xp-set', label: '/xp set', description: '设置成员服务器语音经验', value: '/xp set ' })
-    return suggestions
-  }
+function findCommand(name: string): SlashCommandDefinition | undefined {
+  return commandDefinitions.find((command) => command.name === name)
+}
 
-  if (subcommand !== 'get' && subcommand !== 'set') return []
-  const expectsTarget = subcommand === 'set' || tokens.length >= 3
-  if (!expectsTarget || tokens.length > 3) return []
-  const typed = tokens[2] ?? ''
+function resolveCommand(parsed: ParsedSlashInput, context: SlashCommandContext): SlashCommandDefinition | undefined {
+  const command = findCommand(parsed.root)
+  return command && command.isVisible(context) ? command : undefined
+}
+
+function resolveSubcommand(command: SlashCommandDefinition, parsed: ParsedSlashInput): SlashSubcommandDefinition | undefined {
+  const name = parsed.tokens[1]?.toLowerCase() ?? ''
+  return command.subcommands.find((subcommand) => subcommand.name === name)
+}
+
+function visibleCommands(context: SlashCommandContext): SlashCommandDefinition[] {
+  return commandDefinitions.filter((command) => command.isVisible(context))
+}
+
+function submitGet(
+  parsed: ParsedSlashInput,
+  context: SlashCommandContext,
+  actions: SlashCommandActions,
+): Promise<SlashSubmitResult> {
+  const tokens = parsed.tokens
+  if (tokens.length > 3 || tokens.length < 2) return Promise.resolve(errorResult('参数错误', '用法：/xp get [@登录名]'))
+  const target = tokens.length === 2 ? context.currentUser : findTarget(tokens[2], context)
+  if (!target) return Promise.resolve(errorResult('找不到成员', '请使用当前服务器中仍活跃的唯一登录名。'))
+  return actions.getProfile(target.id, context.guildId!).then((profile): SlashSubmitResult => {
+    const progress = profile.voiceProgress
+    if (!progress) return errorResult('查询失败', '服务器语音经验暂时不可用。')
+    return {
+      kind: 'feedback',
+      feedback: createFeedback('success', '服务器语音经验', formatGetFeedback(profile.username, progress)),
+      clearInput: true,
+    }
+  }).catch((error) => feedbackFromError(error, '查询失败'))
+}
+
+function submitSet(
+  parsed: ParsedSlashInput,
+  context: SlashCommandContext,
+  actions: SlashCommandActions,
+): Promise<SlashSubmitResult> {
+  const tokens = parsed.tokens
+  if (!canUseSet(context)) return Promise.resolve(errorResult('权限不足', '你没有设置服务器语音经验的权限。'))
+  if (tokens.length !== 4) return Promise.resolve(errorResult('参数错误', '用法：/xp set @登录名 <xp>'))
+  const target = findTarget(tokens[2], context)
+  if (!target || !canManageTarget(context, target)) return Promise.resolve(errorResult('找不到成员', '请使用当前服务器中你有权管理的活跃成员登录名。'))
+  const rawXP = tokens[3]
+  if (!/^[0-9]+$/.test(rawXP)) return Promise.resolve(errorResult('参数错误', 'XP 必须是 0 到 1000000000 的整数。'))
+  const xp = Number(rawXP)
+  if (!Number.isSafeInteger(xp) || xp < 0 || xp > MAX_VOICE_XP) return Promise.resolve(errorResult('参数错误', 'XP 必须是 0 到 1000000000 的整数。'))
+  return actions.setVoiceXP(context.guildId!, target.id, xp).then((result): SlashSubmitResult => ({
+    kind: 'feedback',
+    feedback: createFeedback('success', '服务器语音经验已设置', formatSetFeedback(result)),
+    clearInput: true,
+  })).catch((error) => feedbackFromError(error, '设置失败'))
+}
+
+function getMemberSuggestions(
+  parsed: ParsedSlashInput,
+  context: SlashCommandContext,
+  subcommand: 'get' | 'set',
+): SlashSuggestion[] {
+  const expectsTarget = subcommand === 'set' || parsed.tokens.length >= 3
+  if (!expectsTarget || parsed.tokens.length > 3) return []
+  const typed = parsed.tokens[2] ?? ''
   if (typed && !typed.startsWith('@')) return []
   const query = typed.slice(1).toLocaleLowerCase()
   const candidates = context.members
     .filter((member) => isActiveMember(member))
     .filter((member) => subcommand !== 'set' || canManageTarget(context, member))
     .filter((member) => member.username.toLocaleLowerCase().startsWith(query))
-  if (!trailingSpace && candidates.length === 1 && candidates[0]?.username.toLocaleLowerCase() === query) return []
-  const tokenStart = value.lastIndexOf(typed)
-  const prefix = tokenStart >= 0 ? value.slice(0, tokenStart) : `${value} `
+  if (!parsed.trailingSpace && candidates.length === 1 && candidates[0]?.username.toLocaleLowerCase() === query) return []
+  const tokenStart = parsed.value.lastIndexOf(typed)
+  const prefix = tokenStart >= 0 ? parsed.value.slice(0, tokenStart) : `${parsed.value} `
   return candidates.map((member) => ({
     id: `${subcommand}-member-${member.id}`,
     label: `@${member.username}`,
     description: member.displayName,
     value: `${prefix}@${member.username} `,
   }))
-}
-
-export async function submitSlashCommand(input: string, context: SlashCommandContext): Promise<SlashSubmitResult> {
-  const value = input.trim()
-  if (!value.startsWith('/')) return { kind: 'message', content: value }
-  if (value.startsWith('//')) return { kind: 'message', content: value.slice(1) }
-
-  const feedback = (title: string, body: string, clearInput = false): SlashSubmitResult => ({
-    kind: 'feedback',
-    feedback: createFeedback('error', title, body),
-    clearInput,
-  })
-  if (context.guildId === null || context.currentUser === null) return feedback('无法执行指令', '当前没有可用的服务器。')
-
-  const body = value.slice(1)
-  const tokens = body.split(/\s+/)
-  const root = tokens[0]?.toLowerCase() ?? ''
-  if (!root) return feedback('未知指令', availableCommands(context))
-  if (root !== 'xp') return feedback('未知指令', availableCommands(context))
-
-  const subcommand = tokens[1]?.toLowerCase() ?? ''
-  if (subcommand !== 'get' && subcommand !== 'set') return feedback('未知子指令', availableCommands(context))
-  if (subcommand === 'get') return submitGet(tokens, value, context, feedback)
-  return submitSet(tokens, value, context, feedback)
-}
-
-function submitGet(
-  tokens: string[],
-  value: string,
-  context: SlashCommandContext,
-  feedback: (title: string, body: string, clearInput?: boolean) => SlashSubmitResult,
-): Promise<SlashSubmitResult> {
-  if (tokens.length > 3 || tokens.length < 2) return Promise.resolve(feedback('参数错误', '用法：/xp get [@登录名]'))
-  const target = tokens.length === 2 ? context.currentUser : findTarget(tokens[2], context)
-  if (!target) return Promise.resolve(feedback('找不到成员', '请使用当前服务器中仍活跃的唯一登录名。'))
-  return context.getProfile(target.id, context.guildId!).then((profile): SlashSubmitResult => {
-    const progress = profile.voiceProgress
-    if (!progress) return feedback('查询失败', '服务器语音经验暂时不可用。')
-    return {
-      kind: 'feedback',
-      feedback: createFeedback('success', '服务器语音经验', formatGetFeedback(profile.username, progress)),
-      clearInput: true,
-    }
-  }).catch((error) => feedbackFromError(error, value, '查询失败'))
-}
-
-function submitSet(
-  tokens: string[],
-  value: string,
-  context: SlashCommandContext,
-  feedback: (title: string, body: string, clearInput?: boolean) => SlashSubmitResult,
-): Promise<SlashSubmitResult> {
-  if (!canUseSet(context)) return Promise.resolve(feedback('权限不足', '你没有设置服务器语音经验的权限。'))
-  if (tokens.length !== 4) return Promise.resolve(feedback('参数错误', '用法：/xp set @登录名 <xp>'))
-  const target = findTarget(tokens[2], context)
-  if (!target || !canManageTarget(context, target)) return Promise.resolve(feedback('找不到成员', '请使用当前服务器中你有权管理的活跃成员登录名。'))
-  const rawXP = tokens[3]
-  if (!/^[0-9]+$/.test(rawXP)) return Promise.resolve(feedback('参数错误', 'XP 必须是 0 到 1000000000 的整数。'))
-  const xp = Number(rawXP)
-  if (!Number.isSafeInteger(xp) || xp < 0 || xp > MAX_VOICE_XP) return Promise.resolve(feedback('参数错误', 'XP 必须是 0 到 1000000000 的整数。'))
-  return context.setVoiceXP(context.guildId!, target.id, xp).then((result): SlashSubmitResult => ({
-    kind: 'feedback',
-    feedback: createFeedback('success', '服务器语音经验已设置', formatSetFeedback(result)),
-    clearInput: true,
-  })).catch((error) => feedbackFromError(error, value, '设置失败'))
 }
 
 function findTarget(token: string | undefined, context: SlashCommandContext): User | null {
@@ -180,7 +284,10 @@ function canManageTarget(context: SlashCommandContext, target: User): boolean {
 }
 
 function availableCommands(context: SlashCommandContext): string {
-  return canUseSet(context) ? '可用指令：/xp get、/xp set @登录名 <xp>' : '可用指令：/xp get'
+  const usages = visibleCommands(context).flatMap((command) => command.subcommands
+    .filter((subcommand) => subcommand.isVisible(context))
+    .map((subcommand) => subcommand.usage))
+  return `可用指令：${usages.join('、')}`
 }
 
 function formatGetFeedback(username: string, progress: VoiceProgress): string {
@@ -193,9 +300,13 @@ function formatSetFeedback(result: VoiceXPSetResponse): string {
   return `@${result.target.username}\n修改前：${result.before.xp} XP（Lv.${result.before.level}）\n修改后：${result.after.xp} XP（Lv.${result.after.level}）`
 }
 
-function feedbackFromError(error: unknown, _command: string, fallbackTitle: string): SlashSubmitResult {
+function errorResult(title: string, body: string, clearInput = false): SlashSubmitResult {
+  return { kind: 'feedback', feedback: createFeedback('error', title, body), clearInput }
+}
+
+function feedbackFromError(error: unknown, fallbackTitle: string): SlashSubmitResult {
   const body = error instanceof ApiError && error.message ? error.message : '服务器暂时无法处理该指令。'
-  return { kind: 'feedback', feedback: createFeedback('error', fallbackTitle, body), clearInput: false }
+  return errorResult(fallbackTitle, body)
 }
 
 function createFeedback(tone: CommandFeedbackTone, title: string, body: string): CommandFeedback {
