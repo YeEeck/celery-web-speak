@@ -52,7 +52,7 @@ test('管理员可以通过斜杠指令绝对设置自己的服务器语音经�
 test('斜杠输入提供可键盘关闭的命令建议', async ({ page }) => {
   const input = page.getByPlaceholder('发送消息到 #文字聊天')
   await input.fill('/')
-  const suggestions = page.getByRole('listbox', { name: '斜杠指令建议' })
+  const suggestions = page.getByRole('listbox', { name: '指令建议' })
   await expect(suggestions).toBeVisible()
   await expect(suggestions.getByRole('option').first()).toContainText('/xp')
   await input.press('Tab')

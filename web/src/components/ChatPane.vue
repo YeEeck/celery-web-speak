@@ -432,7 +432,7 @@ function roleLabel(role: string) {
             </template>
             <article v-else-if="row.item?.kind === 'feedback'" :class="['command-feedback', row.item.feedback.tone]" :data-feedback-id="row.item.feedback.id">
               <header class="command-feedback-header">
-                <strong>斜杠指令反馈</strong>
+                <strong>指令反馈</strong>
                 <span class="command-feedback-private">仅你可见</span>
               </header>
               <strong class="command-feedback-title">{{ row.item.feedback.title }}</strong>
@@ -449,7 +449,7 @@ function roleLabel(role: string) {
     </div>
 
     <footer class="composer-area">
-      <div v-if="suggestions.length" class="command-suggestions" role="listbox" aria-label="斜杠指令建议">
+      <div v-if="suggestions.length" class="command-suggestions" role="listbox" aria-label="指令建议">
         <button
           v-for="(suggestion, index) in suggestions"
           :key="suggestion.id"
