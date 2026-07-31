@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { ApiError, request } from '../api'
+import { ApiError, getUserProfile as apiGetUserProfile, request } from '../api'
 import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildBootstrapData, GuildMemberPayload, GuildSummary, Message, OnlineClient, User, UserProfile, VoiceRoom } from '../types'
 import { getSlashSuggestions, submitSlashCommand, type CommandFeedback, type SlashCommandActions, type SlashSubmitResult, type SlashCommandContext, type VoiceXPSetResponse } from '../slash-commands'
 import { useApplicationSoundStore } from './application-sounds'
@@ -191,8 +191,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   async function getUserProfile(userId: number, guildId: number): Promise<UserProfile> {
-    const result = await request<{ profile: UserProfile }>(`/api/users/${userId}/profile?guild_id=${guildId}`)
-    return result.profile
+    return apiGetUserProfile(userId, guildId)
   }
 
   async function setGuildMemberVoiceXP(guildId: number, userId: number, xp: number): Promise<VoiceXPSetResponse> {

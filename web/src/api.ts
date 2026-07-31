@@ -1,3 +1,5 @@
+import type { UserProfile } from './types'
+
 export class ApiError extends Error {
   status: number
   code: string
@@ -27,4 +29,10 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
     return undefined as T
   }
   return response.json() as Promise<T>
+}
+
+export async function getUserProfile(userId: number, guildId?: number): Promise<UserProfile> {
+  const params = guildId != null ? `?guild_id=${guildId}` : ''
+  const result = await request<{ profile: UserProfile }>(`/api/users/${userId}/profile${params}`)
+  return result.profile
 }

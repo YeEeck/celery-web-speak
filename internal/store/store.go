@@ -33,6 +33,8 @@ var (
 	ErrMessageDeleteForbidden      = errors.New("only the message author or a guild admin can delete this message")
 	ErrGuildMemberVoiceXPForbidden = errors.New("not allowed to set guild member voice xp")
 	ErrInvalidGuildMemberVoiceXP   = errors.New("guild member voice xp must be between 0 and 1000000000")
+	ErrNotGuildMember              = errors.New("requester is not a member of the guild")
+	ErrProfileNotInSharedGuild     = errors.New("requester shares no guild with the target")
 )
 
 type Store struct {

@@ -20,7 +20,7 @@ import UserControls from './UserControls.vue'
 import UserAvatar from './UserAvatar.vue'
 import VoiceChannel from './VoiceChannel.vue'
 import VoiceParticipantActionMenu from './VoiceParticipantActionMenu.vue'
-import { request } from '../api'
+import { getUserProfile, request } from '../api'
 import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
@@ -499,10 +499,9 @@ function openProfileCard(userId: number, trigger: HTMLElement, x: number, y: num
 
 async function fetchProfileCard(userId: number, version: number) {
   try {
-    const params = profileCard.value?.guildId != null ? `?guild_id=${profileCard.value.guildId}` : ''
-    const result = await request<{ profile: UserProfile }>(`/api/users/${userId}/profile${params}`)
+    const result = await getUserProfile(userId, profileCard.value?.guildId ?? undefined)
     if (version !== profileCardVersion) return
-    profileCardData.value = result.profile
+    profileCardData.value = result
     profileCardFailed.value = false
   } catch {
     if (version !== profileCardVersion) return

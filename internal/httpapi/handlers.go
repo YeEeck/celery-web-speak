@@ -53,10 +53,10 @@ func (s *Server) internalError(w http.ResponseWriter, operation string, err erro
 // handleGetUserProfile returns the global profile fields shown on a personal
 // info card: display name, username, bio, platform online time and account
 // creation time. It is readable only by users who share at least one guild
-// membership with the target. The optional guild_id query parameter narrows
-// the shared-guild check to that specific guild and, when present, the
-// response also carries the target's accumulated voice seconds within that
-// guild.
+// membership with the target (platform admins bypass this). The optional
+// guild_id query parameter narrows the authorization check to that specific
+// guild and, when present, the response also carries the target's accumulated
+// voice seconds, voice XP and level progress within that guild.
 func (s *Server) handleGetUserProfile(w http.ResponseWriter, r *http.Request) {
 	id, ok := parsePathID(w, r, "id")
 	if !ok {
@@ -72,92 +72,30 @@ func (s *Server) handleGetUserProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		guildID = parsed
 	}
+	var profile store.UserProfile
+	var err error
 	if guildID != 0 {
-		// Narrow the authorization check to the requested guild: the requester
-		// must be a member of that guild, so the leaked voice time pertains to
-		// a server they already belong to. (Self bypass is implicit: if the
-		// requester is in the guild, so is the target when id == requester.ID.)
-		requesterMember, err := s.store.GuildMembership(r.Context(), guildID, requester.ID)
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				writeError(w, http.StatusForbidden, "not_guild_member", "无法查看该用户在此服务器的资料")
-				return
-			}
-			s.internalError(w, "check requester guild membership", err)
+		profile, err = s.store.GuildProfileView(r.Context(), requester.ID, id, guildID)
+		switch {
+		case errors.Is(err, store.ErrNotGuildMember):
+			writeError(w, http.StatusForbidden, "not_guild_member", "无法查看该用户在此服务器的资料")
 			return
-		}
-		if !requesterMember.ActiveAt(time.Now()) {
+		case errors.Is(err, store.ErrNotFound):
 			writeError(w, http.StatusNotFound, "not_found", "该用户不在此服务器")
 			return
-		}
-		// For non-self targets, the target must also be an active member of that
-		// guild, otherwise their voice seconds there are not derivable.
-		if id != requester.ID {
-			targetMember, err := s.store.GuildMembership(r.Context(), guildID, id)
-			if err != nil {
-				if errors.Is(err, store.ErrNotFound) {
-					writeError(w, http.StatusNotFound, "not_found", "该用户不在此服务器")
-					return
-				}
-				s.internalError(w, "check target guild membership", err)
-				return
-			}
-			active, err := s.store.GuildMemberActive(r.Context(), guildID, id)
-			if err != nil {
-				if errors.Is(err, store.ErrNotFound) {
-					writeError(w, http.StatusNotFound, "not_found", "该用户不在此服务器")
-					return
-				}
-				s.internalError(w, "check target guild member active state", err)
-				return
-			}
-			if !active || !targetMember.ActiveAt(time.Now()) {
-				writeError(w, http.StatusNotFound, "not_found", "该用户不在此服务器")
-				return
-			}
-		}
-	} else if id != requester.ID {
-		shared, err := s.store.SharedGuild(r.Context(), requester.ID, id)
-		if err != nil {
-			s.internalError(w, "check shared guild", err)
+		case err != nil:
+			s.internalError(w, "read guild profile", err)
 			return
 		}
-		if !shared && !requester.IsPlatformAdmin {
+	} else {
+		profile, err = s.store.ProfileView(r.Context(), requester.ID, id, requester.IsPlatformAdmin)
+		switch {
+		case errors.Is(err, store.ErrProfileNotInSharedGuild):
 			writeError(w, http.StatusForbidden, "not_in_shared_guild", "无法查看该用户的资料")
 			return
-		}
-	}
-	profile, err := s.store.UserProfile(r.Context(), id)
-	if err != nil {
-		s.writeStoreError(w, err)
-		return
-	}
-	if guildID != 0 {
-		seconds, err := s.store.GuildMemberVoiceSeconds(r.Context(), guildID, id)
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				seconds = 0
-			} else {
-				s.internalError(w, "read guild voice seconds", err)
-				return
-			}
-		}
-		profile.VoiceSecondsTotal = &seconds
-		xp, err := s.store.GuildMemberVoiceXP(r.Context(), guildID, id)
-		if err != nil {
-			if !errors.Is(err, store.ErrNotFound) {
-				s.internalError(w, "read guild voice xp", err)
-				return
-			}
-			xp = 0
-		}
-		profile.VoiceXPTotal = &xp
-		level, levelStart, levelEnd := store.VoiceLevelAt(xp)
-		profile.VoiceProgress = &store.VoiceProgress{
-			XP:         xp,
-			Level:      level,
-			LevelStart: levelStart,
-			LevelEnd:   levelEnd,
+		case err != nil:
+			s.writeStoreError(w, err)
+			return
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"profile": profile})
