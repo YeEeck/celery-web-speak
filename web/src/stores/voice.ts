@@ -5,7 +5,7 @@ import { request } from '../api.ts'
 import type { VoiceCredentials } from '../types.ts'
 import { useAppStore } from './app.ts'
 import { useApplicationSoundStore } from './application-sounds.ts'
-import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor.ts'
+import { SpeechDetectionEngine } from '../audio/SpeechDetectionEngine.ts'
 import { useVoiceDevices } from './voice-devices.ts'
 import { useParticipantVolume } from './voice-participant-volume.ts'
 import { useApplicationAudio } from './voice-application-audio.ts'
@@ -111,7 +111,7 @@ export const useVoiceStore = defineStore('voice', () => {
       return AudioContextConstructor ? new AudioContextConstructor({ latencyHint: 'interactive' }) : null
     },
     audioInteractionTarget: () => document,
-    createMutedSpeakingReminder: (callbacks) => new MutedSpeakingReminderMonitor(callbacks),
+    createSpeechDetectionEngine: (callbacks) => new SpeechDetectionEngine(callbacks),
     appendAudioElement: (element) => void document.querySelector('#voice-audio-root')?.appendChild(element),
     removeAllAudioElements: () => void document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove()),
     applyAudioSink: (element, deviceId) => void setAudioSink(element, deviceId),

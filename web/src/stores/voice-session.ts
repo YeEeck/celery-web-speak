@@ -14,6 +14,7 @@ import { MicrophoneActivityMonitor } from '../audio/MicrophoneActivityMonitor.ts
 import { MicrophoneGainProcessor } from '../audio/MicrophoneGainProcessor.ts'
 import { buildMicrophoneCaptureOptions } from '../audio/microphoneCaptureOptions.ts'
 import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor.ts'
+import type { SpeechDetectionEngine, SpeechDetectionEngineCallbacks } from '../audio/SpeechDetectionEngine.ts'
 import { VoiceAudioContextController } from '../audio/VoiceAudioContextController.ts'
 import type { ApplicationSoundOccurrence } from '../application-sounds/core.ts'
 import type { Channel, User, VoiceCredentials } from '../types.ts'
@@ -105,7 +106,7 @@ export interface VoiceSessionContext {
   createRoom(options: RoomOptions): Room
   createAudioContext(): AudioContext | null
   audioInteractionTarget(): EventTarget
-  createMutedSpeakingReminder(callbacks: { onReminder: () => void; onError: (error: Error) => void }): MutedSpeakingReminderMonitor
+  createSpeechDetectionEngine(callbacks: SpeechDetectionEngineCallbacks): SpeechDetectionEngine
   appendAudioElement(element: HTMLAudioElement): void
   removeAllAudioElements(): void
   applyAudioSink(element: HTMLAudioElement, deviceId: string): void
@@ -154,9 +155,11 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     && ctx.mutedSpeakingReminderAudible()
     && ctx.devicePermissionState() === 'granted'
   ))
-  const mutedSpeakingReminder = ctx.createMutedSpeakingReminder({
-    onReminder: showMutedSpeakingReminder,
+  const speechDetection = ctx.createSpeechDetectionEngine({
     onError: (error) => console.warn('静音说话检测已停用', error),
+  })
+  const mutedSpeakingReminder = new MutedSpeakingReminderMonitor(speechDetection, {
+    onReminder: showMutedSpeakingReminder,
   })
 
   watch(

@@ -84,10 +84,18 @@ class FakeRoom {
   }
 }
 
-class FakeReminderMonitor {
+class FakeSpeechDetectionEngine {
   startCalls: Array<string | undefined> = []
   stopCalls = 0
   resetFailureCalls = 0
+  listeners = new Set<(speaking: boolean, frameDurationMs: number) => void>()
+
+  subscribe(listener: (speaking: boolean, frameDurationMs: number) => void) {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
 
   async start(deviceId?: string) {
     this.startCalls.push(deviceId)
@@ -100,6 +108,10 @@ class FakeReminderMonitor {
 
   resetFailure() {
     this.resetFailureCalls += 1
+  }
+
+  emitSpeech(speaking: boolean, frameDurationMs = 20) {
+    for (const listener of this.listeners) listener(speaking, frameDurationMs)
   }
 }
 
@@ -175,7 +187,7 @@ interface Harness {
   ctx: VoiceSessionContext
   session: ReturnType<typeof useVoiceSession>
   room: FakeRoom
-  monitor: FakeReminderMonitor
+  monitor: FakeSpeechDetectionEngine
   signals: string[]
   beacons: string[]
   followPlaybackCalls: Array<{ deafened: boolean; outputDeviceId: string }>
@@ -230,7 +242,7 @@ function makeHarness(): Harness {
   const audioContexts: FakeAudioContext[] = []
   const pendingTokens: Array<{ resolve: (value: VoiceCredentials) => void }> = []
   const room = new FakeRoom()
-  const monitor = new FakeReminderMonitor()
+  const monitor = new FakeSpeechDetectionEngine()
   const harness: Harness = {
     state,
     room,
@@ -303,7 +315,7 @@ function makeHarness(): Harness {
       return context as unknown as AudioContext
     },
     audioInteractionTarget: () => new EventTarget(),
-    createMutedSpeakingReminder: () => monitor as never,
+    createSpeechDetectionEngine: () => monitor as never,
     appendAudioElement: (element) => { appendedElements.push({ userId: element.dataset.userId }) },
     removeAllAudioElements: () => { harness.removeAllCalls += 1 },
     applyAudioSink: (_element, deviceId) => { audioSinks.push({ deviceId }) },
