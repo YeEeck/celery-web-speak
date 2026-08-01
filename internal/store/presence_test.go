@@ -8,6 +8,70 @@ import (
 	"time"
 )
 
+func TestSetGuildMemberVoiceXPRoleMatrix(t *testing.T) {
+	db := newTestStore(t)
+	ctx := context.Background()
+	platformAdmin := bootstrapAdmin(t, db)
+
+	owner, err := db.CreateUser(ctx, "xp_matrix_owner", "经验矩阵所有者", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guild, err := db.CreateGuild(ctx, platformAdmin.ID, "经验矩阵服务器", owner.Username)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinaryAdmin, err := db.CreateUser(ctx, "xp_matrix_admin", "经验矩阵管理员", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := db.CreateUser(ctx, "xp_matrix_member", "经验矩阵成员", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsider, err := db.CreateUser(ctx, "xp_matrix_outsider", "非成员用户", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []User{ordinaryAdmin, member} {
+		if _, err := db.AddGuildMember(ctx, guild.ID, owner.ID, user.Username); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.SetGuildMemberRole(ctx, guild.ID, owner.ID, ordinaryAdmin.ID, GuildRoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.JoinGuildAsAdmin(ctx, guild.ID, platformAdmin.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SetGuildMemberRole(ctx, guild.ID, owner.ID, platformAdmin.ID, GuildRoleMember); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		actor  int64
+		target int64
+		want   error
+	}{
+		{"member actor", member.ID, member.ID, ErrGuildMemberVoiceXPForbidden},
+		{"admin actor setting member", ordinaryAdmin.ID, member.ID, nil},
+		{"admin actor setting admin", ordinaryAdmin.ID, ordinaryAdmin.ID, ErrGuildMemberVoiceXPForbidden},
+		{"admin actor setting owner", ordinaryAdmin.ID, owner.ID, ErrGuildMemberVoiceXPForbidden},
+		{"owner setting self", owner.ID, owner.ID, nil},
+		{"owner setting member", owner.ID, member.ID, nil},
+		{"platform admin setting member", platformAdmin.ID, member.ID, nil},
+		{"platform admin setting admin", platformAdmin.ID, ordinaryAdmin.ID, nil},
+		{"platform admin setting owner", platformAdmin.ID, owner.ID, ErrGuildMemberVoiceXPForbidden},
+		{"non-member actor", outsider.ID, member.ID, ErrGuildMemberVoiceXPForbidden},
+	} {
+		_, err := db.SetGuildMemberVoiceXP(ctx, guild.ID, tc.actor, tc.target, 10)
+		if !errors.Is(err, tc.want) {
+			t.Fatalf("%s: error = %v, want %v", tc.name, err, tc.want)
+		}
+	}
+}
+
 func TestSetGuildMemberVoiceXPWritesAuditAndRejectsInactiveTargets(t *testing.T) {
 	db := newTestStore(t)
 	actor := bootstrapAdmin(t, db)

@@ -40,6 +40,18 @@ func TestVoiceLevelAt(t *testing.T) {
 	}
 }
 
+func TestVoiceProgressAt(t *testing.T) {
+	got := VoiceProgressAt(120)
+	want := VoiceProgress{XP: 120, Level: 2, LevelStart: 120, LevelEnd: 210}
+	if got != want {
+		t.Fatalf("VoiceProgressAt(120) = %+v, want %+v", got, want)
+	}
+	clamped := VoiceProgressAt(-100)
+	if clamped.XP != -100 || clamped.Level != 0 {
+		t.Fatalf("VoiceProgressAt(-100) = %+v, want xp kept with level 0", clamped)
+	}
+}
+
 func TestAddGuildVoiceTimeAccruesXPAtOnePerMinute(t *testing.T) {
 	// Indirectly verified through AddGuildVoiceTime: a 7200s credit adds
 	// 120 XP (7200/60). This test guards the SQL fold-in.
