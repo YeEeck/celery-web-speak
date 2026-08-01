@@ -8,6 +8,14 @@ func VoiceLevelFloorXpAt(level int64) int64 {
 	return 10*level*level + 40*level
 }
 
+// VoiceProgressAt assembles the server voice level progress projection for a
+// given total XP: level with its start/end thresholds. It is the single
+// place a VoiceProgress is built from an XP total.
+func VoiceProgressAt(xp int64) VoiceProgress {
+	level, levelStart, levelEnd := VoiceLevelAt(xp)
+	return VoiceProgress{XP: xp, Level: level, LevelStart: levelStart, LevelEnd: levelEnd}
+}
+
 // VoiceLevelAt returns (level, levelStartXp, levelEndXp) for a given voice XP
 // total. Level L is the largest integer L with 10*L*L + 40*L <= xp. Level L+1
 // beings at 10*(L+1)*(L+1) + 40*(L+1).

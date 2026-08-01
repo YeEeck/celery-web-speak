@@ -16,8 +16,11 @@ export class MutedSpeakingReminderMonitor {
   private worklet: AudioWorkletNode | null = null
   private silence: GainNode | null = null
   private worker: Worker | null = null
+  private callbacks: MutedSpeakingReminderCallbacks
 
-  constructor(private callbacks: MutedSpeakingReminderCallbacks) {}
+  constructor(callbacks: MutedSpeakingReminderCallbacks) {
+    this.callbacks = callbacks
+  }
 
   async start(deviceId?: string) {
     this.stop()
