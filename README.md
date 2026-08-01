@@ -2,7 +2,7 @@
 
 Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线语音与文字聊天工具。平台内的逻辑服务器隔离成员、频道、消息、在线和语音状态；前端使用 Vue 3，业务服务使用 Go 与 SQLite，语音通过 LiveKit SFU 集中转发。
 
-当前稳定版本为 `v0.4.25`，生产部署建议固定使用明确版本的预构建镜像。
+当前稳定版本为 `v0.4.26`，生产部署建议固定使用明确版本的预构建镜像。
 
 ## 功能
 
@@ -71,7 +71,7 @@ Celery Web Speak 是一个让单次部署承载多个小型固定群体的在线
 部署文件与应用镜像必须使用同一版本：
 
 ```bash
-git clone --branch v0.4.25 --depth 1 https://github.com/YeEeck/celery-web-speak.git
+git clone --branch v0.4.26 --depth 1 https://github.com/YeEeck/celery-web-speak.git
 cd celery-web-speak
 ```
 
@@ -101,7 +101,7 @@ BOOTSTRAP_ADMIN_PASSWORD=一段足够长的随机密码
 LIVEKIT_API_KEY=生成的Key
 LIVEKIT_API_SECRET=生成的Secret
 
-APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.25
+APP_IMAGE=ghcr.io/yeeeck/celery-web-speak:v0.4.26
 COMPOSE_PROFILES=gateway
 HTTPS_PORT=443
 ```
