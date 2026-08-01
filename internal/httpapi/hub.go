@@ -42,22 +42,35 @@ func clientPriority(kind ClientKind) int {
 	}
 }
 
-// OnlineClient pairs an online user with the client kind they are shown as.
+// PresenceStatus is the displayed presence status of an online user. The
+// status is server-derived from each connection's reported device status and
+// the account's status setting (固定离开).
+type PresenceStatus string
+
+const (
+	PresenceOnline PresenceStatus = "online"
+	PresenceAway   PresenceStatus = "away"
+)
+
+// OnlineClient pairs an online user with the client kind they are shown as
+// and their aggregated presence status.
 type OnlineClient struct {
-	UserID int64      `json:"userId"`
-	Client ClientKind `json:"client"`
+	UserID int64          `json:"userId"`
+	Client ClientKind     `json:"client"`
+	Status PresenceStatus `json:"status"`
 }
 
 type client struct {
-	user       store.User
-	guilds     map[int64]struct{}
-	clientType ClientKind
-	send       chan []byte
-	presence   chan []byte
-	done       chan struct{}
-	doneOnce   sync.Once
-	revoked    atomic.Bool
-	lastActive atomic.Int64
+	user         store.User
+	guilds       map[int64]struct{}
+	clientType   ClientKind
+	deviceStatus PresenceStatus
+	send         chan []byte
+	presence     chan []byte
+	done         chan struct{}
+	doneOnce     sync.Once
+	revoked      atomic.Bool
+	lastActive   atomic.Int64
 }
 
 // PresenceAccumulator persists whole seconds of platform presence onto a
@@ -84,6 +97,7 @@ type Hub struct {
 	clients     map[*client]struct{}
 	counts      map[int64]int
 	kinds       map[int64]ClientKind
+	fixedAway   map[int64]bool
 	memberships map[int64]map[int64]struct{}
 	online      map[int64]*onlineInterval
 	lease       time.Duration
@@ -103,6 +117,7 @@ func newHub(lease time.Duration) *Hub {
 		clients:     make(map[*client]struct{}),
 		counts:      make(map[int64]int),
 		kinds:       make(map[int64]ClientKind),
+		fixedAway:   make(map[int64]bool),
 		memberships: make(map[int64]map[int64]struct{}),
 		online:      make(map[int64]*onlineInterval),
 		lease:       lease,
@@ -115,12 +130,13 @@ func newHub(lease time.Duration) *Hub {
 
 func newClient(user store.User) *client {
 	c := &client{
-		user:       user,
-		guilds:     make(map[int64]struct{}),
-		clientType: ClientWeb,
-		send:       make(chan []byte, 64),
-		presence:   make(chan []byte, 1),
-		done:       make(chan struct{}),
+		user:         user,
+		guilds:       make(map[int64]struct{}),
+		clientType:   ClientWeb,
+		deviceStatus: PresenceOnline,
+		send:         make(chan []byte, 64),
+		presence:     make(chan []byte, 1),
+		done:         make(chan struct{}),
 	}
 	return c
 }
@@ -146,6 +162,7 @@ func (h *Hub) register(c *client) {
 		h.online[c.user.ID] = &onlineInterval{since: h.now()}
 	}
 	h.counts[c.user.ID]++
+	h.fixedAway[c.user.ID] = c.user.FixedAway
 	if kind, ok := h.effectiveKindForUserLocked(c.user.ID); ok {
 		h.kinds[c.user.ID] = kind
 	}
@@ -189,6 +206,7 @@ func (h *Hub) expire(c *client) {
 	if h.counts[c.user.ID] <= 0 {
 		delete(h.counts, c.user.ID)
 		delete(h.kinds, c.user.ID)
+		delete(h.fixedAway, c.user.ID)
 		delete(h.memberships, c.user.ID)
 		h.settleOnlineLocked(c.user.ID)
 	}
@@ -202,7 +220,7 @@ func (h *Hub) OnlineClients() []OnlineClient {
 	best := h.effectiveClientsLocked()
 	out := make([]OnlineClient, 0, len(best))
 	for id, kind := range best {
-		out = append(out, OnlineClient{UserID: id, Client: kind})
+		out = append(out, OnlineClient{UserID: id, Client: kind, Status: h.userPresenceStatusLocked(id)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UserID < out[j].UserID })
 	return out
@@ -215,11 +233,60 @@ func (h *Hub) OnlineGuildClients(guildID int64) []OnlineClient {
 	out := make([]OnlineClient, 0)
 	for id, kind := range best {
 		if _, ok := h.memberships[id][guildID]; ok {
-			out = append(out, OnlineClient{UserID: id, Client: kind})
+			out = append(out, OnlineClient{UserID: id, Client: kind, Status: h.userPresenceStatusLocked(id)})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].UserID < out[j].UserID })
 	return out
+}
+
+// userPresenceStatusLocked computes the displayed presence status of an online
+// user: the 固定离开 account setting overrides everything; otherwise the user
+// is away only when every connected device reports away. A device that has not
+// reported yet is online by default. The caller must hold h.mu.
+func (h *Hub) userPresenceStatusLocked(userID int64) PresenceStatus {
+	if h.fixedAway[userID] {
+		return PresenceAway
+	}
+	awayDevices := 0
+	totalDevices := 0
+	for c := range h.clients {
+		if c.user.ID != userID {
+			continue
+		}
+		totalDevices++
+		if c.deviceStatus == PresenceAway {
+			awayDevices++
+		}
+	}
+	if totalDevices > 0 && awayDevices == totalDevices {
+		return PresenceAway
+	}
+	return PresenceOnline
+}
+
+// SetDeviceStatus records the device status reported by one connection and
+// rebroadcasts presence so other clients observe the change immediately.
+func (h *Hub) SetDeviceStatus(c *client, status PresenceStatus) {
+	h.mu.Lock()
+	if _, ok := h.clients[c]; ok {
+		c.deviceStatus = status
+	}
+	h.mu.Unlock()
+	h.BroadcastPresence()
+}
+
+// SetUserFixedAway records the account's status setting (固定离开) and
+// rebroadcasts presence immediately.
+func (h *Hub) SetUserFixedAway(userID int64, fixedAway bool) {
+	h.mu.Lock()
+	if fixedAway {
+		h.fixedAway[userID] = true
+	} else {
+		delete(h.fixedAway, userID)
+	}
+	h.mu.Unlock()
+	h.BroadcastPresence()
 }
 
 // effectiveClientsLocked returns the client kind each online user is shown
@@ -544,7 +611,7 @@ func (h *Hub) onlineClientsForClientLocked(c *client) []OnlineClient {
 	for id, kind := range best {
 		for guildID := range c.guilds {
 			if _, ok := h.memberships[id][guildID]; ok {
-				out = append(out, OnlineClient{UserID: id, Client: kind})
+				out = append(out, OnlineClient{UserID: id, Client: kind, Status: h.userPresenceStatusLocked(id)})
 				break
 			}
 		}
@@ -569,6 +636,7 @@ func (h *Hub) DisconnectUser(userID int64) {
 	}
 	delete(h.counts, userID)
 	delete(h.kinds, userID)
+	delete(h.fixedAway, userID)
 	delete(h.memberships, userID)
 	h.settleOnlineLocked(userID)
 	h.mu.Unlock()

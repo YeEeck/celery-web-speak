@@ -134,6 +134,7 @@ func (s *Server) handleUpdateMyStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user.FixedAway = input.FixedAway
+	s.hub.SetUserFixedAway(user.ID, input.FixedAway)
 	s.hub.BroadcastUser(user.ID, "user_updated", user)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }

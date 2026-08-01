@@ -16,10 +16,12 @@ const (
 	presenceBroadcastInterval = 15 * time.Second
 	onlineTimeFlushInterval   = 60 * time.Second
 	voiceRoomsRefreshMessage  = "refresh_voice_rooms"
+	deviceStatusMessage       = "device_status"
 )
 
 type webSocketControlMessage struct {
-	Type string `json:"type"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
 }
 
 // parseClientKind reads the self-reported client kind from the WebSocket
@@ -92,20 +94,27 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if _, payload, readErr = conn.ReadMessage(); readErr != nil {
 			break
 		}
-		s.handleWebSocketControlMessage(payload)
+		s.handleWebSocketControlMessage(c, payload)
 	}
 	s.hub.unregister(c, isGracefulWebSocketClose(readErr))
 	_ = conn.Close()
 	<-done
 }
 
-func (s *Server) handleWebSocketControlMessage(payload []byte) {
+func (s *Server) handleWebSocketControlMessage(c *client, payload []byte) {
 	var message webSocketControlMessage
 	if json.Unmarshal(payload, &message) != nil {
 		return
 	}
-	if message.Type == voiceRoomsRefreshMessage {
+	switch message.Type {
+	case voiceRoomsRefreshMessage:
 		s.scheduleVoiceRoomRefresh("client_event")
+	case deviceStatusMessage:
+		status := PresenceStatus(message.Status)
+		if status != PresenceOnline && status != PresenceAway {
+			return
+		}
+		s.hub.SetDeviceStatus(c, status)
 	}
 }
 

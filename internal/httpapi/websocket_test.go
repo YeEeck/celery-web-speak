@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/websocket"
+	"github.com/yeck/celery-web-speak/internal/store"
 )
 
 func TestGracefulWebSocketClose(t *testing.T) {
@@ -27,4 +28,22 @@ func TestGracefulWebSocketClose(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDeviceStatusControlMessage(t *testing.T) {
+	_, admin, server := newGuildHTTPTestServer(t)
+	c := newClient(store.User{ID: admin.ID})
+	server.hub.register(c)
+
+	server.handleWebSocketControlMessage(c, []byte(`{"type":"device_status","status":"away"}`))
+	assertOnlineClients(t, server.hub, []OnlineClient{{UserID: admin.ID, Client: ClientWeb, Status: PresenceAway}})
+
+	server.handleWebSocketControlMessage(c, []byte(`{"type":"device_status","status":"online"}`))
+	assertOnlineClients(t, server.hub, []OnlineClient{{UserID: admin.ID, Client: ClientWeb, Status: PresenceOnline}})
+
+	server.handleWebSocketControlMessage(c, []byte(`{"type":"device_status","status":"busy"}`))
+	assertOnlineClients(t, server.hub, []OnlineClient{{UserID: admin.ID, Client: ClientWeb, Status: PresenceOnline}})
+
+	server.handleWebSocketControlMessage(c, []byte(`not json`))
+	assertOnlineClients(t, server.hub, []OnlineClient{{UserID: admin.ID, Client: ClientWeb, Status: PresenceOnline}})
 }

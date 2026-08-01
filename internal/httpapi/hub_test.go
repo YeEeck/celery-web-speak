@@ -365,10 +365,10 @@ func TestHubGuildPresenceIsIsolated(t *testing.T) {
 	hub.register(first)
 	hub.register(shared)
 	hub.register(other)
-	if got := hub.OnlineGuildClients(10); !slices.Equal(got, []OnlineClient{{UserID: 1, Client: ClientWeb}, {UserID: 2, Client: ClientWeb}}) {
+	if got := hub.OnlineGuildClients(10); !slices.Equal(got, []OnlineClient{{UserID: 1, Client: ClientWeb, Status: PresenceOnline}, {UserID: 2, Client: ClientWeb, Status: PresenceOnline}}) {
 		t.Fatalf("guild 10 online clients = %v", got)
 	}
-	if got := hub.OnlineGuildClients(20); !slices.Equal(got, []OnlineClient{{UserID: 2, Client: ClientWeb}, {UserID: 3, Client: ClientWeb}}) {
+	if got := hub.OnlineGuildClients(20); !slices.Equal(got, []OnlineClient{{UserID: 2, Client: ClientWeb, Status: PresenceOnline}, {UserID: 3, Client: ClientWeb, Status: PresenceOnline}}) {
 		t.Fatalf("guild 20 online clients = %v", got)
 	}
 }
@@ -398,17 +398,17 @@ func TestHubClientTypePriorityPicksHighestAndFallsBack(t *testing.T) {
 	electron.clientType = ClientElectron
 
 	hub.register(web)
-	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientWeb}})
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientWeb, Status: PresenceOnline}})
 	hub.register(android)
-	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientAndroid}})
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientAndroid, Status: PresenceOnline}})
 	hub.register(electron)
-	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientElectron}})
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientElectron, Status: PresenceOnline}})
 
 	// Dropping a connection falls back to the next-highest surviving client.
 	hub.unregister(electron, true)
-	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientAndroid}})
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientAndroid, Status: PresenceOnline}})
 	hub.unregister(android, true)
-	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientWeb}})
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientWeb, Status: PresenceOnline}})
 	hub.unregister(web, true)
 	assertOnlineClients(t, hub, nil)
 }
@@ -425,8 +425,78 @@ func TestHubPresenceBroadcastCarriesClientKind(t *testing.T) {
 	hub.register(electron)
 
 	assertPresenceClients(t, observer, []OnlineClient{
-		{UserID: 1, Client: ClientWeb},
-		{UserID: 2, Client: ClientElectron},
+		{UserID: 1, Client: ClientWeb, Status: PresenceOnline},
+		{UserID: 2, Client: ClientElectron, Status: PresenceOnline},
+	})
+}
+
+func TestHubAggregatesDeviceStatusOnlineByDefault(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	first := newClient(store.User{ID: 7})
+	second := newClient(store.User{ID: 7})
+	hub.register(first)
+	hub.register(second)
+
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 7, Client: ClientWeb, Status: PresenceOnline}})
+
+	hub.SetDeviceStatus(first, PresenceAway)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 7, Client: ClientWeb, Status: PresenceOnline}})
+
+	hub.SetDeviceStatus(second, PresenceAway)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 7, Client: ClientWeb, Status: PresenceAway}})
+
+	hub.SetDeviceStatus(first, PresenceOnline)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 7, Client: ClientWeb, Status: PresenceOnline}})
+}
+
+func TestHubFixedAwayOverridesDeviceReports(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	c := newClient(store.User{ID: 3})
+	hub.register(c)
+
+	hub.SetUserFixedAway(3, true)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientWeb, Status: PresenceAway}})
+
+	hub.SetDeviceStatus(c, PresenceOnline)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientWeb, Status: PresenceAway}})
+
+	hub.SetUserFixedAway(3, false)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 3, Client: ClientWeb, Status: PresenceOnline}})
+}
+
+func TestHubRegisterUsesAccountFixedAwaySetting(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	c := newClient(store.User{ID: 4, FixedAway: true})
+	hub.register(c)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 4, Client: ClientWeb, Status: PresenceAway}})
+}
+
+func TestHubFixedAwayClearsWhenUserGoesOffline(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	c := newClient(store.User{ID: 5, FixedAway: true})
+	hub.register(c)
+	hub.unregister(c, true)
+	assertOnlineUserIDs(t, hub, nil)
+
+	reconnected := newClient(store.User{ID: 5})
+	hub.register(reconnected)
+	assertOnlineClients(t, hub, []OnlineClient{{UserID: 5, Client: ClientWeb, Status: PresenceOnline}})
+}
+
+func TestHubPresenceBroadcastCarriesStatus(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	observer := newClient(store.User{ID: 1})
+	observer.guilds[10] = struct{}{}
+	hub.register(observer)
+
+	away := newClient(store.User{ID: 2})
+	away.guilds[10] = struct{}{}
+	hub.register(away)
+	hub.SetDeviceStatus(away, PresenceAway)
+
+	assertPresenceClients(t, observer, []OnlineClient{
+		{UserID: 1, Client: ClientWeb, Status: PresenceOnline},
+		{UserID: 2, Client: ClientWeb, Status: PresenceAway},
 	})
 }
 
