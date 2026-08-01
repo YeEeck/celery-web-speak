@@ -10,6 +10,7 @@ import { useVoiceDevices } from './voice-devices.ts'
 import { useParticipantVolume } from './voice-participant-volume.ts'
 import { useApplicationAudio } from './voice-application-audio.ts'
 import { useVoiceMuteDeafenModule } from './voice-mute-deafen.ts'
+import { useVoicePresence } from './voice-presence.ts'
 import { useVoiceSession } from './voice-session.ts'
 import {
   DEAFENED_PREFERENCE_KEY,
@@ -45,7 +46,14 @@ export const useVoiceStore = defineStore('voice', () => {
 
   const sounds = useApplicationSoundStore()
 
+  // 共享说话检测引擎：静音说话提醒与在线状态检测共用一条采集流与一个 VAD
+  // worker（ADR-0024）。引擎生命周期由两个消费方的引用计数协作。
+  const speechDetection = new SpeechDetectionEngine({
+    onError: (error) => console.warn('说话检测已停用', error),
+  })
+
   const session = useVoiceSession({
+    createSpeechDetectionEngine: () => speechDetection,
     findChannel: (channelId) => useAppStore().voiceChannels.find((item) => item.id === channelId),
     activeGuildInfo: () => {
       const app = useAppStore()
@@ -111,7 +119,6 @@ export const useVoiceStore = defineStore('voice', () => {
       return AudioContextConstructor ? new AudioContextConstructor({ latencyHint: 'interactive' }) : null
     },
     audioInteractionTarget: () => document,
-    createSpeechDetectionEngine: (callbacks) => new SpeechDetectionEngine(callbacks),
     appendAudioElement: (element) => void document.querySelector('#voice-audio-root')?.appendChild(element),
     removeAllAudioElements: () => void document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove()),
     applyAudioSink: (element, deviceId) => void setAudioSink(element, deviceId),
@@ -202,6 +209,17 @@ export const useVoiceStore = defineStore('voice', () => {
   devicesRef.current = devices
   appAudioRef.current = appAudio
   participantVolumeRef.current = participantVolume
+
+  const presence = useVoicePresence({
+    createSpeechDetectionEngine: () => speechDetection,
+    devicePermissionState: () => devicesRef.current?.devicePermissionState.value ?? 'idle',
+    socketStatus: () => useAppStore().socketStatus,
+    currentUserID: () => useAppStore().user?.id ?? null,
+    initialFixedAway: () => useAppStore().user?.fixedAway === true,
+    fixedAwayFromAccount: () => useAppStore().user?.fixedAway === true,
+    setStatusSettingOnServer: (fixedAway) => useAppStore().setMyStatusSetting(fixedAway),
+    sendDeviceStatus: (status) => useAppStore().sendSocketMessage({ type: 'device_status', status }),
+  })
 
   function setMicrophoneGain(volume: number) {
     const normalized = clampVolume(volume)
@@ -309,5 +327,8 @@ export const useVoiceStore = defineStore('voice', () => {
     refreshDevices: devices.refreshDevices,
     initializeDevices: devices.initializeDevices,
     requestMicrophonePermission: devices.requestMicrophonePermission,
+    statusSetting: presence.statusSetting,
+    ownPresenceStatus: presence.ownPresenceStatus,
+    setStatusSetting: presence.setStatusSetting,
   }
 })

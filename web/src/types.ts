@@ -2,10 +2,12 @@ export type PlatformRole = 'member' | 'platform_admin'
 export type ChannelType = 'text' | 'voice'
 export type GuildRole = 'owner' | 'admin' | 'member'
 export type ClientType = 'web' | 'electron' | 'android'
+export type PresenceStatus = 'online' | 'away' | 'offline'
 
 export interface OnlineClient {
   userId: number
   client: ClientType
+  status?: PresenceStatus
 }
 
 export interface GuildSummary {
@@ -35,6 +37,7 @@ export interface User {
   temporaryBanUntil?: string
   createdAt: string
   onlineSecondsTotal?: number
+  fixedAway?: boolean
   isPlatformAdmin?: boolean
   avatarVersion: number
   hasAvatar: boolean

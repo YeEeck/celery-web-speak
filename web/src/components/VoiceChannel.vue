@@ -5,7 +5,7 @@ import { ConnectionQuality } from 'livekit-client'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
-import type { Channel } from '../types'
+import type { Channel, PresenceStatus } from '../types'
 
 const props = defineProps<{ channel: Channel; actionMenuUserId?: number | null }>()
 const emit = defineEmits<{
@@ -38,6 +38,13 @@ function qualityBars(quality: ConnectionQuality) {
 
 function userFor(participant: VoiceParticipant | { userId: number }) {
   return app.users.find((user) => user.id === participant.userId)
+}
+
+function statusFor(participant: VoiceParticipant | { userId: number }): PresenceStatus | undefined {
+  const user = userFor(participant)
+  if (!user) return undefined
+  if (user.id === app.user?.id) return voice.ownPresenceStatus
+  return app.presenceStatuses[user.id]
 }
 
 function openContextMenu(event: MouseEvent) {
@@ -103,7 +110,7 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
           @contextmenu.prevent="openParticipantMenu(participant, $event)"
           @keydown="openParticipantKeyboardMenu(participant, $event)"
         >
-          <UserAvatar :name="participant.name" :size="30" :user="userFor(participant)" />
+          <UserAvatar :name="participant.name" :size="30" :status="statusFor(participant)" :user="userFor(participant)" />
           <span class="voice-member-name" :class="{ speaking: participant.isSpeaking }">
             {{ participant.name }}<small v-if="participant.isLocal">你</small>
           </span>

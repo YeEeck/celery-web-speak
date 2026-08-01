@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import type { PresenceStatus } from '../types'
 
 interface AvatarUser {
   id: number
@@ -10,13 +11,15 @@ interface AvatarUser {
 const props = withDefaults(defineProps<{
   name: string
   size?: number
-  online?: boolean
+  status?: PresenceStatus
   user?: AvatarUser
 }>(), {
   size: 36,
-  online: false,
+  status: undefined,
   user: undefined,
 })
+
+const statusLabels: Record<PresenceStatus, string> = { online: '在线', away: '离开', offline: '离线' }
 
 const palette = ['#5865f2', '#248046', '#d83c3e', '#a64d79', '#ca8a04', '#0f766e', '#7c3aed', '#b45309']
 const color = computed(() => {
@@ -39,7 +42,7 @@ watch(() => imageUrl.value, () => { imgFailed.value = false })
   <span class="avatar-wrap" :style="{ width: `${size}px`, height: `${size}px` }">
     <img v-if="showImage" class="avatar profile-avatar" :src="imageUrl" alt="" @error="imgFailed = true" />
     <span v-else class="avatar" :style="{ backgroundColor: color, fontSize: `${Math.max(12, size * 0.42)}px` }">{{ initial }}</span>
-    <span v-if="online" class="online-dot" aria-label="在线" />
+    <span v-if="status" :class="['presence-dot', `${status}-dot`]" :aria-label="statusLabels[status]" />
   </span>
 </template>
 

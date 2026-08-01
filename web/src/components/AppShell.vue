@@ -682,7 +682,7 @@ function closeChangelog() {
           :aria-expanded="accountMenuOpen"
           aria-controls="account-menu"
           @click="toggleAccountMenu"
-        ><UserAvatar :name="app.user!.displayName" :size="42" :online="true" :user="app.user ?? undefined" /></button>
+        ><UserAvatar :name="app.user!.displayName" :size="42" :status="voice.ownPresenceStatus" :user="app.user ?? undefined" /></button>
       </div>
     </nav>
 

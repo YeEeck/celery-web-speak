@@ -172,6 +172,15 @@ export function useSocket(ctx: SocketContext) {
     }, VOICE_ROOMS_REFRESH_DELAY_MS)
   }
 
+  function send(message: unknown) {
+    if (socket?.readyState !== WebSocket.OPEN) return
+    try {
+      socket.send(JSON.stringify(message))
+    } catch {
+      // The connection is torn down concurrently; the reconnect path re-reports state.
+    }
+  }
+
   function isConnected() {
     return socket !== null
   }
@@ -181,6 +190,7 @@ export function useSocket(ctx: SocketContext) {
     stopSocket,
     installPageLifecycle,
     requestVoiceRoomsRefresh,
+    send,
     isConnected,
   }
 }

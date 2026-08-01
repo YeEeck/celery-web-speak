@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, getUserProfile as apiGetUserProfile, request } from '../api'
-import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildBootstrapData, GuildMemberPayload, GuildSummary, Message, OnlineClient, User, UserProfile, VoiceRoom } from '../types'
+import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildBootstrapData, GuildMemberPayload, GuildSummary, Message, OnlineClient, PresenceStatus, User, UserProfile, VoiceRoom } from '../types'
 import { getSlashSuggestions, submitSlashCommand, type CommandFeedback, type SlashCommandActions, type SlashSubmitResult, type SlashCommandContext, type VoiceXPSetResponse } from '../slash-commands'
 import { useApplicationSoundStore } from './application-sounds'
 import { activeChannelKey, emptyMessageState, isCompleteUser, mapGuildMember, savedChannelID, savedGuildID, type MessageState } from './app-utils'
@@ -23,6 +23,7 @@ export const useAppStore = defineStore('app', () => {
   const voiceRooms = ref<VoiceRoom[]>([])
   const onlineIds = ref<number[]>([])
   const onlineClients = ref<Record<number, ClientType>>({})
+  const presenceStatuses = ref<Record<number, PresenceStatus>>({})
   const socketStatus = ref<'offline' | 'connecting' | 'online'>('offline')
   const moderatorVoiceDisconnect = ref<{ guildId: number; channelId: number; sequence: number } | null>(null)
   let moderatorVoiceDisconnectSequence = 0
@@ -109,6 +110,7 @@ export const useAppStore = defineStore('app', () => {
     const online = data.online ?? []
     onlineIds.value = online.map((entry) => entry.userId)
     onlineClients.value = Object.fromEntries(online.map((entry) => [entry.userId, entry.client] as const))
+    presenceStatuses.value = Object.fromEntries(online.map((entry) => [entry.userId, entry.status ?? 'online'] as const))
     const currentChannelIDs = new Set(channels.value.map((channel) => channel.id))
     previousChannelIDs.forEach((channelID) => {
       if (!currentChannelIDs.has(channelID)) clearChannelState(channelID)
@@ -152,6 +154,7 @@ export const useAppStore = defineStore('app', () => {
       voiceRooms.value = []
       onlineIds.value = []
       onlineClients.value = {}
+      presenceStatuses.value = {}
       activeTextChannelId.value = null
       moderatorVoiceDisconnect.value = null
     }
@@ -280,6 +283,18 @@ export const useAppStore = defineStore('app', () => {
     applyAccountUpdate(result.user)
   }
 
+  async function setMyStatusSetting(fixedAway: boolean) {
+    const result = await request<{ user: User }>('/api/me/status', {
+      method: 'PATCH',
+      body: JSON.stringify({ fixedAway }),
+    })
+    applyAccountUpdate(result.user)
+  }
+
+  function sendSocketMessage(message: unknown) {
+    socket.send(message)
+  }
+
   async function updateAvatar(blob: Blob) {
     const form = new FormData()
     form.append('file', blob)
@@ -353,6 +368,7 @@ export const useAppStore = defineStore('app', () => {
       const online = (data as OnlineClient[]).filter((entry) => memberIDs.has(entry.userId))
       onlineIds.value = online.map((entry) => entry.userId)
       onlineClients.value = Object.fromEntries(online.map((entry) => [entry.userId, entry.client] as const))
+      presenceStatuses.value = Object.fromEntries(online.map((entry) => [entry.userId, entry.status ?? 'online'] as const))
     } else if (type === 'message_created') {
       const message = data as Message
       const state = ensureMessageState(message.channelId)
@@ -407,6 +423,7 @@ export const useAppStore = defineStore('app', () => {
     voiceRooms.value = []
     onlineIds.value = []
     onlineClients.value = {}
+    presenceStatuses.value = {}
     activeTextChannelId.value = null
   }
 
@@ -504,6 +521,7 @@ export const useAppStore = defineStore('app', () => {
     users.value = users.value.filter((item) => item.id !== userId)
     onlineIds.value = onlineIds.value.filter((id) => id !== userId)
     delete onlineClients.value[userId]
+    delete presenceStatuses.value[userId]
     Object.values(messageStates.value).forEach((state) => {
       state.messages = state.messages.map((message) => message.userId === userId
         ? { ...message, username: '', displayName: '已删除用户', role: 'member' }
@@ -518,9 +536,9 @@ export const useAppStore = defineStore('app', () => {
   return {
     ready, user, users, guilds, activeGuildId, activeGuild, channels, textChannels, voiceChannels, activeTextChannelId, activeTextChannel,
     voiceRooms, messages, commandFeedbacks, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
-    channelReadStates, onlineIds, onlineClients, socketStatus, moderatorVoiceDisconnect, isGuildAdmin, isPlatformAdmin,
+    channelReadStates, onlineIds, onlineClients, presenceStatuses, socketStatus, moderatorVoiceDisconnect, isGuildAdmin, isPlatformAdmin,
     initialize, bootstrap, loadGuildBootstrap, selectGuild, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh: socket.requestVoiceRoomsRefresh,
-    sendMessage, executeSlashCommand, getSlashCommandSuggestions, addCommandFeedback, getUserProfile, setGuildMemberVoiceXP, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft,
+    sendMessage, executeSlashCommand, getSlashCommandSuggestions, addCommandFeedback, getUserProfile, setGuildMemberVoiceXP, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, setMyStatusSetting, sendSocketMessage, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,
   }
 })

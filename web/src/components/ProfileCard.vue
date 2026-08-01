@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Crown, ShieldCheck, MicOff, MessageSquareOff, Ban } from '@lucide/vue'
-import type { User, UserProfile } from '../types'
+import type { PresenceStatus, User, UserProfile } from '../types'
 import { voiceLevelColorProgressPercent } from '../utils/voice-level'
+import { useAppStore } from '../stores/app'
+import { useVoiceStore } from '../stores/voice'
 import UserAvatar from './UserAvatar.vue'
+
+const app = useAppStore()
+const voice = useVoiceStore()
 
 const props = defineProps<{
   userId: number
@@ -106,6 +111,11 @@ function formatDate(value: string | undefined): string {
 
 const roleLabel = (role: string | undefined) => (role === 'owner' ? '服务器所有者' : role === 'admin' ? '服务器管理员' : '普通成员')
 
+function statusOf(userId: number): PresenceStatus {
+  if (userId === app.user?.id) return voice.ownPresenceStatus
+  return app.presenceStatuses[userId] ?? 'offline'
+}
+
 function remainingBan(member: User): string {
   if (!member.temporaryBanUntil) return ''
   const ms = new Date(member.temporaryBanUntil).getTime() - Date.now()
@@ -130,7 +140,7 @@ function remainingBan(member: User): string {
       @keydown="handleKeyDown"
     >
       <header class="profile-card-header">
-        <UserAvatar :name="profile?.displayName ?? '用户'" :size="56" :user="member ?? undefined" />
+        <UserAvatar :name="profile?.displayName ?? '用户'" :size="56" :status="statusOf(props.userId)" :user="member ?? undefined" />
         <div class="profile-card-id">
           <strong>{{ profile?.displayName ?? '用户' }}</strong>
           <div v-if="profile?.voiceProgress" class="profile-card-xp">

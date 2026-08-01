@@ -3,16 +3,24 @@ import { computed, ref } from 'vue'
 import { Crown, Globe, Monitor, ShieldCheck, Smartphone, X } from '@lucide/vue'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
-import type { ClientType, User } from '../types'
+import { useVoiceStore } from '../stores/voice'
+import type { ClientType, PresenceStatus, User } from '../types'
 
 defineProps<{ drawer?: boolean }>()
 const emit = defineEmits<{ close: []; openMember: [user: User, trigger: HTMLElement, x: number, y: number, onClose: () => void] }>()
 const app = useAppStore()
+const voice = useVoiceStore()
 const selectedId = ref<number | null>(null)
 
-const online = computed(() => sortedUsers.value.filter((user) => app.onlineIds.includes(user.id)))
-const offline = computed(() => sortedUsers.value.filter((user) => !app.onlineIds.includes(user.id)))
 const sortedUsers = computed(() => [...app.users].sort((a, b) => roleRank(b.role) - roleRank(a.role) || a.displayName.localeCompare(b.displayName, 'zh-CN')))
+const online = computed(() => sortedUsers.value.filter((user) => statusOf(user.id) === 'online'))
+const away = computed(() => sortedUsers.value.filter((user) => statusOf(user.id) === 'away'))
+const offline = computed(() => sortedUsers.value.filter((user) => statusOf(user.id) === 'offline'))
+
+function statusOf(userId: number): PresenceStatus {
+  if (userId === app.user?.id) return voice.ownPresenceStatus
+  return app.presenceStatuses[userId] ?? 'offline'
+}
 
 const clientIcons = { web: Globe, electron: Monitor, android: Smartphone }
 const clientLabels: Record<ClientType, string> = { web: '网页端', electron: '桌面端', android: '安卓端' }
@@ -37,7 +45,17 @@ function openMember(event: MouseEvent | KeyboardEvent, member: User) {
     <section>
       <h3>在线 — {{ online.length }}</h3>
       <div v-for="member in online" :key="member.id" :class="['member-row', { active: selectedId === member.id }]" tabindex="0" role="button" :aria-label="`查看${member.displayName}的个人信息`" @click="openMember($event, member)" @keydown.enter="openMember($event, member)">
-        <UserAvatar :name="member.displayName" :size="34" :online="true" :user="member" />
+        <UserAvatar :name="member.displayName" :size="34" :status="'online'" :user="member" />
+        <span><strong>{{ member.displayName }}</strong><small>@{{ member.username }}</small></span>
+        <component :is="clientIcons[app.onlineClients[member.id] ?? 'web']" :size="14" class="client-type" :aria-label="clientLabels[app.onlineClients[member.id] ?? 'web']" />
+        <Crown v-if="member.role === 'owner'" :size="15" class="guild-role" aria-label="服务器所有者" />
+        <ShieldCheck v-else-if="member.role === 'admin'" :size="15" class="channel-role" aria-label="服务器管理员" />
+      </div>
+    </section>
+    <section v-if="away.length">
+      <h3>离开 — {{ away.length }}</h3>
+      <div v-for="member in away" :key="member.id" :class="['member-row', { active: selectedId === member.id }]" tabindex="0" role="button" :aria-label="`查看${member.displayName}的个人信息`" @click="openMember($event, member)" @keydown.enter="openMember($event, member)">
+        <UserAvatar :name="member.displayName" :size="34" :status="'away'" :user="member" />
         <span><strong>{{ member.displayName }}</strong><small>@{{ member.username }}</small></span>
         <component :is="clientIcons[app.onlineClients[member.id] ?? 'web']" :size="14" class="client-type" :aria-label="clientLabels[app.onlineClients[member.id] ?? 'web']" />
         <Crown v-if="member.role === 'owner'" :size="15" class="guild-role" aria-label="服务器所有者" />
@@ -46,8 +64,8 @@ function openMember(event: MouseEvent | KeyboardEvent, member: User) {
     </section>
     <section v-if="offline.length">
       <h3>离线 — {{ offline.length }}</h3>
-      <div v-for="member in offline" :key="member.id" :class="['member-row offline', { active: selectedId === member.id }]" tabindex="0" role="button" :aria-label="`查看${member.displayName}的个人信息`" @click="openMember($event, member)" @keydown.enter="openMember($event, member)">
-        <UserAvatar :name="member.displayName" :size="34" :user="member" />
+      <div v-for="member in offline" :key="member.id" :class="['member-row', { active: selectedId === member.id }]" tabindex="0" role="button" :aria-label="`查看${member.displayName}的个人信息`" @click="openMember($event, member)" @keydown.enter="openMember($event, member)">
+        <UserAvatar :name="member.displayName" :size="34" :status="'offline'" :user="member" />
         <span><strong>{{ member.displayName }}</strong><small>@{{ member.username }}</small></span>
         <Crown v-if="member.role === 'owner'" :size="15" class="guild-role" aria-label="服务器所有者" />
         <ShieldCheck v-else-if="member.role === 'admin'" :size="15" class="channel-role" aria-label="服务器管理员" />

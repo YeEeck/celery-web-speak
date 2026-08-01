@@ -12,10 +12,13 @@ export interface SpeechDetectionEngineCallbacks {
 // SpeechDetectionEngine 是常开的本地说话检测引擎：一条麦克风采集流、一个
 // AudioContext、一个 AudioWorklet 与一个 libfvad Worker，对外只发布逐帧的
 // 说话活动事件。所有消费方（静音说话提醒、在线状态检测）都订阅同一事件流，
-// 不各自持有采集与 VAD 资源。
+// 不各自持有采集与 VAD 资源。start/stop 以引用计数协作：最后一个消费方
+// 停止时引擎才真正释放采集。
 export class SpeechDetectionEngine {
   private operation = 0
   private failed = false
+  private refs = 0
+  private activeDeviceId: string | null = null
   private stream: MediaStream | null = null
   private context: AudioContext | null = null
   private source: MediaStreamAudioSourceNode | null = null
@@ -37,8 +40,40 @@ export class SpeechDetectionEngine {
   }
 
   async start(deviceId?: string) {
-    this.stop()
-    if (this.failed) return false
+    const device = deviceId ?? 'default'
+    this.refs += 1
+    if (this.activeDeviceId === device) return true
+    if (this.failed) {
+      this.refs = Math.max(0, this.refs - 1)
+      return false
+    }
+    if (this.activeDeviceId !== null) {
+      await this.restartCapture(device)
+      return true
+    }
+    return this.startCapture(device)
+  }
+
+  stop() {
+    this.refs = Math.max(0, this.refs - 1)
+    if (this.refs > 0) return
+    this.operation += 1
+    this.activeDeviceId = null
+    this.releaseResources()
+  }
+
+  resetFailure() {
+    this.failed = false
+  }
+
+  private async restartCapture(deviceId: string) {
+    this.operation += 1
+    this.releaseResources()
+    if (this.failed) return
+    await this.startCapture(deviceId)
+  }
+
+  private async startCapture(deviceId: string): Promise<boolean> {
     const operation = this.operation
 
     try {
@@ -51,7 +86,7 @@ export class SpeechDetectionEngine {
         noiseSuppression: true,
         autoGainControl: false,
       }
-      if (deviceId && deviceId !== 'default') constraints.deviceId = { exact: deviceId }
+      if (deviceId !== 'default') constraints.deviceId = { exact: deviceId }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints })
       if (operation !== this.operation) {
@@ -98,20 +133,12 @@ export class SpeechDetectionEngine {
 
       if (context.state !== 'running') await context.resume()
       if (context.state !== 'running') throw new Error('VAD 音频上下文无法启动')
+      this.activeDeviceId = deviceId
       return true
     } catch (error) {
       if (operation === this.operation) this.fail(asError(error))
       return false
     }
-  }
-
-  stop() {
-    this.operation += 1
-    this.releaseResources()
-  }
-
-  resetFailure() {
-    this.failed = false
   }
 
   private handleWorkerMessage(message: WorkerMessage) {
