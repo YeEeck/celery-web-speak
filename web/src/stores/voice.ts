@@ -215,7 +215,6 @@ export const useVoiceStore = defineStore('voice', () => {
     devicePermissionState: () => devicesRef.current?.devicePermissionState.value ?? 'idle',
     socketStatus: () => useAppStore().socketStatus,
     currentUserID: () => useAppStore().user?.id ?? null,
-    initialFixedAway: () => useAppStore().user?.fixedAway === true,
     fixedAwayFromAccount: () => useAppStore().user?.fixedAway === true,
     setStatusSettingOnServer: (fixedAway) => useAppStore().setMyStatusSetting(fixedAway),
     sendDeviceStatus: (status) => useAppStore().sendSocketMessage({ type: 'device_status', status }),

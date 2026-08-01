@@ -26,6 +26,7 @@ export class SpeechDetectionEngine {
   private silence: GainNode | null = null
   private worker: Worker | null = null
   private listeners = new Set<SpeechFrameListener>()
+  private failureListeners = new Set<() => void>()
   private callbacks: SpeechDetectionEngineCallbacks
 
   constructor(callbacks: SpeechDetectionEngineCallbacks) {
@@ -36,6 +37,15 @@ export class SpeechDetectionEngine {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
+    }
+  }
+
+  // onFailure 在引擎启动、加载或运行失败时通知：消费方应据此停止依赖检测
+  // 的自动行为（如自动状态检测）。
+  onFailure(listener: () => void) {
+    this.failureListeners.add(listener)
+    return () => {
+      this.failureListeners.delete(listener)
     }
   }
 
@@ -154,6 +164,7 @@ export class SpeechDetectionEngine {
     this.failed = true
     this.operation += 1
     this.releaseResources()
+    for (const listener of this.failureListeners) listener()
     this.callbacks.onError(error)
   }
 

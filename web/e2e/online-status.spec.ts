@@ -6,7 +6,6 @@ const adminUsername = process.env.E2E_USERNAME ?? 'admin'
 const adminPassword = process.env.E2E_PASSWORD ?? 'admin-password-123'
 
 test('账户菜单切换固定离开实时同步到其他客户端且刷新保留', async ({ browser, isMobile, page, request }, testInfo) => {
-  test.skip(isMobile, '在线状态同步只需在一个浏览器项目中验证')
   test.setTimeout(100_000)
 
   await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
@@ -26,6 +25,7 @@ test('账户菜单切换固定离开实时同步到其他客户端且刷新保�
     memberContexts.push(memberContext.context)
     const memberPage = memberContext.page
 
+    if (isMobile) await page.getByTitle('显示成员列表').click()
     await expect(onlineMember(page, account.username)).toBeVisible()
 
     const menu = await openAccountMenu(memberPage)
@@ -79,6 +79,12 @@ test('自动模式 10 分钟无说话进入离开并同步给其他客户端', a
     await expect(onlineMember(page, account.username)).toBeVisible()
     await expect(memberPage.getByTitle('用户账户').locator('.presence-dot')).toHaveAttribute('aria-label', '在线')
 
+    // 关闭静音时说话提醒开关不停止在线状态检测
+    await openUserSettings(memberPage)
+    await memberPage.getByRole('button', { name: '音频', exact: true }).click()
+    await memberPage.getByLabel('静音时说话提醒').uncheck()
+    await memberPage.getByRole('dialog', { name: '用户设置' }).getByTitle('关闭').click()
+
     await memberPage.clock.fastForward(11 * 60_000)
 
     await expect(memberPage.getByTitle('用户账户').locator('.presence-dot')).toHaveAttribute('aria-label', '离开', { timeout: 10_000 })
@@ -111,6 +117,12 @@ async function openAccountMenu(page: Page) {
   const menu = page.getByRole('menu', { name: '用户账户操作' })
   await expect(menu).toBeVisible()
   return menu
+}
+
+async function openUserSettings(page: Page) {
+  const menu = await openAccountMenu(page)
+  await menu.getByRole('menuitem', { name: '用户设置', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '用户设置' })).toBeVisible()
 }
 
 function onlineMember(page: Page, username: string) {

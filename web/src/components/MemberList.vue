@@ -5,6 +5,7 @@ import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
 import type { ClientType, PresenceStatus, User } from '../types'
+import { presenceStatusFor } from '../utils/presence-status'
 
 defineProps<{ drawer?: boolean }>()
 const emit = defineEmits<{ close: []; openMember: [user: User, trigger: HTMLElement, x: number, y: number, onClose: () => void] }>()
@@ -18,8 +19,7 @@ const away = computed(() => sortedUsers.value.filter((user) => statusOf(user.id)
 const offline = computed(() => sortedUsers.value.filter((user) => statusOf(user.id) === 'offline'))
 
 function statusOf(userId: number): PresenceStatus {
-  if (userId === app.user?.id) return voice.ownPresenceStatus
-  return app.presenceStatuses[userId] ?? 'offline'
+  return presenceStatusFor(userId, app.user?.id ?? null, voice.ownPresenceStatus, app.presenceStatuses)
 }
 
 const clientIcons = { web: Globe, electron: Monitor, android: Smartphone }

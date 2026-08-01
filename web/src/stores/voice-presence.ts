@@ -10,7 +10,6 @@ export interface VoicePresenceContext {
   devicePermissionState(): 'idle' | 'requesting' | 'granted' | 'denied'
   socketStatus(): string
   currentUserID(): number | null
-  initialFixedAway(): boolean
   fixedAwayFromAccount(): boolean
   setStatusSettingOnServer(fixedAway: boolean): Promise<void>
   sendDeviceStatus(status: PresenceStatus): void
@@ -22,7 +21,7 @@ export interface VoicePresenceContext {
 export function useVoicePresence(ctx: VoicePresenceContext) {
   const engine = ctx.createSpeechDetectionEngine()
   const tracker = new PresenceActivityTracker()
-  const statusSetting = ref<StatusSetting>(ctx.initialFixedAway() ? 'fixed_away' : 'auto')
+  const statusSetting = ref<StatusSetting>(ctx.fixedAwayFromAccount() ? 'fixed_away' : 'auto')
   const autoPresence = ref<AutoPresenceStatus>(tracker.value)
 
   engine.subscribe((speaking, frameDurationMs) => {
@@ -31,6 +30,12 @@ export function useVoicePresence(ctx: VoicePresenceContext) {
     if (tracker.value === autoPresence.value) return
     autoPresence.value = tracker.value
     ctx.sendDeviceStatus(autoPresence.value)
+  })
+
+  // 引擎失败时静默停用状态检测：没有信号源的计时会把人错误地推入离开。
+  engine.onFailure(() => {
+    tracker.stop()
+    autoPresence.value = tracker.value
   })
 
   const ownPresenceStatus = computed<PresenceStatus>(() => (
@@ -53,8 +58,10 @@ export function useVoicePresence(ctx: VoicePresenceContext) {
 
   watch(() => ctx.devicePermissionState(), (state) => {
     if (state === 'granted') {
-      void engine.start()
-      tracker.start()
+      void engine.start().then((started) => {
+        if (started) tracker.start()
+        else tracker.stop()
+      })
     } else {
       engine.stop()
       tracker.stop()

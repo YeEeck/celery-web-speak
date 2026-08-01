@@ -21,7 +21,6 @@ export const useAppStore = defineStore('app', () => {
   const messageStates = ref<Record<number, MessageState>>({})
   const activeTextChannelId = ref<number | null>(savedChannelID(activeGuildId.value))
   const voiceRooms = ref<VoiceRoom[]>([])
-  const onlineIds = ref<number[]>([])
   const onlineClients = ref<Record<number, ClientType>>({})
   const presenceStatuses = ref<Record<number, PresenceStatus>>({})
   const socketStatus = ref<'offline' | 'connecting' | 'online'>('offline')
@@ -107,10 +106,7 @@ export const useAppStore = defineStore('app', () => {
     channels.value = Array.isArray(data.channels) ? data.channels : []
     voiceRooms.value = Array.isArray(data.voiceRooms) ? data.voiceRooms : []
     channelReadStates.value = Object.fromEntries((data.channelReadStates ?? []).map((state) => [state.channelId, state]))
-    const online = data.online ?? []
-    onlineIds.value = online.map((entry) => entry.userId)
-    onlineClients.value = Object.fromEntries(online.map((entry) => [entry.userId, entry.client] as const))
-    presenceStatuses.value = Object.fromEntries(online.map((entry) => [entry.userId, entry.status ?? 'online'] as const))
+    applyOnlineEntries(data.online ?? [])
     const currentChannelIDs = new Set(channels.value.map((channel) => channel.id))
     previousChannelIDs.forEach((channelID) => {
       if (!currentChannelIDs.has(channelID)) clearChannelState(channelID)
@@ -152,7 +148,6 @@ export const useAppStore = defineStore('app', () => {
       channelReadStates.value = {}
       messageStates.value = {}
       voiceRooms.value = []
-      onlineIds.value = []
       onlineClients.value = {}
       presenceStatuses.value = {}
       activeTextChannelId.value = null
@@ -365,10 +360,7 @@ export const useAppStore = defineStore('app', () => {
       removeUser((data as { userId: number }).userId)
     } else if (type === 'presence') {
       const memberIDs = new Set(users.value.map((item) => item.id))
-      const online = (data as OnlineClient[]).filter((entry) => memberIDs.has(entry.userId))
-      onlineIds.value = online.map((entry) => entry.userId)
-      onlineClients.value = Object.fromEntries(online.map((entry) => [entry.userId, entry.client] as const))
-      presenceStatuses.value = Object.fromEntries(online.map((entry) => [entry.userId, entry.status ?? 'online'] as const))
+      applyOnlineEntries((data as OnlineClient[]).filter((entry) => memberIDs.has(entry.userId)))
     } else if (type === 'message_created') {
       const message = data as Message
       const state = ensureMessageState(message.channelId)
@@ -421,10 +413,14 @@ export const useAppStore = defineStore('app', () => {
     channelReadStates.value = {}
     messageStates.value = {}
     voiceRooms.value = []
-    onlineIds.value = []
     onlineClients.value = {}
     presenceStatuses.value = {}
     activeTextChannelId.value = null
+  }
+
+  function applyOnlineEntries(entries: OnlineClient[]) {
+    onlineClients.value = Object.fromEntries(entries.map((entry) => [entry.userId, entry.client] as const))
+    presenceStatuses.value = Object.fromEntries(entries.map((entry) => [entry.userId, entry.status ?? 'online'] as const))
   }
 
   function applyAccountUpdate(update: Partial<User> & { id: number }) {
@@ -519,7 +515,6 @@ export const useAppStore = defineStore('app', () => {
 
   function removeUser(userId: number) {
     users.value = users.value.filter((item) => item.id !== userId)
-    onlineIds.value = onlineIds.value.filter((id) => id !== userId)
     delete onlineClients.value[userId]
     delete presenceStatuses.value[userId]
     Object.values(messageStates.value).forEach((state) => {
@@ -536,7 +531,7 @@ export const useAppStore = defineStore('app', () => {
   return {
     ready, user, users, guilds, activeGuildId, activeGuild, channels, textChannels, voiceChannels, activeTextChannelId, activeTextChannel,
     voiceRooms, messages, commandFeedbacks, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
-    channelReadStates, onlineIds, onlineClients, presenceStatuses, socketStatus, moderatorVoiceDisconnect, isGuildAdmin, isPlatformAdmin,
+    channelReadStates, onlineClients, presenceStatuses, socketStatus, moderatorVoiceDisconnect, isGuildAdmin, isPlatformAdmin,
     initialize, bootstrap, loadGuildBootstrap, selectGuild, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh: socket.requestVoiceRoomsRefresh,
     sendMessage, executeSlashCommand, getSlashCommandSuggestions, addCommandFeedback, getUserProfile, setGuildMemberVoiceXP, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, setMyStatusSetting, sendSocketMessage, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,

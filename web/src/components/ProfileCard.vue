@@ -5,6 +5,7 @@ import type { PresenceStatus, User, UserProfile } from '../types'
 import { voiceLevelColorProgressPercent } from '../utils/voice-level'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
+import { presenceStatusFor } from '../utils/presence-status'
 import UserAvatar from './UserAvatar.vue'
 
 const app = useAppStore()
@@ -112,8 +113,7 @@ function formatDate(value: string | undefined): string {
 const roleLabel = (role: string | undefined) => (role === 'owner' ? '服务器所有者' : role === 'admin' ? '服务器管理员' : '普通成员')
 
 function statusOf(userId: number): PresenceStatus {
-  if (userId === app.user?.id) return voice.ownPresenceStatus
-  return app.presenceStatuses[userId] ?? 'offline'
+  return presenceStatusFor(userId, app.user?.id ?? null, voice.ownPresenceStatus, app.presenceStatuses)
 }
 
 function remainingBan(member: User): string {

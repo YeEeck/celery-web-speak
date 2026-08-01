@@ -10,6 +10,16 @@ export class MutedSpeakingReminderState {
   private remindedForCurrentUtterance = false
   private lastReminderAt = Number.NEGATIVE_INFINITY
 
+  // reset 在每次检测启动时调用，保证武装延迟与冷却从零开始（与引擎重启前
+  // 的独立状态机语义一致）。
+  reset() {
+    this.elapsedMs = 0
+    this.speechMs = 0
+    this.silenceMs = 0
+    this.remindedForCurrentUtterance = false
+    this.lastReminderAt = Number.NEGATIVE_INFINITY
+  }
+
   process(speaking: boolean, frameDurationMs: number) {
     if (!Number.isFinite(frameDurationMs) || frameDurationMs <= 0) return false
     this.elapsedMs += frameDurationMs

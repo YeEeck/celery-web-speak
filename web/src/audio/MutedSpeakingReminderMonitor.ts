@@ -24,6 +24,7 @@ export class MutedSpeakingReminderMonitor {
   }
 
   async start(deviceId?: string) {
+    this.state.reset()
     return this.engine.start(deviceId)
   }
 
