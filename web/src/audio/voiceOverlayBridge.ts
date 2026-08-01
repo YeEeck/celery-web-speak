@@ -1,4 +1,5 @@
-export const VOICE_OVERLAY_PROTOCOL = 1
+export const VOICE_OVERLAY_MIN_PROTOCOL = 1
+export const VOICE_OVERLAY_PROTOCOL = 2
 
 const REQUIRED_CAPABILITIES = [
   'voice_overlay',
@@ -19,23 +20,38 @@ export interface VoiceOverlayState {
   participants: VoiceOverlayParticipant[]
 }
 
+export interface VoiceOverlayConfig {
+  scalePercent: number
+  positionXPercent: number
+  positionYPercent: number
+  speakingOpacityPercent: number
+  silentOpacityPercent: number
+}
+
 export interface DesktopVoiceOverlayBridge {
   hello(input: { minProtocol: number; maxProtocol: number }): Promise<{ protocol: number; capabilities: string[] }>
   setEnabled(enabled: boolean): Promise<void>
   pushState(state: VoiceOverlayState): void
+  /** 协议 2 起可用；协议 1 的旧壳不提供。 */
+  setConfig?(config: VoiceOverlayConfig): void
 }
 
-export async function connectVoiceOverlayBridge(): Promise<DesktopVoiceOverlayBridge | null> {
+export interface VoiceOverlayBridgeConnection {
+  bridge: DesktopVoiceOverlayBridge
+  protocol: number
+}
+
+export async function connectVoiceOverlayBridge(): Promise<VoiceOverlayBridgeConnection | null> {
   const bridge = window.desktopVoiceOverlay
   if (!isBridge(bridge)) return null
   try {
     const result = await bridge.hello({
-      minProtocol: VOICE_OVERLAY_PROTOCOL,
+      minProtocol: VOICE_OVERLAY_MIN_PROTOCOL,
       maxProtocol: VOICE_OVERLAY_PROTOCOL,
     })
-    if (result.protocol !== VOICE_OVERLAY_PROTOCOL) return null
+    if (result.protocol < VOICE_OVERLAY_MIN_PROTOCOL) return null
     if (!REQUIRED_CAPABILITIES.every((capability) => result.capabilities.includes(capability))) return null
-    return bridge
+    return { bridge, protocol: result.protocol }
   } catch {
     return null
   }

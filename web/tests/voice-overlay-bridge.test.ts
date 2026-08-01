@@ -29,6 +29,7 @@ function installBridge(bridge: FakeBridge): void {
     },
     setEnabled: async () => undefined,
     pushState: () => undefined,
+    setConfig: () => undefined,
   }
   Object.defineProperty(globalThis, 'window', {
     value: { desktopVoiceOverlay },
@@ -37,15 +38,27 @@ function installBridge(bridge: FakeBridge): void {
   })
 }
 
-test('voice overlay bridge: accepts the active desktop bridge', async () => {
+test('voice overlay bridge: declares protocol range 1..2 in the handshake', async () => {
   const bridge = fakeBridge()
   installBridge(bridge)
+  await connectVoiceOverlayBridge()
+  assert.deepEqual(bridge.helloCalls, [{ minProtocol: 1, maxProtocol: VOICE_OVERLAY_PROTOCOL }])
+})
+
+test('voice overlay bridge: accepts a protocol 2 handshake', async () => {
+  const bridge = fakeBridge()
+  bridge.helloResult = { protocol: 2, capabilities: ['voice_overlay'] }
+  installBridge(bridge)
   const connected = await connectVoiceOverlayBridge()
-  assert.ok(connected)
-  assert.deepEqual(bridge.helloCalls, [{
-    minProtocol: VOICE_OVERLAY_PROTOCOL,
-    maxProtocol: VOICE_OVERLAY_PROTOCOL,
-  }])
+  assert.equal(connected?.protocol, 2)
+})
+
+test('voice overlay bridge: accepts a protocol 1 handshake with reduced capability', async () => {
+  const bridge = fakeBridge()
+  bridge.helloResult = { protocol: 1, capabilities: ['voice_overlay'] }
+  installBridge(bridge)
+  const connected = await connectVoiceOverlayBridge()
+  assert.equal(connected?.protocol, 1)
 })
 
 test('voice overlay bridge: returns null when no desktop bridge is exposed', async () => {
@@ -53,16 +66,16 @@ test('voice overlay bridge: returns null when no desktop bridge is exposed', asy
   assert.equal(await connectVoiceOverlayBridge(), null)
 })
 
-test('voice overlay bridge: returns null on protocol mismatch', async () => {
+test('voice overlay bridge: returns null on incompatible protocol', async () => {
   const bridge = fakeBridge()
-  bridge.helloResult = { protocol: 2, capabilities: ['voice_overlay'] }
+  bridge.helloResult = { protocol: 0, capabilities: ['voice_overlay'] }
   installBridge(bridge)
   assert.equal(await connectVoiceOverlayBridge(), null)
 })
 
 test('voice overlay bridge: returns null when the capability is missing', async () => {
   const bridge = fakeBridge()
-  bridge.helloResult = { protocol: 1, capabilities: [] }
+  bridge.helloResult = { protocol: 2, capabilities: [] }
   installBridge(bridge)
   assert.equal(await connectVoiceOverlayBridge(), null)
 })
