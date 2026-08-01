@@ -287,11 +287,6 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
                 <span>静音时说话提醒</span>
                 <input type="checkbox" :checked="voice.mutedSpeakingReminderEnabled" aria-label="静音时说话提醒" @change="voice.setMutedSpeakingReminderEnabled(($event.target as HTMLInputElement).checked)" />
               </label>
-              <label v-if="voice.overlaySupported" class="setting-toggle">
-                <span>游戏内显示语音浮层</span>
-                <input type="checkbox" :checked="voice.overlayEnabled" aria-label="游戏内显示语音浮层" @change="voice.setOverlayEnabled(($event.target as HTMLInputElement).checked)" />
-              </label>
-              <p v-if="voice.overlaySupported" class="profile-hint">语音浮层仅覆盖在窗口化与无边框全屏的游戏画面上，独占全屏与部分 Linux 桌面环境不可见。</p>
             </section>
           </div>
           <div v-else class="motion-content-in">
