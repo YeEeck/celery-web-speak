@@ -43,7 +43,7 @@ export function useVoicePresence(ctx: VoicePresenceContext) {
 
   watch(statusSetting, (setting) => {
     if (setting === 'auto') {
-      tracker.reset()
+      tracker.start()
       autoPresence.value = tracker.value
       ctx.sendDeviceStatus(autoPresence.value)
     } else {
@@ -52,8 +52,13 @@ export function useVoicePresence(ctx: VoicePresenceContext) {
   })
 
   watch(() => ctx.devicePermissionState(), (state) => {
-    if (state === 'granted') void engine.start()
-    else engine.stop()
+    if (state === 'granted') {
+      void engine.start()
+      tracker.start()
+    } else {
+      engine.stop()
+      tracker.stop()
+    }
   })
 
   watch(() => ctx.currentUserID(), (userID) => {

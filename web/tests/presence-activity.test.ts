@@ -18,7 +18,7 @@ function makeClock() {
 }
 
 function makeTracker(clock: FakeClock) {
-  return new PresenceActivityTracker({
+  const tracker = new PresenceActivityTracker({
     now: () => clock.now,
     schedule: (delayMs, callback) => {
       const handle = clock.nextHandle++
@@ -29,6 +29,8 @@ function makeTracker(clock: FakeClock) {
       clock.timers.delete(handle)
     },
   })
+  tracker.start()
+  return tracker
 }
 
 function advance(clock: FakeClock, ms: number) {
@@ -118,9 +120,28 @@ test('reset restarts evaluation from online', () => {
   advance(clock, PRESENCE_AWAY_AFTER_MS)
   assert.equal(tracker.value, 'away')
 
-  tracker.reset()
+  tracker.start()
   assert.equal(tracker.value, 'online')
 
+  advance(clock, PRESENCE_AWAY_AFTER_MS)
+  assert.equal(tracker.value, 'away')
+})
+
+test('stopped tracker holds connection-alive semantics and ignores frames', () => {
+  const clock = makeClock()
+  const tracker = makeTracker(clock)
+
+  advance(clock, PRESENCE_AWAY_AFTER_MS)
+  assert.equal(tracker.value, 'away')
+
+  tracker.stop()
+  assert.equal(tracker.value, 'online')
+
+  confirmSpeech(tracker, 100)
+  advance(clock, PRESENCE_AWAY_AFTER_MS * 2)
+  assert.equal(tracker.value, 'online')
+
+  tracker.start()
   advance(clock, PRESENCE_AWAY_AFTER_MS)
   assert.equal(tracker.value, 'away')
 })
