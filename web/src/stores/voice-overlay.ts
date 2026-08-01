@@ -53,7 +53,7 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
       bridge = null
       return
     }
-    if (configSupported.value) bridge.setConfig?.(config.value)
+    if (configSupported.value) bridge.setConfig?.(plainConfig())
     pushNow()
     watch(
       () => ctx.participants(),
@@ -101,14 +101,20 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
     if (configTimer !== null || !bridge || !configSupported.value) return
     configTimer = setTimeout(() => {
       configTimer = null
-      bridge?.setConfig?.(config.value)
+      bridge?.setConfig?.(plainConfig())
     }, VOICE_OVERLAY_CONFIG_THROTTLE_MS)
+  }
+
+  // ref 对对象值做深响应式（reactive proxy），Electron IPC 结构化克隆无法克隆 Proxy，
+  // 发送前剥离为纯普通对象。
+  function plainConfig(): VoiceOverlayConfig {
+    return { ...config.value }
   }
 
   function pushNow() {
     cancelPendingPush()
     if (!bridge || !enabled.value) return
-    bridge.pushState(buildState())
+    bridge.pushState(toPlainState(buildState()))
   }
 
   function cancelPendingPush() {
@@ -137,6 +143,23 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
     initializeVoiceOverlay,
     setOverlayEnabled,
     setOverlayConfig,
+  }
+}
+
+// Vue 的 ref 对对象值做深响应式（reactive proxy），Electron IPC 结构化克隆无法
+// 克隆 Proxy，发送前必须剥离为纯普通对象。
+function toPlainState(state: VoiceOverlayState): VoiceOverlayState {
+  return {
+    channel: state.channel ? { name: state.channel.name } : null,
+    participants: state.participants.map((participant) => ({
+      identity: participant.identity,
+      name: participant.name,
+      avatarUrl: participant.avatarUrl,
+      isLocal: participant.isLocal,
+      speaking: participant.speaking,
+      microphoneMuted: participant.microphoneMuted,
+      deafened: participant.deafened,
+    })),
   }
 }
 

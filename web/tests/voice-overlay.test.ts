@@ -335,6 +335,19 @@ test('voice overlay config: 拖动变化在 50ms 窗口合并推送最后值', a
   t.mock.timers.reset()
 })
 
+test('voice overlay config: 推送的对象不是响应式代理（IPC 可结构化克隆）', async () => {
+  const { bridge, overlay } = createFixture(false, 2)
+  await overlay.initializeVoiceOverlay()
+  const configCall = bridge.calls.find((call) => call.type === 'setConfig') as { config: VoiceOverlayConfig }
+  const plain = configCall.config as unknown as { __isVue?: boolean }
+  assert.equal(plain.__isVue, undefined)
+  assert.equal(Object.getPrototypeOf(configCall.config), Object.prototype)
+  overlay.setOverlayConfig({ positionXPercent: 20 })
+  await new Promise((resolve) => setTimeout(resolve, 60))
+  const pushed = bridge.calls.findLast((call) => call.type === 'setConfig') as { config: VoiceOverlayConfig }
+  assert.equal(Object.getPrototypeOf(pushed.config), Object.prototype)
+})
+
 test('voice overlay config: 设置持久化到 localStorage', async () => {
   const { overlay } = createFixture(false, 2)
   overlay.setOverlayConfig({ positionYPercent: 75, speakingOpacityPercent: 90 })
