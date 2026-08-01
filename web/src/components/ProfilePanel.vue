@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue'
-import { BellRing, Headphones, Mic, Palette, Play, RefreshCw, Save, Trash2, Upload, UserRound, X } from '@lucide/vue'
+import { BellRing, Gamepad2, Headphones, Mic, Palette, Play, RefreshCw, Save, Trash2, Upload, UserRound, X } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useApplicationSoundStore, type OperationSoundControl, type OperationSoundEvent } from '../stores/application-sounds'
 import { useThemeStore } from '../stores/theme'
@@ -23,7 +23,7 @@ const voice = useVoiceStore()
 const sounds = useApplicationSoundStore()
 const theme = useThemeStore()
 const toast = useToastStore()
-const tab = ref<'account' | 'audio' | 'sound' | 'theme'>(props.initialTab)
+const tab = ref<'account' | 'audio' | 'sound' | 'theme' | 'overlay'>(props.initialTab)
 const audioSubNav = ref<'input' | 'output'>(props.initialAudioSubNav)
 
 const displayName = ref(app.user!.displayName)
@@ -208,6 +208,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
         <button :class="{ active: tab === 'audio' }" @click="tab = 'audio'"><Mic :size="17" />音频</button>
         <button :class="{ active: tab === 'sound' }" @click="tab = 'sound'"><BellRing :size="17" />音效</button>
         <button :class="{ active: tab === 'theme' }" @click="tab = 'theme'"><Palette :size="17" />主题</button>
+        <button v-if="voice.overlayConfigSupported" :class="{ active: tab === 'overlay' }" @click="tab = 'overlay'"><Gamepad2 :size="17" />语音浮层</button>
       </nav>
       <div class="settings-scroll">
         <section v-if="tab === 'account'" class="settings-section motion-content-in">
@@ -343,6 +344,35 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
               </div>
             </div>
           </div>
+        </section>
+
+        <section v-if="tab === 'overlay'" class="settings-section motion-content-in">
+          <h3><Gamepad2 :size="18" />语音浮层</h3>
+          <label class="setting-toggle">
+            <span>在游戏内显示语音浮层</span>
+            <input type="checkbox" :checked="voice.overlayEnabled" aria-label="在游戏内显示语音浮层" @change="voice.setOverlayEnabled(($event.target as HTMLInputElement).checked)" />
+          </label>
+          <label class="audio-level-control">
+            <span><span>显示大小</span><strong>{{ voice.overlayConfig.scalePercent }}%</strong></span>
+            <input type="range" min="50" max="150" step="1" :value="voice.overlayConfig.scalePercent" :style="rangeProgressStyle(voice.overlayConfig.scalePercent, 50, 150)" aria-label="显示大小" @input="voice.setOverlayConfig({ scalePercent: Number(($event.target as HTMLInputElement).value) })" />
+          </label>
+          <label class="audio-level-control">
+            <span><span>水平位置</span><strong>{{ voice.overlayConfig.positionXPercent }}%</strong></span>
+            <input type="range" min="0" max="100" step="1" :value="voice.overlayConfig.positionXPercent" :style="rangeProgressStyle(voice.overlayConfig.positionXPercent, 0, 100)" aria-label="水平位置" @input="voice.setOverlayConfig({ positionXPercent: Number(($event.target as HTMLInputElement).value) })" />
+          </label>
+          <label class="audio-level-control">
+            <span><span>垂直位置</span><strong>{{ voice.overlayConfig.positionYPercent }}%</strong></span>
+            <input type="range" min="0" max="100" step="1" :value="voice.overlayConfig.positionYPercent" :style="rangeProgressStyle(voice.overlayConfig.positionYPercent, 0, 100)" aria-label="垂直位置" @input="voice.setOverlayConfig({ positionYPercent: Number(($event.target as HTMLInputElement).value) })" />
+          </label>
+          <label class="audio-level-control">
+            <span><span>说话时不透明度</span><strong>{{ voice.overlayConfig.speakingOpacityPercent }}%</strong></span>
+            <input type="range" min="10" max="100" step="1" :value="voice.overlayConfig.speakingOpacityPercent" :style="rangeProgressStyle(voice.overlayConfig.speakingOpacityPercent, 10, 100)" aria-label="说话时不透明度" @input="voice.setOverlayConfig({ speakingOpacityPercent: Number(($event.target as HTMLInputElement).value) })" />
+          </label>
+          <label class="audio-level-control">
+            <span><span>未说话时不透明度</span><strong>{{ voice.overlayConfig.silentOpacityPercent }}%</strong></span>
+            <input type="range" min="10" max="100" step="1" :value="voice.overlayConfig.silentOpacityPercent" :style="rangeProgressStyle(voice.overlayConfig.silentOpacityPercent, 10, 100)" aria-label="未说话时不透明度" @input="voice.setOverlayConfig({ silentOpacityPercent: Number(($event.target as HTMLInputElement).value) })" />
+          </label>
+          <p class="profile-hint">浮层位置以浮层窗口中心计算，50% 即屏幕正中；拖动实时生效。</p>
         </section>
 
         <section v-else-if="tab === 'theme'" class="settings-section motion-content-in">
