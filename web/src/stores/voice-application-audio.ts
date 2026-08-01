@@ -10,7 +10,6 @@ import {
   type ApplicationAudioState,
   type DesktopApplicationAudioBridge,
 } from '../audio/applicationAudioBridge'
-import { useAppStore } from './app'
 import {
   APPLICATION_AUDIO_PORT_TIMEOUT_MS,
   APPLICATION_AUDIO_VOLUME_KEY,
@@ -35,6 +34,7 @@ export interface ApplicationAudioContext {
   status: () => string
   connectedPublishSettings: () => ConnectedPublishSettings
   syncParticipants: () => void
+  muted: () => boolean
 }
 
 export function useApplicationAudio(ctx: ApplicationAudioContext) {
@@ -95,11 +95,10 @@ export function useApplicationAudio(ctx: ApplicationAudioContext) {
   }
 
   async function startApplicationAudio() {
-    const app = useAppStore()
     if (!applicationAudioInitialized) await initializeApplicationAudio()
     if (!applicationAudioBridge || !applicationAudioSupported.value || applicationAudioOperating.value) return false
     const room = ctx.room()
-    if (!room || ctx.status() !== 'connected' || app.user?.voiceMuted || ctx.deafened()) {
+    if (!room || ctx.status() !== 'connected' || ctx.muted() || ctx.deafened()) {
       applicationAudioError.value = '请先连接语音频道并取消耳机静音'
       return false
     }
@@ -119,7 +118,7 @@ export function useApplicationAudio(ctx: ApplicationAudioContext) {
       const snapshot = await applicationAudioBridge.start()
       if (!isApplicationAudioSnapshot(snapshot)) throw new Error('桌面客户端返回了无效的背景音状态')
       startedSessionId = snapshot.sessionId
-      if (generation !== applicationAudioGeneration || app.user?.voiceMuted) throw new Error('背景音启动已取消')
+      if (generation !== applicationAudioGeneration || ctx.muted()) throw new Error('背景音启动已取消')
       applyApplicationAudioSnapshot(snapshot)
       if (isSourcePickerCancellation(snapshot)) {
         await cleanupApplicationAudioMedia(target)
@@ -138,7 +137,7 @@ export function useApplicationAudio(ctx: ApplicationAudioContext) {
         throw new Error('背景音启动已取消')
       }
       if (!pipeline.attachPort(sessionId, port)) throw new Error('背景音 PCM 端口无效')
-      if (ctx.room() !== target || session !== ctx.voiceSession() || app.user?.voiceMuted) throw new Error('语音频道已切换')
+      if (ctx.room() !== target || session !== ctx.voiceSession() || ctx.muted()) throw new Error('语音频道已切换')
       const publication = await target.localParticipant.publishTrack(mediaTrack, applicationAudioPublishOptions())
       if (ctx.room() !== target || session !== ctx.voiceSession() || applicationAudioSessionId.value !== sessionId) {
         await target.localParticipant.unpublishTrack(publication.track!, false).catch(() => undefined)
