@@ -35,7 +35,13 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
     if (!connected) return
     bridge = connected
     supported.value = true
-    await bridge.setEnabled(enabled.value)
+    try {
+      await bridge.setEnabled(enabled.value)
+    } catch {
+      supported.value = false
+      bridge = null
+      return
+    }
     pushNow()
     watch(
       () => ctx.participants(),
@@ -60,7 +66,7 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
     enabled.value = value
     saveBoolean(VOICE_OVERLAY_ENABLED_KEY, value)
     if (!bridge) return
-    void bridge.setEnabled(value)
+    void bridge.setEnabled(value).catch(() => undefined)
     if (value) pushNow()
     else cancelPendingPush()
   }

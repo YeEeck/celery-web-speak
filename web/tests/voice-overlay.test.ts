@@ -156,7 +156,6 @@ test('voice overlay: 无桥环境不暴露能力且不推送', async () => {
   })
   await overlay.initializeVoiceOverlay()
   assert.equal(overlay.supported.value, false)
-  await nextTick()
 })
 
 test('voice overlay: 初始化握手并重发偏好与当前状态', async () => {
