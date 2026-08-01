@@ -99,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/auth/logout", s.requireAuth(http.HandlerFunc(s.handleLogout)))
 	mux.Handle("GET /api/me", s.requireAuth(http.HandlerFunc(s.handleMe)))
 	mux.Handle("PATCH /api/me", s.requireAuth(http.HandlerFunc(s.handleUpdateMe)))
+	mux.Handle("PATCH /api/me/status", s.requireAuth(http.HandlerFunc(s.handleUpdateMyStatus)))
 	mux.Handle("POST /api/me/avatar", s.requireAuth(http.HandlerFunc(s.handleUploadMyAvatar)))
 	mux.Handle("DELETE /api/me/avatar", s.requireAuth(http.HandlerFunc(s.handleDeleteMyAvatar)))
 	mux.Handle("GET /api/users/{id}/avatar", s.requireAuth(http.HandlerFunc(s.handleGetUserAvatar)))

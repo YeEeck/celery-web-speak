@@ -112,6 +112,25 @@ UPDATE users SET display_name = ?, bio = ?, updated_at = ? WHERE id = ? AND dele
 	return s.UserByID(ctx, userID)
 }
 
+// SetUserFixedAway persists the user's status setting (固定离开) onto the
+// account. It returns ErrNotFound when the account does not exist or is
+// deleted. The platform online time pipeline is untouched.
+func (s *Store) SetUserFixedAway(ctx context.Context, userID int64, fixedAway bool) error {
+	value := 0
+	if fixedAway {
+		value = 1
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE users SET fixed_away = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`, value, formatTime(s.now()), userID)
+	if err != nil {
+		return fmt.Errorf("set user fixed away: %w", err)
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) ResetPassword(ctx context.Context, actorID, userID int64, password string) error {
 	if err := validatePassword(password); err != nil {
 		return err

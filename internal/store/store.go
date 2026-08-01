@@ -162,6 +162,22 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	if err := s.ensureGuildMemberVoiceXPColumn(ctx); err != nil {
 		return fmt.Errorf("migrate guild member voice xp: %w", err)
 	}
+	if err := s.ensureUserFixedAwayColumn(ctx); err != nil {
+		return fmt.Errorf("migrate user status setting: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ensureUserFixedAwayColumn(ctx context.Context) error {
+	has, err := s.tableHasColumn(ctx, "users", "fixed_away")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := s.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN fixed_away INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -522,11 +538,11 @@ func (s *Store) Authenticate(ctx context.Context, username, password string) (Us
 	var platformAdmin, permanentlyBanned, hasAvatar int
 	var suspendedAt sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, bio, online_seconds_total, password_hash, permanently_banned, suspended_at, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
+SELECT id, username, display_name, bio, online_seconds_total, password_hash, permanently_banned, suspended_at, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL, fixed_away
 FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(username)).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &bio, &user.OnlineSecondsTotal, &passwordHash,
 		&permanentlyBanned, &suspendedAt, &createdAt, &platformAdmin,
-		&user.AvatarVersion, &hasAvatar,
+		&user.AvatarVersion, &hasAvatar, &user.FixedAway,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrInvalidLogin
@@ -563,11 +579,11 @@ func (s *Store) UserByID(ctx context.Context, id int64) (User, error) {
 	var platformAdmin, permanentlyBanned, hasAvatar int
 	var suspendedAt sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, bio, online_seconds_total, permanently_banned, suspended_at, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL
+SELECT id, username, display_name, bio, online_seconds_total, permanently_banned, suspended_at, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL, fixed_away
 FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &bio, &user.OnlineSecondsTotal,
 		&permanentlyBanned, &suspendedAt, &createdAt, &platformAdmin,
-		&user.AvatarVersion, &hasAvatar,
+		&user.AvatarVersion, &hasAvatar, &user.FixedAway,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound

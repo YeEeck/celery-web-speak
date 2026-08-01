@@ -118,6 +118,26 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
 
+// handleUpdateMyStatus persists the current user's status setting (自动模式 /
+// 固定离开) and broadcasts the change so every connected client sees the
+// updated presence. Only the account owner can modify it.
+func (s *Server) handleUpdateMyStatus(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		FixedAway bool `json:"fixedAway"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	user := currentUser(r)
+	if err := s.store.SetUserFixedAway(r.Context(), user.ID, input.FixedAway); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	user.FixedAway = input.FixedAway
+	s.hub.BroadcastUser(user.ID, "user_updated", user)
+	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
 func (s *Server) writeStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrUsernameExists):

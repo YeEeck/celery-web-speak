@@ -84,6 +84,7 @@ type User struct {
 	SuspendedAt        *time.Time `json:"suspendedAt,omitempty"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	OnlineSecondsTotal int64      `json:"onlineSecondsTotal"`
+	FixedAway          bool       `json:"fixedAway"`
 	AvatarVersion      int        `json:"avatarVersion"`
 	HasAvatar          bool       `json:"hasAvatar"`
 }
