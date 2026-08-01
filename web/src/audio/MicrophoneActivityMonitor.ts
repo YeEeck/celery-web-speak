@@ -18,7 +18,11 @@ export class MicrophoneActivityMonitor {
   private microphones = new Map<string, MonitoredMicrophone>()
   private timer: number | null = null
 
-  constructor(private onChange: (identity: string, speaking: boolean) => void) {}
+  private onChange: (identity: string, speaking: boolean) => void
+
+  constructor(onChange: (identity: string, speaking: boolean) => void) {
+    this.onChange = onChange
+  }
 
   sync(sources: Array<{ identity: string; mediaTrack: MediaStreamTrack; muted: boolean }>) {
     const identities = new Set(sources.map((source) => source.identity))

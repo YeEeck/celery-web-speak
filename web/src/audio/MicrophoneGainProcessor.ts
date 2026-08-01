@@ -12,8 +12,11 @@ export class MicrophoneGainProcessor implements TrackProcessor<Track.Kind.Audio,
   private sourceNode?: MediaStreamAudioSourceNode
   private gainNode?: GainNode
   private destinationNode?: MediaStreamAudioDestinationNode
+  private gain: number
 
-  constructor(private gain: number) {}
+  constructor(gain: number) {
+    this.gain = gain
+  }
 
   async init(options: AudioProcessorOptions) {
     this.disconnect()

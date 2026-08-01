@@ -1,173 +1,166 @@
-import { computed, markRaw, ref, watch } from 'vue'
+import { markRaw, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { Room, supportsAudioOutputSelection } from 'livekit-client'
+import { request } from '../api.ts'
+import type { VoiceCredentials } from '../types.ts'
+import { useAppStore } from './app.ts'
+import { useApplicationSoundStore } from './application-sounds.ts'
+import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor.ts'
+import { useVoiceDevices } from './voice-devices.ts'
+import { useParticipantVolume } from './voice-participant-volume.ts'
+import { useApplicationAudio } from './voice-application-audio.ts'
+import { useVoiceMuteDeafenModule } from './voice-mute-deafen.ts'
+import { useVoiceSession } from './voice-session.ts'
 import {
-  Participant,
-  RemoteAudioTrack,
-  Room,
-  RoomEvent,
-  Track,
-  supportsAudioOutputSelection,
-  type RemoteParticipant,
-  type RemoteTrack,
-  type RemoteTrackPublication,
-} from 'livekit-client'
-import { request } from '../api'
-import { MicrophoneActivityMonitor } from '../audio/MicrophoneActivityMonitor'
-import { MicrophoneGainProcessor } from '../audio/MicrophoneGainProcessor'
-import { buildMicrophoneCaptureOptions } from '../audio/microphoneCaptureOptions'
-import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor'
-import { VoiceAudioContextController } from '../audio/VoiceAudioContextController'
-import type { Channel, VoiceCredentials } from '../types'
-import { useAppStore } from './app'
-import { useApplicationSoundStore } from './application-sounds'
-import {
-  DEFAULT_AUDIO_BITRATE_KBPS,
-  DEFAULT_DEVICE_ID,
   DEAFENED_PREFERENCE_KEY,
-  DEAFENED_ATTRIBUTE,
   ECHO_CANCELLATION_KEY,
   MICROPHONE_ENABLED_KEY,
   MICROPHONE_GAIN_KEY,
-  MUTED_SPEAKING_REMINDER_KEY,
   NOISE_SUPPRESSION_KEY,
   OUTPUT_VOLUME_KEY,
   clampVolume,
-  compareParticipants,
-  defaultConnectedPublishSettings,
-  getSavedBackgroundAudioVolume,
   getSavedBoolean,
   getSavedLevel,
-  getSavedMuted,
-  getSavedTransmissionMode,
-  getSavedVolume,
-  hasBackgroundAudio,
-  isBackgroundAudioPlaying,
-  participantJoinedAt,
-  participantRole,
-  participantUserId,
-  saveTransmissionMode,
   saveBoolean,
   setAudioSink,
   type VoiceParticipant,
   type VoiceTransmissionMode,
-} from './voice-utils'
-import { useVoiceDevices } from './voice-devices'
-import { useParticipantVolume } from './voice-participant-volume'
-import { useApplicationAudio } from './voice-application-audio'
-import { useVoiceMuteDeafenModule } from './voice-mute-deafen'
+} from './voice-utils.ts'
 
-export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils'
-
-interface LeaveOptions {
-  notifyGuild?: boolean
-  intent?: 'active'
-}
-
-interface EndedVoiceSession {
-  guildId: number
-  channelId: number
-  deafened: boolean
-  endedAt: number
-}
-
-const MODERATOR_DISCONNECT_MATCH_WINDOW_MS = 5_000
+export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils.ts'
 
 export const useVoiceStore = defineStore('voice', () => {
-  const status = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'>('idle')
-  const connectedChannelId = ref<number | null>(null)
-  const connectedGuildId = ref<number | null>(null)
-  const connectedGuildName = ref('')
-  const connectedChannelName = ref('')
-  const connectedPublishSettings = ref(defaultConnectedPublishSettings())
-  const errorMessage = ref('')
-  const participantStates = ref<VoiceParticipant[]>([])
+  // 与连接无关的纯偏好（会话模块经 ctx 单向读取）。
   const microphoneGain = ref(getSavedLevel(MICROPHONE_GAIN_KEY))
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
   const echoCancellation = ref(getSavedBoolean(ECHO_CANCELLATION_KEY, true))
   const noiseSuppression = ref(getSavedBoolean(NOISE_SUPPRESSION_KEY, true))
-  const mutedSpeakingReminderEnabled = ref(getSavedBoolean(MUTED_SPEAKING_REMINDER_KEY, true))
-  const mutedSpeakingReminderVisible = ref(false)
-  const transmissionMode = ref<VoiceTransmissionMode>(getSavedTransmissionMode())
-  const transmissionModeChanging = ref(false)
-  const transmissionModeError = ref('')
-  const microphoneGainProcessor = new MicrophoneGainProcessor(microphoneGain.value)
-  const microphoneActivity = new MicrophoneActivityMonitor((identity, speaking) => {
-    const participant = participantStates.value.find((item) => item.identity === identity)
-    if (participant) participant.isSpeaking = speaking
-  })
-  let room: Room | null = null
-  let voiceAudioContextController: VoiceAudioContextController | null = null
-  let participantSoundsReady = false
-  let voiceSession = 0
-  let appliedTransmissionMode: VoiceTransmissionMode | null = null
-  let mutedSpeakingReminderTimer: number | null = null
-  let recentEndedSession: EndedVoiceSession | null = null
 
-  const joined = computed(() => status.value !== 'idle' && status.value !== 'error')
-  const connectedAudioBitrateKbps = computed(() => connectedPublishSettings.value.audioBitrateKbps)
-  const dtxEnabled = computed(() => transmissionMode.value === 'voice-activity')
+  // 跨模块组合的延迟解析位：session 模块的 ctx 需要 mute/deafen、设备、应用音频
+  // 模块的输出，而这些模块的 ctx 又需要 session 的输出，创建顺序由本层化解。
+  const muteDeafenRef: { current: ReturnType<typeof useVoiceMuteDeafenModule> | null } = { current: null }
+  const devicesRef: { current: ReturnType<typeof useVoiceDevices> | null } = { current: null }
+  const appAudioRef: { current: ReturnType<typeof useApplicationAudio> | null } = { current: null }
+  const participantVolumeRef: { current: ReturnType<typeof useParticipantVolume> | null } = { current: null }
+
   const sounds = useApplicationSoundStore()
 
+  const session = useVoiceSession({
+    findChannel: (channelId) => useAppStore().voiceChannels.find((item) => item.id === channelId),
+    activeGuildInfo: () => {
+      const app = useAppStore()
+      const guild = app.activeGuild
+      return app.activeGuildId === guild?.id && guild ? { id: guild.id, name: guild.name } : null
+    },
+    currentUser: () => {
+      const user = useAppStore().user
+      return user ? { id: user.id, voiceMuted: user.voiceMuted } : null
+    },
+    connectedUsers: () => {
+      const app = useAppStore()
+      return app.activeGuildId === session.connectedGuildId.value ? app.users : []
+    },
+    requestVoiceRoomsRefresh: () => useAppStore().requestVoiceRoomsRefresh(),
+    muted: () => muteDeafenRef.current?.muted.value ?? false,
+    deafened: () => muteDeafenRef.current?.deafened.value ?? false,
+    guildMuted: () => muteDeafenRef.current?.guildMuted.value ?? false,
+    microphoneEnabledPreference: () => muteDeafenRef.current?.microphoneEnabledPreference.value ?? false,
+    deafenedPreference: () => muteDeafenRef.current?.deafenedPreference.value ?? false,
+    muteChanging: () => muteDeafenRef.current?.muteChanging.value ?? false,
+    deafenChanging: () => muteDeafenRef.current?.deafenChanging.value ?? false,
+    refreshGuildMuted: () => {
+      if (muteDeafenRef.current) muteDeafenRef.current.guildMuted.value = useAppStore().user?.voiceMuted ?? false
+    },
+    setMuted: (value) => {
+      if (muteDeafenRef.current) muteDeafenRef.current.muted.value = value
+    },
+    applyConnectionPreferences: () => muteDeafenRef.current ? muteDeafenRef.current.applyConnectionPreferences() : Promise.resolve(),
+    connectionReset: () => muteDeafenRef.current?.connectionReset(),
+    transportRecovered: () => muteDeafenRef.current ? muteDeafenRef.current.transportRecovered() : Promise.resolve(),
+    notifyPreferenceChange: () => muteDeafenRef.current?.notifyPreferenceChange(),
+    resolvedPreferredInputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('input') ?? '',
+    resolvedPreferredOutputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('output') ?? '',
+    activeOutputDeviceId: () => devicesRef.current?.activeOutputId.value ?? null,
+    devicePermissionState: () => devicesRef.current?.devicePermissionState.value ?? 'idle',
+    supportsOutputSelection: () => devicesRef.current?.supportsOutputSelection ?? false,
+    initializeDevices: () => devicesRef.current ? devicesRef.current.initializeDevices() : Promise.resolve(false),
+    refreshDevices: (force) => devicesRef.current ? devicesRef.current.refreshDevices(force) : Promise.resolve(),
+    applyPreferredDevicesToRoom: (room, voiceSession) => devicesRef.current
+      ? devicesRef.current.applyPreferredDevicesToRoom(room, voiceSession)
+      : Promise.resolve(),
+    stopApplicationAudio: () => appAudioRef.current ? appAudioRef.current.stopApplicationAudio() : Promise.resolve(),
+    republishBackgroundAudio: () => appAudioRef.current ? appAudioRef.current.republishBackgroundAudio() : Promise.resolve(),
+    applicationAudioHasActiveTrack: () => appAudioRef.current?.hasActiveTrack() ?? false,
+    applyAllVolumes: () => participantVolumeRef.current?.applyAllVolumes(),
+    applyVolume: (userId) => participantVolumeRef.current?.applyVolume(userId),
+    signal: (occurrence) => sounds.signal(occurrence),
+    followPlayback: (options) => sounds.followPlayback(options),
+    mutedSpeakingReminderAudible: () => sounds.mutedSpeakingReminderAudible,
+    microphoneGainInitial: () => microphoneGain.value,
+    echoCancellation: () => echoCancellation.value,
+    noiseSuppression: () => noiseSuppression.value,
+    fetchVoiceToken: (guildId, channelId, deafened) => request<VoiceCredentials>(`/api/guilds/${guildId}/channels/${channelId}/voice/token`, {
+      method: 'POST',
+      body: JSON.stringify({ deafened }),
+    }),
+    postVoiceLeave: (guildId) => request<void>(`/api/guilds/${guildId}/voice/leave`, { method: 'POST' }),
+    createRoom: (options) => markRaw(new Room(options)),
+    createAudioContext: () => {
+      const AudioContextConstructor = window.AudioContext
+        || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      return AudioContextConstructor ? new AudioContextConstructor({ latencyHint: 'interactive' }) : null
+    },
+    audioInteractionTarget: () => document,
+    createMutedSpeakingReminder: (callbacks) => new MutedSpeakingReminderMonitor(callbacks),
+    appendAudioElement: (element) => void document.querySelector('#voice-audio-root')?.appendChild(element),
+    removeAllAudioElements: () => void document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove()),
+    applyAudioSink: (element, deviceId) => void setAudioSink(element, deviceId),
+    subscribePageHide: (callback) => window.addEventListener('pagehide', callback),
+    sendBeacon: (url) => navigator.sendBeacon(url),
+  })
+
   const muteDeafen = useVoiceMuteDeafenModule({
-    room: () => room,
-    voiceSession: () => voiceSession,
-    status: () => status.value,
-    connectedChannelId: () => connectedChannelId.value,
-    connectedGuildId: () => connectedGuildId.value,
+    room: session.room,
+    voiceSession: session.voiceSession,
+    status: session.statusValue,
+    connectedChannelId: session.connectedChannelIdValue,
+    connectedGuildId: session.connectedGuildIdValue,
     guildMuteValue: () => {
       const app = useAppStore()
-      return app.activeGuildId === connectedGuildId.value ? app.user?.voiceMuted : undefined
+      return app.activeGuildId === session.connectedGuildId.value ? app.user?.voiceMuted : undefined
     },
     socketStatus: () => useAppStore().socketStatus,
-    transmissionMode: () => transmissionMode.value,
-    appliedTransmissionMode: () => appliedTransmissionMode,
-    microphoneCurrentlyEnabled: () => room?.localParticipant.isMicrophoneEnabled ?? false,
+    transmissionMode: session.transmissionModeValue,
+    appliedTransmissionMode: session.appliedTransmissionModeValue,
+    microphoneCurrentlyEnabled: () => session.room()?.localParticipant.isMicrophoneEnabled ?? false,
     saveMicrophonePreference: (enabled) => saveBoolean(MICROPHONE_ENABLED_KEY, enabled),
     saveDeafenedPreference: (value) => saveBoolean(DEAFENED_PREFERENCE_KEY, value),
-    syncApplicationSoundPlayback,
-    pauseApplicationAudio: async (cancelResume?: boolean) => { await appAudio.pauseApplicationAudio(cancelResume) },
-    resumeApplicationAudio: async (cancelResume?: boolean) => { await appAudio.resumeApplicationAudio(cancelResume) },
-    stopApplicationAudio: async () => { await appAudio.stopApplicationAudio() },
-    applicationAudioIsPlaying: () => appAudio.applicationAudioState.value === 'playing',
-    applicationAudioIsAutoPaused: () => appAudio.isAutoPaused() && appAudio.applicationAudioState.value === 'paused',
-    enableMicrophone,
-    republishMicrophone,
-    attachMicrophoneGain,
-    startAudio: () => room?.startAudio() ?? Promise.resolve(),
-    resumeAudioContext: () => voiceAudioContextController?.resumeIfNeeded(),
-    syncParticipants,
-    applyAllVolumes: () => participantVolume.applyAllVolumes(),
-    applyPreferredDevices: () => room ? applyPreferredDevicesToRoom(room, voiceSession) : Promise.resolve(),
-    setErrorMessage: (msg) => { errorMessage.value = msg },
+    syncApplicationSoundPlayback: session.syncApplicationSoundPlayback,
+    pauseApplicationAudio: async (cancelResume?: boolean) => { await appAudioRef.current?.pauseApplicationAudio(cancelResume) },
+    resumeApplicationAudio: async (cancelResume?: boolean) => { await appAudioRef.current?.resumeApplicationAudio(cancelResume) },
+    stopApplicationAudio: async () => { await appAudioRef.current?.stopApplicationAudio() },
+    applicationAudioIsPlaying: () => { const state = appAudioRef.current?.applicationAudioState.value; return state === 'playing' },
+    applicationAudioIsAutoPaused: () => { const state = appAudioRef.current?.applicationAudioState.value; return (appAudioRef.current?.isAutoPaused() ?? false) && state === 'paused' },
+    enableMicrophone: session.enableMicrophone,
+    republishMicrophone: session.republishMicrophone,
+    attachMicrophoneGain: session.attachMicrophoneGain,
+    startAudio: () => session.room()?.startAudio() ?? Promise.resolve(),
+    resumeAudioContext: session.resumeVoiceAudioContext,
+    syncParticipants: session.syncParticipants,
+    applyAllVolumes: () => participantVolumeRef.current?.applyAllVolumes(),
+    applyPreferredDevices: session.applyPreferredDevicesToCurrentRoom,
+    setErrorMessage: (msg) => { session.errorMessage.value = msg },
     syncDeafenedToBackend: (guildId, channelId, value) => request<void>(`/api/guilds/${guildId}/channels/${channelId}/voice/state`, {
       method: 'PATCH',
       body: JSON.stringify({ deafened: value }),
     }),
   })
-  const {
-    muted,
-    deafened,
-    guildMuted,
-    microphoneEnabledPreference,
-    deafenedPreference,
-    muteChanging,
-    deafenChanging,
-    voicePreferenceFeedback,
-    deafenedSyncError,
-    userToggledMute,
-    userToggledDeafen,
-    guildMuteChanged,
-    transportRecovered,
-    connectionReset,
-    applyConnectionPreferences,
-    notifyPreferenceChange,
-  } = muteDeafen
 
   const devices = useVoiceDevices({
-    room: () => room,
-    voiceSession: () => voiceSession,
-    status: () => status.value,
-    joined: () => joined.value,
+    room: session.room,
+    voiceSession: session.voiceSession,
+    status: session.statusValue,
+    joined: session.joinedValue,
     requestMicPermission: async () => {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持麦克风访问')
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -184,259 +177,37 @@ export const useVoiceStore = defineStore('voice', () => {
         void setAudioSink(element, deviceId)
       })
     },
-    syncSoundPlayback: () => syncApplicationSoundPlayback(),
-    notifyPreferenceChange,
+    syncSoundPlayback: session.syncApplicationSoundPlayback,
+    notifyPreferenceChange: muteDeafen.notifyPreferenceChange,
   })
-  const {
-    inputDevices,
-    outputDevices,
-    activeInputId,
-    activeOutputId,
-    preferredInputId,
-    preferredOutputId,
-    inputDeviceOptions,
-    outputDeviceOptions,
-    devicePermissionState,
-    devicePermissionError,
-    deviceChangeError,
-    deviceChangeErrorKind,
-    deviceChangingKind,
-    deviceChangingId,
-    switchInput,
-    switchOutput,
-    refreshDevices,
-    initializeDevices,
-    requestMicrophonePermission,
-    resolvedPreferredDeviceId,
-    applyPreferredDevicesToRoom,
-  } = devices
-
-  syncApplicationSoundPlayback()
-  const mutedSpeakingReminderInputDeviceId = computed(() => resolvedPreferredDeviceId('input'))
-  const shouldRunMutedSpeakingReminder = computed(() => (
-    status.value === 'connected'
-    && !microphoneEnabledPreference.value
-    && !deafenedPreference.value
-    && !guildMuted.value
-    && mutedSpeakingReminderEnabled.value
-    && sounds.mutedSpeakingReminderAudible
-    && devicePermissionState.value === 'granted'
-  ))
-  const mutedSpeakingReminder = new MutedSpeakingReminderMonitor({
-    onReminder: showMutedSpeakingReminder,
-    onError: (error) => console.warn('静音说话检测已停用', error),
-  })
-
-  watch(
-    () => ({
-      enabled: shouldRunMutedSpeakingReminder.value,
-      deviceId: mutedSpeakingReminderInputDeviceId.value,
-    }),
-    (current, previous) => {
-      if (!current.enabled) {
-        mutedSpeakingReminder.stop()
-        clearMutedSpeakingReminder()
-        return
-      }
-      if (!previous?.enabled || current.deviceId !== previous.deviceId) {
-        void mutedSpeakingReminder.start(current.deviceId)
-      }
-    },
-    { flush: 'sync' },
-  )
 
   const appAudio = useApplicationAudio({
-    room: () => room,
-    voiceSession: () => voiceSession,
-    deafened: () => deafened.value,
-    status: () => status.value,
-    connectedPublishSettings: () => connectedPublishSettings.value,
-    syncParticipants,
-  })
-
-  const participants = computed(() => {
-    const app = useAppStore()
-    const connectedUsers = app.activeGuildId === connectedGuildId.value ? app.users : []
-    return [...participantStates.value].sort((a, b) => compareParticipants(a, b, connectedUsers))
+    room: session.room,
+    voiceSession: session.voiceSession,
+    deafened: () => muteDeafen.deafened.value,
+    status: session.statusValue,
+    connectedPublishSettings: () => session.connectedPublishSettings.value,
+    syncParticipants: session.syncParticipants,
+    muted: () => useAppStore().user?.voiceMuted === true,
   })
 
   const participantVolume = useParticipantVolume({
-    room: () => room,
-    deafened,
+    room: session.room,
+    deafened: muteDeafen.deafened,
     outputVolume,
-    participantStates,
+    participantStates: session.participantStates,
   })
 
-  // 页面关闭时主动通知后端离开语音频道，避免依赖 LiveKit 的断开检测延迟（关闭标签页/窗口时
-  // LiveKit 可能需要数十秒才能通过心跳超时发现连接已断开，导致成员列表出现幽灵状态）。
-  window.addEventListener('pagehide', () => {
-    const guildId = connectedGuildId.value
-    if (!joined.value || guildId === null) return
-    navigator.sendBeacon(`/api/guilds/${guildId}/voice/leave`)
-  })
-
-  function showMutedSpeakingReminder() {
-    if (!shouldRunMutedSpeakingReminder.value) return
-    mutedSpeakingReminderVisible.value = true
-    if (mutedSpeakingReminderTimer !== null) window.clearTimeout(mutedSpeakingReminderTimer)
-    mutedSpeakingReminderTimer = window.setTimeout(() => {
-      mutedSpeakingReminderVisible.value = false
-      mutedSpeakingReminderTimer = null
-    }, 3_000)
-    sounds.signal('muted-speaking-reminder')
-  }
-
-  function clearMutedSpeakingReminder() {
-    mutedSpeakingReminderVisible.value = false
-    if (mutedSpeakingReminderTimer !== null) window.clearTimeout(mutedSpeakingReminderTimer)
-    mutedSpeakingReminderTimer = null
-  }
-
-  function setMutedSpeakingReminderEnabled(value: boolean) {
-    mutedSpeakingReminderEnabled.value = value
-    saveBoolean(MUTED_SPEAKING_REMINDER_KEY, value)
-  }
-
-  function createVoiceAudioContext() {
-    const AudioContextConstructor = window.AudioContext
-      || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-    return AudioContextConstructor ? new AudioContextConstructor({ latencyHint: 'interactive' }) : null
-  }
-
-  async function destroyVoiceAudioContext() {
-    const controller = voiceAudioContextController
-    if (!controller) return
-    voiceAudioContextController = null
-    await controller.destroy()
-  }
-
-  async function join(channelId: number) {
-    if (room && connectedChannelId.value === channelId) return
-    if (status.value === 'connecting') return
-    if (room) await leave({ intent: 'active' })
-    await destroyVoiceAudioContext()
-    voiceSession += 1
-    mutedSpeakingReminder.resetFailure()
-    clearMutedSpeakingReminder()
-    const session = voiceSession
-    recentEndedSession = null
-    const app = useAppStore()
-    status.value = 'connecting'
-    errorMessage.value = ''
-    transmissionModeError.value = ''
-    connectionReset()
-    appliedTransmissionMode = null
-    syncApplicationSoundPlayback()
-    try {
-      const channel = app.voiceChannels.find((item) => item.id === channelId)
-      if (!channel) throw new Error('语音频道不存在')
-      const guild = app.activeGuild
-      if (!guild || app.activeGuildId !== guild.id) throw new Error('未选择服务器')
-      const guildId = guild.id
-      const guildName = guild.name
-      guildMuted.value = app.user?.voiceMuted ?? false
-      connectedChannelId.value = channelId
-      connectedGuildId.value = guildId
-      connectedGuildName.value = guildName
-      connectedChannelName.value = channel.name
-      setConnectedChannelSettings(channel)
-      await initializeDevices()
-      if (session !== voiceSession) return
-      const tokenDeafened = deafenedPreference.value
-      const credentials = await request<VoiceCredentials>(`/api/guilds/${guildId}/channels/${channelId}/voice/token`, {
-        method: 'POST',
-        body: JSON.stringify({ deafened: tokenDeafened }),
-      })
-      if (session !== voiceSession) return
-      const audioContext = createVoiceAudioContext()
-      const nextRoom = markRaw(new Room({
-        adaptiveStream: true,
-        dynacast: true,
-        webAudioMix: audioContext ? { audioContext } : true,
-        audioCaptureDefaults: microphoneCaptureOptions(),
-        publishDefaults: {
-          audioPreset: { maxBitrate: (channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS) * 1000 },
-          dtx: dtxEnabled.value,
-          red: channel.audioRedEnabled ?? true,
-          forceStereo: false,
-        },
-        audioOutput: devices.supportsOutputSelection ? { deviceId: resolvedPreferredDeviceId('output') } : undefined,
-      }))
-      room = nextRoom
-      if (audioContext) {
-        voiceAudioContextController = new VoiceAudioContextController(audioContext, {
-          startAudio: () => nextRoom.startAudio(),
-          shouldResume: () => room === nextRoom && status.value === 'connected' && !deafened.value,
-          interactionTarget: document,
-          onError: (error) => console.warn('语音音频自动恢复失败', error),
-        })
-      }
-      bindRoom(nextRoom)
-      await nextRoom.connect(credentials.url, credentials.token, { autoSubscribe: true, maxRetries: 5 })
-      if (session !== voiceSession || room !== nextRoom) return
-      await refreshDevices(false)
-      if (session !== voiceSession || room !== nextRoom) return
-      await applyConnectionPreferences()
-      if (session !== voiceSession || room !== nextRoom) return
-      status.value = 'connected'
-      voiceAudioContextController?.resumeIfNeeded()
-      await refreshDevices(false)
-      syncParticipants()
-      participantSoundsReady = true
-      sounds.signal('voice-self-joined')
-      app.requestVoiceRoomsRefresh()
-    } catch (error) {
-      if (session !== voiceSession) return
-      participantSoundsReady = false
-      room?.disconnect()
-      room = null
-      await destroyVoiceAudioContext()
-      clearConnectedChannelSummary()
-      status.value = 'error'
-      connectionReset()
-      syncApplicationSoundPlayback()
-      errorMessage.value = error instanceof Error ? error.message : '无法连接语音频道'
-      throw error
-    }
-  }
-
-  async function leave(options: LeaveOptions = {}) {
-    const app = useAppStore()
-    const targetRoom = room
-    const guildId = connectedGuildId.value
-    rememberEndedSession()
-    mutedSpeakingReminder.stop()
-    clearMutedSpeakingReminder()
-    await appAudio.stopApplicationAudio()
-    const wasJoined = targetRoom !== null && room === targetRoom
-    voiceSession += 1
-    participantSoundsReady = false
-    if (wasJoined) {
-      targetRoom.disconnect()
-      room = null
-    }
-    await destroyVoiceAudioContext()
-    clearConnectedChannelSummary()
-    document.querySelectorAll('#voice-audio-root audio').forEach((element) => element.remove())
-    participantStates.value = []
-    status.value = 'idle'
-    connectionReset()
-    appliedTransmissionMode = null
-    transmissionModeError.value = ''
-    microphoneActivity.destroy()
-    if (wasJoined && options.intent === 'active') sounds.signal('voice-self-left')
-    syncApplicationSoundPlayback()
-    if (wasJoined && guildId !== null && options.notifyGuild !== false) {
-      await request(`/api/guilds/${guildId}/voice/leave`, { method: 'POST' })
-      app.requestVoiceRoomsRefresh()
-    }
-  }
+  muteDeafenRef.current = muteDeafen
+  devicesRef.current = devices
+  appAudioRef.current = appAudio
+  participantVolumeRef.current = participantVolume
 
   function setMicrophoneGain(volume: number) {
     const normalized = clampVolume(volume)
     microphoneGain.value = normalized
     localStorage.setItem(MICROPHONE_GAIN_KEY, String(normalized))
-    microphoneGainProcessor.setGain(normalized)
+    session.applyMicrophoneGain(normalized)
   }
 
   function setOutputVolume(volume: number) {
@@ -456,328 +227,49 @@ export const useVoiceStore = defineStore('voice', () => {
     localStorage.setItem(NOISE_SUPPRESSION_KEY, String(value))
   }
 
-  async function toggleTransmissionMode() {
-    if (transmissionModeChanging.value || deafenChanging.value || muteChanging.value) return
-    const previous = transmissionMode.value
-    const next: VoiceTransmissionMode = previous === 'voice-activity' ? 'continuous' : 'voice-activity'
-    transmissionMode.value = next
-    saveTransmissionMode(next)
-    notifyPreferenceChange()
-    transmissionModeError.value = ''
-
-    if (!room || status.value !== 'connected' || muted.value || deafened.value || guildMuted.value) return
-    const target = room
-    const session = voiceSession
-    transmissionModeChanging.value = true
-    try {
-      await republishMicrophone()
-      if (session !== voiceSession || room !== target) return
-      syncParticipants()
-    } catch (error) {
-      if (session !== voiceSession || room !== target) return
-      transmissionMode.value = previous
-      saveTransmissionMode(previous)
-      notifyPreferenceChange()
-      try {
-        await republishMicrophone()
-      } catch {
-        muted.value = !target.localParticipant.isMicrophoneEnabled
-      }
-      transmissionModeError.value = error instanceof Error ? `无法切换传输模式：${error.message}` : '无法切换传输模式'
-      syncParticipants()
-    } finally {
-      transmissionModeChanging.value = false
-    }
-  }
-
-  async function applyPublishSettingsChange(microphoneChanged: boolean, backgroundAudioChanged: boolean) {
-    if (!room) return
-    if (microphoneChanged && !muted.value && !guildMuted.value) {
-      await republishMicrophone()
-    }
-    if (backgroundAudioChanged && appAudio.hasActiveTrack()) {
-      await appAudio.republishBackgroundAudio()
-    }
-    syncParticipants()
-  }
-
-  function updateConnectedChannelSettings(channel: Channel) {
-    if (channel.id !== connectedChannelId.value) return { microphoneChanged: false, backgroundAudioChanged: false }
-    const previous = connectedPublishSettings.value
-    const next = {
-      audioBitrateKbps: channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS,
-      backgroundAudioBitrateKbps: channel.backgroundAudioBitrateKbps ?? 128,
-      audioRedEnabled: channel.audioRedEnabled ?? true,
-      backgroundAudioRedEnabled: channel.backgroundAudioRedEnabled ?? false,
-    }
-    setConnectedChannelSettings(channel)
-    return {
-      microphoneChanged: previous.audioBitrateKbps !== next.audioBitrateKbps || previous.audioRedEnabled !== next.audioRedEnabled,
-      backgroundAudioChanged: previous.backgroundAudioBitrateKbps !== next.backgroundAudioBitrateKbps || previous.backgroundAudioRedEnabled !== next.backgroundAudioRedEnabled,
-    }
-  }
-
-  function syncApplicationSoundPlayback() {
-    sounds.followPlayback({
-      deafened: deafened.value,
-      outputDeviceId: room !== null && status.value !== 'connecting'
-        ? activeOutputId.value
-        : resolvedPreferredDeviceId('output'),
-    })
-  }
-
-  function bindRoom(target: Room) {
-    target
-      .on(RoomEvent.TrackSubscribed, attachTrack)
-      .on(RoomEvent.TrackUnsubscribed, detachTrack)
-      .on(RoomEvent.ParticipantConnected, () => handleParticipantChange(target, 'join'))
-      .on(RoomEvent.ParticipantDisconnected, () => handleParticipantChange(target, 'leave'))
-      .on(RoomEvent.ActiveSpeakersChanged, syncParticipants)
-      .on(RoomEvent.TrackPublished, syncParticipants)
-      .on(RoomEvent.TrackUnpublished, syncParticipants)
-      .on(RoomEvent.TrackMuted, syncParticipants)
-      .on(RoomEvent.TrackUnmuted, syncParticipants)
-      .on(RoomEvent.LocalTrackPublished, syncParticipants)
-      .on(RoomEvent.LocalTrackUnpublished, syncParticipants)
-      .on(RoomEvent.ParticipantAttributesChanged, syncParticipants)
-      .on(RoomEvent.ConnectionQualityChanged, syncParticipants)
-      .on(RoomEvent.Reconnecting, () => {
-        participantSoundsReady = false
-        status.value = 'reconnecting'
-      })
-      .on(RoomEvent.Reconnected, () => {
-        if (room !== target) return
-        status.value = 'connected'
-        voiceAudioContextController?.resumeIfNeeded()
-        void transportRecovered().then(() => {
-          if (room !== target) return
-          syncParticipants()
-          participantSoundsReady = true
-          useAppStore().requestVoiceRoomsRefresh()
-        })
-      })
-      .on(RoomEvent.Disconnected, () => {
-        if (room === target) {
-          void appAudio.stopApplicationAudio()
-          voiceSession += 1
-          participantSoundsReady = false
-          rememberEndedSession()
-          room = null
-          clearConnectedChannelSummary()
-          status.value = 'idle'
-          participantStates.value = []
-          connectionReset()
-          appliedTransmissionMode = null
-          microphoneActivity.destroy()
-          void destroyVoiceAudioContext()
-          syncApplicationSoundPlayback()
-          useAppStore().requestVoiceRoomsRefresh()
-        }
-      })
-  }
-
-  function handleParticipantChange(target: Room, sound: 'join' | 'leave') {
-    if (room !== target) return
-    syncParticipants()
-    useAppStore().requestVoiceRoomsRefresh()
-    if (participantSoundsReady && status.value === 'connected') {
-      sounds.signal(sound === 'join' ? 'voice-participant-joined' : 'voice-participant-left')
-    }
-  }
-
-  function attachTrack(track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) {
-    if (track.kind !== Track.Kind.Audio || !(track instanceof RemoteAudioTrack)) return
-    const element = track.attach()
-    element.dataset.userId = String(participantUserId(participant))
-    element.dataset.trackSource = publication.source
-    element.autoplay = true
-    element.style.display = 'none'
-    document.querySelector('#voice-audio-root')?.appendChild(element)
-    if (activeOutputId.value) void setAudioSink(element, activeOutputId.value)
-    participantVolume.applyVolume(participantUserId(participant))
-    syncParticipants()
-  }
-
-  function detachTrack(track: RemoteTrack) {
-    track.detach().forEach((element) => element.remove())
-    syncParticipants()
-  }
-
-  function syncParticipants() {
-    if (!room) return
-    const app = useAppStore()
-    const values: VoiceParticipant[] = []
-    if (app.user) values.push(toVoiceParticipant(room.localParticipant, true, app.user.id))
-    room.remoteParticipants.forEach((participant) => {
-      values.push(toVoiceParticipant(participant, false, participantUserId(participant)))
-    })
-    participantStates.value = values
-    microphoneActivity.sync([room.localParticipant, ...room.remoteParticipants.values()].flatMap((participant) => {
-      const publication = participant.getTrackPublication(Track.Source.Microphone)
-      const track = publication?.audioTrack
-      return track ? [{
-        identity: participant.identity,
-        mediaTrack: track.mediaStreamTrack,
-        muted: publication.isMuted,
-      }] : []
-    }))
-  }
-
-  function toVoiceParticipant(participant: Participant, isLocal: boolean, userId: number): VoiceParticipant {
-    const existing = participantStates.value.find((item) => item.identity === participant.identity)
-    return {
-      identity: participant.identity,
-      userId,
-      name: participant.name || participant.identity,
-      isLocal,
-      isSpeaking: microphoneActivity.isSpeaking(participant.identity),
-      microphoneEnabled: participant.isMicrophoneEnabled,
-      backgroundAudioAvailable: hasBackgroundAudio(participant),
-      backgroundAudioPlaying: isBackgroundAudioPlaying(participant),
-      deafened: isLocal ? deafened.value : participant.attributes[DEAFENED_ATTRIBUTE] === 'true',
-      quality: participant.connectionQuality,
-      microphoneVolume: getSavedVolume(userId),
-      backgroundAudioVolume: getSavedBackgroundAudioVolume(userId),
-      microphoneMuted: getSavedMuted(`cws.muted.${userId}`),
-      backgroundAudioMuted: getSavedMuted(`cws.backgroundAudioMuted.${userId}`),
-      role: participantRole(participant),
-      joinedAt: existing ? existing.joinedAt : participantJoinedAt(participant),
-    }
-  }
-
-  function setConnectedChannelSettings(channel: Channel) {
-    connectedPublishSettings.value = {
-      audioBitrateKbps: channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS,
-      backgroundAudioBitrateKbps: channel.backgroundAudioBitrateKbps ?? 128,
-      audioRedEnabled: channel.audioRedEnabled ?? true,
-      backgroundAudioRedEnabled: channel.backgroundAudioRedEnabled ?? false,
-    }
-  }
-
-  function clearConnectedChannelSummary() {
-    connectedChannelId.value = null
-    connectedGuildId.value = null
-    connectedGuildName.value = ''
-    connectedChannelName.value = ''
-    connectedPublishSettings.value = defaultConnectedPublishSettings()
-  }
-
-  function rememberEndedSession() {
-    if (connectedGuildId.value === null || connectedChannelId.value === null) return
-    recentEndedSession = {
-      guildId: connectedGuildId.value,
-      channelId: connectedChannelId.value,
-      deafened: deafened.value,
-      endedAt: Date.now(),
-    }
-  }
-
-  function handleModeratorDisconnect(guildId: number, channelId: number) {
-    const matchesCurrent = connectedGuildId.value === guildId && connectedChannelId.value === channelId
-    const matchesRecent = recentEndedSession?.guildId === guildId
-      && recentEndedSession.channelId === channelId
-      && Date.now() - recentEndedSession.endedAt <= MODERATOR_DISCONNECT_MATCH_WINDOW_MS
-    if (!matchesCurrent && !matchesRecent) return false
-
-    const wasDeafened = matchesCurrent ? deafened.value : recentEndedSession?.deafened === true
-    recentEndedSession = null
-    if (!wasDeafened) sounds.signal('voice-moderator-disconnected')
-    return true
-  }
-
-  function publishOptions(mode: VoiceTransmissionMode = transmissionMode.value) {
-    const settings = connectedPublishSettings.value
-    return {
-      audioPreset: { maxBitrate: settings.audioBitrateKbps * 1000 },
-      dtx: mode === 'voice-activity',
-      red: settings.audioRedEnabled,
-      forceStereo: false,
-    }
-  }
-
-  function microphoneCaptureOptions() {
-    return buildMicrophoneCaptureOptions({
-      deviceId: resolvedPreferredDeviceId('input'),
-      echoCancellation: echoCancellation.value,
-      noiseSuppression: noiseSuppression.value,
-    })
-  }
-
-  async function enableMicrophone(enabled: boolean) {
-    const target = room
-    if (!target) return
-    if (target.localParticipant.isMicrophoneEnabled === enabled) return
-    const mode = transmissionMode.value
-    await target.localParticipant.setMicrophoneEnabled(
-      enabled,
-      enabled ? microphoneCaptureOptions() : undefined,
-      enabled ? publishOptions(mode) : undefined,
-    )
-    if (enabled && room === target) appliedTransmissionMode = mode
-  }
-
-  async function attachMicrophoneGain() {
-    const target = room
-    if (!target) return
-    const track = target.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack
-    if (track && track.getProcessor() !== microphoneGainProcessor) {
-      await track.setProcessor(microphoneGainProcessor)
-    }
-  }
-
-  async function republishMicrophone() {
-    const target = room
-    if (!target) return
-    const nextTransmissionMode = transmissionMode.value
-    await target.localParticipant.setMicrophoneEnabled(false)
-    await target.localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions(), publishOptions(nextTransmissionMode))
-    if (room === target) appliedTransmissionMode = nextTransmissionMode
-    await attachMicrophoneGain()
-  }
-
   return {
-    status,
-    connectedChannelId,
-    connectedGuildId,
-    connectedGuildName,
-    connectedChannelName,
-    connectedAudioBitrateKbps,
-    errorMessage,
-    deafenedSyncError,
-    voicePreferenceFeedback,
-    muted,
-    deafened,
-    microphoneEnabledPreference,
-    deafenedPreference,
-    muteChanging,
-    deafenChanging,
-    guildMuted,
-    participants,
-    inputDevices,
-    outputDevices,
-    activeInputId,
-    activeOutputId,
-    preferredInputId,
-    preferredOutputId,
-    inputDeviceOptions,
-    outputDeviceOptions,
+    status: session.status,
+    connectedChannelId: session.connectedChannelId,
+    connectedGuildId: session.connectedGuildId,
+    connectedGuildName: session.connectedGuildName,
+    connectedChannelName: session.connectedChannelName,
+    connectedAudioBitrateKbps: session.connectedAudioBitrateKbps,
+    errorMessage: session.errorMessage,
+    deafenedSyncError: muteDeafen.deafenedSyncError,
+    voicePreferenceFeedback: muteDeafen.voicePreferenceFeedback,
+    muted: muteDeafen.muted,
+    deafened: muteDeafen.deafened,
+    microphoneEnabledPreference: muteDeafen.microphoneEnabledPreference,
+    deafenedPreference: muteDeafen.deafenedPreference,
+    muteChanging: muteDeafen.muteChanging,
+    deafenChanging: muteDeafen.deafenChanging,
+    guildMuted: muteDeafen.guildMuted,
+    participants: session.participants,
+    inputDevices: devices.inputDevices,
+    outputDevices: devices.outputDevices,
+    activeInputId: devices.activeInputId,
+    activeOutputId: devices.activeOutputId,
+    preferredInputId: devices.preferredInputId,
+    preferredOutputId: devices.preferredOutputId,
+    inputDeviceOptions: devices.inputDeviceOptions,
+    outputDeviceOptions: devices.outputDeviceOptions,
     outputDeviceSelectionSupported: devices.supportsOutputSelection,
-    devicePermissionState,
-    devicePermissionError,
-    deviceChangeError,
-    deviceChangeErrorKind,
-    deviceChangingKind,
-    deviceChangingId,
+    devicePermissionState: devices.devicePermissionState,
+    devicePermissionError: devices.devicePermissionError,
+    deviceChangeError: devices.deviceChangeError,
+    deviceChangeErrorKind: devices.deviceChangeErrorKind,
+    deviceChangingKind: devices.deviceChangingKind,
+    deviceChangingId: devices.deviceChangingId,
     microphoneGain,
     outputVolume,
     echoCancellation,
     noiseSuppression,
-    mutedSpeakingReminderEnabled,
-    mutedSpeakingReminderVisible,
-    transmissionMode,
-    transmissionModeChanging,
-    transmissionModeError,
-    dtxEnabled,
+    mutedSpeakingReminderEnabled: session.mutedSpeakingReminderEnabled,
+    mutedSpeakingReminderVisible: session.mutedSpeakingReminderVisible,
+    transmissionMode: session.transmissionMode,
+    transmissionModeChanging: session.transmissionModeChanging,
+    transmissionModeError: session.transmissionModeError,
+    dtxEnabled: session.dtxEnabled,
     applicationAudioSupported: appAudio.applicationAudioSupported,
     applicationAudioState: appAudio.applicationAudioState,
     applicationAudioError: appAudio.applicationAudioError,
@@ -785,13 +277,13 @@ export const useVoiceStore = defineStore('voice', () => {
     applicationAudioActive: appAudio.applicationAudioActive,
     applicationAudioPlaying: appAudio.applicationAudioPlaying,
     applicationAudioChanging: appAudio.applicationAudioChanging,
-    joined,
-    join,
-    leave,
-    toggleMute: userToggledMute,
-    toggleDeafen: userToggledDeafen,
-    switchInput,
-    switchOutput,
+    joined: session.joined,
+    join: session.join,
+    leave: session.leave,
+    toggleMute: muteDeafen.userToggledMute,
+    toggleDeafen: muteDeafen.userToggledDeafen,
+    switchInput: devices.switchInput,
+    switchOutput: devices.switchOutput,
     setParticipantMicrophoneVolume: participantVolume.setParticipantMicrophoneVolume,
     setParticipantBackgroundAudioVolume: participantVolume.setParticipantBackgroundAudioVolume,
     toggleParticipantMicrophoneMute: participantVolume.toggleParticipantMicrophoneMute,
@@ -802,20 +294,20 @@ export const useVoiceStore = defineStore('voice', () => {
     setOutputVolume,
     setEchoCancellation,
     setNoiseSuppression,
-    setMutedSpeakingReminderEnabled,
-    toggleTransmissionMode,
+    setMutedSpeakingReminderEnabled: session.setMutedSpeakingReminderEnabled,
+    toggleTransmissionMode: session.toggleTransmissionMode,
     initializeApplicationAudio: appAudio.initializeApplicationAudio,
     startApplicationAudio: appAudio.startApplicationAudio,
     pauseApplicationAudio: appAudio.pauseApplicationAudio,
     resumeApplicationAudio: appAudio.resumeApplicationAudio,
     stopApplicationAudio: appAudio.stopApplicationAudio,
     setApplicationAudioVolume: appAudio.setApplicationAudioVolume,
-    applyPublishSettingsChange,
-    updateConnectedChannelSettings,
-    syncGuildMute: guildMuteChanged,
-    handleModeratorDisconnect,
-    refreshDevices,
-    initializeDevices,
-    requestMicrophonePermission,
+    applyPublishSettingsChange: session.applyPublishSettingsChange,
+    updateConnectedChannelSettings: session.updateConnectedChannelSettings,
+    syncGuildMute: muteDeafen.guildMuteChanged,
+    handleModeratorDisconnect: session.handleModeratorDisconnect,
+    refreshDevices: devices.refreshDevices,
+    initializeDevices: devices.initializeDevices,
+    requestMicrophonePermission: devices.requestMicrophonePermission,
   }
 })
