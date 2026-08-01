@@ -5,3 +5,4 @@ web/*.tsbuildinfo
 data/
 .env
 .scratch/
+test-results/
