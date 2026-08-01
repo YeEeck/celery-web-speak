@@ -6,6 +6,7 @@ import type {
   VoiceOverlayParticipant,
   VoiceOverlayState,
 } from '../audio/voiceOverlayBridge.ts'
+import { DEFAULT_VOICE_OVERLAY_CONFIG } from '../audio/voiceOverlayBridge.ts'
 import { initialOf, rowOpacityPercent } from './overlay-utils.ts'
 
 interface OverlayHost {
@@ -17,20 +18,18 @@ interface OverlayHost {
 const host = (window as Window & { overlayHost?: OverlayHost }).overlayHost
 
 const state = ref<VoiceOverlayState>({ channel: null, participants: [] })
-const config = ref<VoiceOverlayConfig>({
-  scalePercent: 100,
-  positionXPercent: 9,
-  positionYPercent: 50,
-  speakingOpacityPercent: 80,
-  silentOpacityPercent: 40,
-})
+const avatarFailed = ref(new Set<string>())
+const config = ref<VoiceOverlayConfig>({ ...DEFAULT_VOICE_OVERLAY_CONFIG })
 
 onMounted(() => {
   void host?.getState().then((snapshot) => {
     state.value = snapshot.state
     config.value = snapshot.config
   })
-  host?.onState((next) => { state.value = next })
+  host?.onState((next) => {
+    state.value = next
+    avatarFailed.value = new Set()
+  })
   host?.onConfig((next) => { config.value = next })
 })
 
@@ -43,10 +42,6 @@ function avatarColor(name: string): string {
   let hash = 0
   for (const char of name) hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0
   return palette[Math.abs(hash) % palette.length]
-}
-
-function onAvatarError(event: Event): void {
-  if (event.currentTarget instanceof HTMLImageElement) event.currentTarget.remove()
 }
 </script>
 
@@ -63,7 +58,13 @@ function onAvatarError(event: Event): void {
       :style="{ opacity: opacityPercent(participant) / 100 }"
     >
       <span class="participant-avatar" :style="{ backgroundColor: avatarColor(participant.name) }">
-        <img v-if="participant.avatarUrl" class="participant-avatar-image" :src="participant.avatarUrl" alt="" @error="onAvatarError">
+        <img
+          v-if="participant.avatarUrl && !avatarFailed.has(participant.identity)"
+          class="participant-avatar-image"
+          :src="participant.avatarUrl"
+          alt=""
+          @error="avatarFailed.add(participant.identity)"
+        >
         <span v-else class="participant-avatar-initial">{{ initialOf(participant.name) }}</span>
       </span>
       <span class="participant-name">
@@ -72,7 +73,7 @@ function onAvatarError(event: Event): void {
       <span v-if="participant.deafened" class="participant-icon" role="img" aria-label="耳机已静音" title="耳机已静音">
         <VolumeX :size="14" />
       </span>
-      <span v-else-if="participant.microphoneMuted" class="participant-icon" role="img" aria-label="麦克风已静音" title="麦克风已静音">
+      <span v-if="participant.microphoneMuted" class="participant-icon" role="img" aria-label="麦克风已静音" title="麦克风已静音">
         <MicOff :size="14" />
       </span>
     </li>

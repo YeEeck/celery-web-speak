@@ -1,5 +1,7 @@
 import { ref, watch } from 'vue'
 import {
+  DEFAULT_VOICE_OVERLAY_CONFIG,
+  VOICE_OVERLAY_CONFIG_LIMITS,
   connectVoiceOverlayBridge,
   type DesktopVoiceOverlayBridge,
   type VoiceOverlayConfig,
@@ -12,23 +14,10 @@ import { getSavedBoolean, saveBoolean } from './voice-utils.ts'
 
 export const VOICE_OVERLAY_ENABLED_KEY = 'cws.voiceOverlay.enabled'
 export const VOICE_OVERLAY_CONFIG_KEY = 'cws.voiceOverlay.config'
+export { DEFAULT_VOICE_OVERLAY_CONFIG, VOICE_OVERLAY_CONFIG_LIMITS } from '../audio/voiceOverlayBridge.ts'
 
 const VOICE_OVERLAY_THROTTLE_MS = 100
 const VOICE_OVERLAY_CONFIG_THROTTLE_MS = 50
-
-export const DEFAULT_VOICE_OVERLAY_CONFIG: VoiceOverlayConfig = {
-  scalePercent: 100,
-  positionXPercent: 9,
-  positionYPercent: 50,
-  speakingOpacityPercent: 80,
-  silentOpacityPercent: 40,
-}
-
-const VOICE_OVERLAY_CONFIG_LIMITS = {
-  scalePercent: { min: 50, max: 150 },
-  positionPercent: { min: 0, max: 100 },
-  opacityPercent: { min: 10, max: 100 },
-} as const
 
 export interface VoiceOverlayContext {
   status(): string

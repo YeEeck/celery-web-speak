@@ -28,6 +28,21 @@ export interface VoiceOverlayConfig {
   silentOpacityPercent: number
 }
 
+// 浮层配置契约：默认值与范围与桌面壳 shared 常量一致（设计文档「浮层配置语义」）。
+export const DEFAULT_VOICE_OVERLAY_CONFIG: VoiceOverlayConfig = {
+  scalePercent: 100,
+  positionXPercent: 9,
+  positionYPercent: 50,
+  speakingOpacityPercent: 80,
+  silentOpacityPercent: 40,
+}
+
+export const VOICE_OVERLAY_CONFIG_LIMITS = {
+  scalePercent: { min: 50, max: 150 },
+  positionPercent: { min: 0, max: 100 },
+  opacityPercent: { min: 10, max: 100 },
+} as const
+
 export interface DesktopVoiceOverlayBridge {
   hello(input: { minProtocol: number; maxProtocol: number }): Promise<{ protocol: number; capabilities: string[] }>
   setEnabled(enabled: boolean): Promise<void>

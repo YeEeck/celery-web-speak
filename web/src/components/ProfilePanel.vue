@@ -6,6 +6,7 @@ import { useApplicationSoundStore, type OperationSoundControl, type OperationSou
 import { useThemeStore } from '../stores/theme'
 import { useToastStore } from '../stores/toast'
 import { useVoiceStore } from '../stores/voice'
+import { VOICE_OVERLAY_CONFIG_LIMITS } from '../stores/voice-overlay'
 import { rangeProgressStyle } from '../utils/range'
 import ImageCropperModal from './ImageCropperModal.vue'
 import UserAvatar from './UserAvatar.vue'
@@ -354,23 +355,23 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           </label>
           <label class="audio-level-control">
             <span><span>显示大小</span><strong>{{ voice.overlayConfig.scalePercent }}%</strong></span>
-            <input type="range" min="50" max="150" step="1" :value="voice.overlayConfig.scalePercent" :style="rangeProgressStyle(voice.overlayConfig.scalePercent, 50, 150)" aria-label="显示大小" @input="voice.setOverlayConfig({ scalePercent: Number(($event.target as HTMLInputElement).value) })" />
+            <input type="range" :min="VOICE_OVERLAY_CONFIG_LIMITS.scalePercent.min" :max="VOICE_OVERLAY_CONFIG_LIMITS.scalePercent.max" step="1" :value="voice.overlayConfig.scalePercent" :style="rangeProgressStyle(voice.overlayConfig.scalePercent, VOICE_OVERLAY_CONFIG_LIMITS.scalePercent.min, VOICE_OVERLAY_CONFIG_LIMITS.scalePercent.max)" aria-label="显示大小" @input="voice.setOverlayConfig({ scalePercent: Number(($event.target as HTMLInputElement).value) })" />
           </label>
           <label class="audio-level-control">
             <span><span>水平位置</span><strong>{{ voice.overlayConfig.positionXPercent }}%</strong></span>
-            <input type="range" min="0" max="100" step="1" :value="voice.overlayConfig.positionXPercent" :style="rangeProgressStyle(voice.overlayConfig.positionXPercent, 0, 100)" aria-label="水平位置" @input="voice.setOverlayConfig({ positionXPercent: Number(($event.target as HTMLInputElement).value) })" />
+            <input type="range" :min="VOICE_OVERLAY_CONFIG_LIMITS.positionPercent.min" :max="VOICE_OVERLAY_CONFIG_LIMITS.positionPercent.max" step="1" :value="voice.overlayConfig.positionXPercent" :style="rangeProgressStyle(voice.overlayConfig.positionXPercent, VOICE_OVERLAY_CONFIG_LIMITS.positionPercent.min, VOICE_OVERLAY_CONFIG_LIMITS.positionPercent.max)" aria-label="水平位置" @input="voice.setOverlayConfig({ positionXPercent: Number(($event.target as HTMLInputElement).value) })" />
           </label>
           <label class="audio-level-control">
             <span><span>垂直位置</span><strong>{{ voice.overlayConfig.positionYPercent }}%</strong></span>
-            <input type="range" min="0" max="100" step="1" :value="voice.overlayConfig.positionYPercent" :style="rangeProgressStyle(voice.overlayConfig.positionYPercent, 0, 100)" aria-label="垂直位置" @input="voice.setOverlayConfig({ positionYPercent: Number(($event.target as HTMLInputElement).value) })" />
+            <input type="range" :min="VOICE_OVERLAY_CONFIG_LIMITS.positionPercent.min" :max="VOICE_OVERLAY_CONFIG_LIMITS.positionPercent.max" step="1" :value="voice.overlayConfig.positionYPercent" :style="rangeProgressStyle(voice.overlayConfig.positionYPercent, VOICE_OVERLAY_CONFIG_LIMITS.positionPercent.min, VOICE_OVERLAY_CONFIG_LIMITS.positionPercent.max)" aria-label="垂直位置" @input="voice.setOverlayConfig({ positionYPercent: Number(($event.target as HTMLInputElement).value) })" />
           </label>
           <label class="audio-level-control">
             <span><span>说话时不透明度</span><strong>{{ voice.overlayConfig.speakingOpacityPercent }}%</strong></span>
-            <input type="range" min="10" max="100" step="1" :value="voice.overlayConfig.speakingOpacityPercent" :style="rangeProgressStyle(voice.overlayConfig.speakingOpacityPercent, 10, 100)" aria-label="说话时不透明度" @input="voice.setOverlayConfig({ speakingOpacityPercent: Number(($event.target as HTMLInputElement).value) })" />
+            <input type="range" :min="VOICE_OVERLAY_CONFIG_LIMITS.opacityPercent.min" :max="VOICE_OVERLAY_CONFIG_LIMITS.opacityPercent.max" step="1" :value="voice.overlayConfig.speakingOpacityPercent" :style="rangeProgressStyle(voice.overlayConfig.speakingOpacityPercent, VOICE_OVERLAY_CONFIG_LIMITS.opacityPercent.min, VOICE_OVERLAY_CONFIG_LIMITS.opacityPercent.max)" aria-label="说话时不透明度" @input="voice.setOverlayConfig({ speakingOpacityPercent: Number(($event.target as HTMLInputElement).value) })" />
           </label>
           <label class="audio-level-control">
             <span><span>未说话时不透明度</span><strong>{{ voice.overlayConfig.silentOpacityPercent }}%</strong></span>
-            <input type="range" min="10" max="100" step="1" :value="voice.overlayConfig.silentOpacityPercent" :style="rangeProgressStyle(voice.overlayConfig.silentOpacityPercent, 10, 100)" aria-label="未说话时不透明度" @input="voice.setOverlayConfig({ silentOpacityPercent: Number(($event.target as HTMLInputElement).value) })" />
+            <input type="range" :min="VOICE_OVERLAY_CONFIG_LIMITS.opacityPercent.min" :max="VOICE_OVERLAY_CONFIG_LIMITS.opacityPercent.max" step="1" :value="voice.overlayConfig.silentOpacityPercent" :style="rangeProgressStyle(voice.overlayConfig.silentOpacityPercent, VOICE_OVERLAY_CONFIG_LIMITS.opacityPercent.min, VOICE_OVERLAY_CONFIG_LIMITS.opacityPercent.max)" aria-label="未说话时不透明度" @input="voice.setOverlayConfig({ silentOpacityPercent: Number(($event.target as HTMLInputElement).value) })" />
           </label>
           <p class="profile-hint">浮层位置以浮层窗口中心计算，50% 即屏幕正中；拖动实时生效。</p>
         </section>
