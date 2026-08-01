@@ -12,6 +12,7 @@ import { useApplicationAudio } from './voice-application-audio.ts'
 import { useVoiceMuteDeafenModule } from './voice-mute-deafen.ts'
 import { useVoicePresence } from './voice-presence.ts'
 import { useVoiceSession } from './voice-session.ts'
+import { useVoiceOverlay } from './voice-overlay.ts'
 import {
   DEAFENED_PREFERENCE_KEY,
   ECHO_CANCELLATION_KEY,
@@ -205,6 +206,16 @@ export const useVoiceStore = defineStore('voice', () => {
     participantStates: session.participantStates,
   })
 
+  const overlay = useVoiceOverlay({
+    status: session.statusValue,
+    connectedChannelName: () => session.connectedChannelName.value,
+    participants: () => session.participants.value,
+    connectedUsers: () => {
+      const app = useAppStore()
+      return app.activeGuildId === session.connectedGuildId.value ? app.users : []
+    },
+  })
+
   muteDeafenRef.current = muteDeafen
   devicesRef.current = devices
   appAudioRef.current = appAudio
@@ -314,6 +325,10 @@ export const useVoiceStore = defineStore('voice', () => {
     setMutedSpeakingReminderEnabled: session.setMutedSpeakingReminderEnabled,
     toggleTransmissionMode: session.toggleTransmissionMode,
     initializeApplicationAudio: appAudio.initializeApplicationAudio,
+    overlaySupported: overlay.supported,
+    overlayEnabled: overlay.enabled,
+    setOverlayEnabled: overlay.setOverlayEnabled,
+    initializeVoiceOverlay: overlay.initializeVoiceOverlay,
     startApplicationAudio: appAudio.startApplicationAudio,
     pauseApplicationAudio: appAudio.pauseApplicationAudio,
     resumeApplicationAudio: appAudio.resumeApplicationAudio,

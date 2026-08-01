@@ -169,6 +169,7 @@ function handleKeyDown(event: KeyboardEvent) {
 
 onMounted(() => {
   void voice.initializeApplicationAudio()
+  void voice.initializeVoiceOverlay()
   document.addEventListener('pointerdown', handlePointerDown)
   document.addEventListener('keydown', handleKeyDown)
 })
