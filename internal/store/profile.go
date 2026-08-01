@@ -103,15 +103,10 @@ func (s *Store) GuildProfileView(ctx context.Context, requesterID, targetID, gui
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return UserProfile{}, err
 	}
-	level, levelStart, levelEnd := VoiceLevelAt(xp)
+	progress := VoiceProgressAt(xp)
 	profile.VoiceSecondsTotal = &seconds
 	profile.VoiceXPTotal = &xp
-	profile.VoiceProgress = &VoiceProgress{
-		XP:         xp,
-		Level:      level,
-		LevelStart: levelStart,
-		LevelEnd:   levelEnd,
-	}
+	profile.VoiceProgress = &progress
 	return profile, nil
 }
 
