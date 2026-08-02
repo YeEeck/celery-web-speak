@@ -1,0 +1,1 @@
+var e=`/assets/rnnoise-lVVwgm0Y.wasm`;export{e as default};

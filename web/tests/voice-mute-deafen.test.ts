@@ -120,7 +120,7 @@ function makeHarness(initial: {
       if (republishMicrophoneErrorRef.value) throw republishMicrophoneErrorRef.value
       appliedTransmissionModeRef.value = transmissionModeRef.value
     },
-    attachMicrophoneGain: async () => calls.push('attachMicrophoneGain'),
+    attachMicrophonePipeline: async () => calls.push('attachMicrophonePipeline'),
     startAudio: async () => {
       calls.push('startAudio')
       if (startAudioErrorRef.value) throw startAudioErrorRef.value
@@ -295,7 +295,7 @@ test('transportRecovered 调 reconcile 流程，不调 syncParticipants（由调
   assert.equal(m.muted.value, false)
   assert.ok(h.calls.includes('startAudio'))
   assert.ok(h.calls.includes('enableMicrophone:true'))
-  assert.ok(h.calls.includes('attachMicrophoneGain'))
+  assert.ok(h.calls.includes('attachMicrophonePipeline'))
   assert.ok(h.calls.includes('applyAllVolumes'))
   assert.ok(h.calls.includes('syncDeafenedToBackend:9,5,false'))
   assert.ok(!h.calls.includes('syncParticipants'))

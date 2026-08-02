@@ -46,7 +46,7 @@ export interface MuteDeafenContext {
   // 麦克风发布 adapter（idempotent，内部按当前状态决定是否实际切换）
   enableMicrophone: (enabled: boolean) => Promise<void>
   republishMicrophone: () => Promise<void>
-  attachMicrophoneGain: () => Promise<void>
+  attachMicrophonePipeline: () => Promise<void>
 
   // 音频路由/上下文
   startAudio: () => Promise<void>
@@ -296,7 +296,7 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
           await ctx.republishMicrophone()
           if (session !== ctx.voiceSession() || ctx.room() !== target) return
         }
-        if (shouldEnableMicrophone) await ctx.attachMicrophoneGain()
+        if (shouldEnableMicrophone) await ctx.attachMicrophonePipeline()
         deafened.value = false
         muted.value = !shouldEnableMicrophone
         ctx.syncApplicationSoundPlayback()

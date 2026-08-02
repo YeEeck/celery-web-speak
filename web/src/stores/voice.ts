@@ -6,6 +6,7 @@ import type { VoiceCredentials } from '../types.ts'
 import { useAppStore } from './app.ts'
 import { useApplicationSoundStore } from './application-sounds.ts'
 import { SpeechDetectionEngine } from '../audio/SpeechDetectionEngine.ts'
+import { preloadRnnoiseWasm } from '../audio/rnnoise.ts'
 import { useVoiceDevices } from './voice-devices.ts'
 import { useParticipantVolume } from './voice-participant-volume.ts'
 import { useApplicationAudio } from './voice-application-audio.ts'
@@ -41,9 +42,15 @@ export const useVoiceStore = defineStore('voice', () => {
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
   const echoCancellation = ref(getSavedBoolean(ECHO_CANCELLATION_KEY, true))
   const noiseSuppressionOption = ref(getSavedNoiseSuppressionOption())
-  // RNNoise 管线能力：由降噪管线模块上报（预取/实例化失败或环境不支持时不可用），
-  // 不可用期间增强降噪按回退链视作系统降噪。
+  // RNNoise 管线能力：WASM 应用启动时预取，成功后视为能力可用；不可用期间
+  // 增强降噪按回退链视作系统降噪。上下文采样率条件在语音上下文创建后参与合成。
   const rnnoiseCapable = ref(false)
+  const rnnoiseBinaryPromise = preloadRnnoiseWasm()
+  rnnoiseBinaryPromise.then((binary) => {
+    rnnoiseCapable.value = binary !== null
+  })
+  // 语音音频上下文引用：约束合成需要知道实际采样率（RNNoise 仅支持 48kHz）。
+  const voiceContextRef: { current: AudioContext | null } = { current: null }
 
   // 跨模块组合的延迟解析位：session 模块的 ctx 需要 mute/deafen、设备、应用音频
   // 模块的输出，而这些模块的 ctx 又需要 session 的输出，创建顺序由本层化解。
@@ -114,7 +121,12 @@ export const useVoiceStore = defineStore('voice', () => {
     mutedSpeakingReminderAudible: () => sounds.mutedSpeakingReminderAudible,
     microphoneGainInitial: () => microphoneGain.value,
     echoCancellation: () => echoCancellation.value,
-    noiseSuppression: () => resolveNoiseSuppression(noiseSuppressionOption.value, rnnoiseCapable.value),
+    noiseSuppression: () => resolveNoiseSuppression(
+      noiseSuppressionOption.value,
+      rnnoiseCapable.value && voiceContextRef.current?.sampleRate === 48_000,
+    ),
+    noiseSuppressionOption: () => noiseSuppressionOption.value,
+    rnnoiseBinary: () => rnnoiseBinaryPromise,
     fetchVoiceToken: (guildId, channelId, deafened) => request<VoiceCredentials>(`/api/guilds/${guildId}/channels/${channelId}/voice/token`, {
       method: 'POST',
       body: JSON.stringify({ deafened }),
@@ -124,7 +136,11 @@ export const useVoiceStore = defineStore('voice', () => {
     createAudioContext: () => {
       const AudioContextConstructor = window.AudioContext
         || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-      return AudioContextConstructor ? new AudioContextConstructor({ latencyHint: 'interactive' }) : null
+      const context = AudioContextConstructor
+        ? new AudioContextConstructor({ latencyHint: 'interactive', sampleRate: 48_000 })
+        : null
+      voiceContextRef.current = context
+      return context
     },
     audioInteractionTarget: () => document,
     appendAudioElement: (element) => void document.querySelector('#voice-audio-root')?.appendChild(element),
@@ -158,7 +174,7 @@ export const useVoiceStore = defineStore('voice', () => {
     applicationAudioIsAutoPaused: () => { const state = appAudioRef.current?.applicationAudioState.value; return (appAudioRef.current?.isAutoPaused() ?? false) && state === 'paused' },
     enableMicrophone: session.enableMicrophone,
     republishMicrophone: session.republishMicrophone,
-    attachMicrophoneGain: session.attachMicrophoneGain,
+    attachMicrophonePipeline: session.attachMicrophonePipeline,
     startAudio: () => session.room()?.startAudio() ?? Promise.resolve(),
     resumeAudioContext: session.resumeVoiceAudioContext,
     syncParticipants: session.syncParticipants,
@@ -261,6 +277,7 @@ export const useVoiceStore = defineStore('voice', () => {
     const option = parseNoiseSuppressionOption(value)
     noiseSuppressionOption.value = option
     saveNoiseSuppressionOption(option)
+    session.applyNoiseSuppressionOption(option)
   }
 
   return {

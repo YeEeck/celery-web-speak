@@ -1466,6 +1466,13 @@ test('音频处理与静音说话提醒开关持久化到浏览器', async ({ pa
   await echoToggle.uncheck()
   await noiseSelect.selectOption('webrtc')
   await reminderToggle.uncheck()
+  await expect.poll(() => page.evaluate(() => {
+    type VoiceStoreTestState = { noiseSuppressionOption?: string }
+    type PiniaTestState = { _s: Map<string, VoiceStoreTestState> }
+    type VueAppTestState = { config: { globalProperties: { $pinia?: PiniaTestState } } }
+    const root = document.querySelector('#app') as (Element & { __vue_app__?: VueAppTestState }) | null
+    return root?.__vue_app__?.config.globalProperties.$pinia?._s.get('voice')?.noiseSuppressionOption
+  })).toBe('webrtc')
   await expect.poll(() => page.evaluate(() => ({
     echo: localStorage.getItem('cws.echoCancellation'),
     noise: localStorage.getItem('cws.noiseSuppression'),

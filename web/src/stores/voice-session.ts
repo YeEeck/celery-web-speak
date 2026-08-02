@@ -11,7 +11,7 @@ import {
   type RoomOptions,
 } from 'livekit-client'
 import { MicrophoneActivityMonitor } from '../audio/MicrophoneActivityMonitor.ts'
-import { MicrophoneGainProcessor } from '../audio/MicrophoneGainProcessor.ts'
+import { MicrophonePipelineProcessor } from '../audio/MicrophonePipelineProcessor.ts'
 import { buildMicrophoneCaptureOptions } from '../audio/microphoneCaptureOptions.ts'
 import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor.ts'
 import type { SpeechDetectionEngine, SpeechDetectionEngineCallbacks } from '../audio/SpeechDetectionEngine.ts'
@@ -36,6 +36,7 @@ import {
   participantUserId,
   saveBoolean,
   saveTransmissionMode,
+  type NoiseSuppressionOption,
   type VoiceParticipant,
   type VoiceTransmissionMode,
 } from './voice-utils.ts'
@@ -100,6 +101,8 @@ export interface VoiceSessionContext {
   microphoneGainInitial(): number
   echoCancellation(): boolean
   noiseSuppression(): boolean
+  noiseSuppressionOption(): NoiseSuppressionOption
+  rnnoiseBinary(): Promise<ArrayBuffer | null>
 
   fetchVoiceToken(guildId: number, channelId: number, deafened: boolean): Promise<VoiceCredentials>
   postVoiceLeave(guildId: number): Promise<void>
@@ -128,7 +131,11 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   const transmissionMode = ref<VoiceTransmissionMode>(getSavedTransmissionMode())
   const transmissionModeChanging = ref(false)
   const transmissionModeError = ref('')
-  const microphoneGainProcessor = new MicrophoneGainProcessor(ctx.microphoneGainInitial())
+  const microphonePipelineProcessor = new MicrophonePipelineProcessor({
+    gain: ctx.microphoneGainInitial(),
+    noiseSuppression: ctx.noiseSuppressionOption(),
+    rnnoiseBinary: () => ctx.rnnoiseBinary(),
+  })
   const microphoneActivity = new MicrophoneActivityMonitor((identity, speaking) => {
     const participant = participantStates.value.find((item) => item.identity === identity)
     if (participant) participant.isSpeaking = speaking
@@ -341,7 +348,11 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   }
 
   function applyMicrophoneGain(volume: number) {
-    microphoneGainProcessor.setGain(volume)
+    microphonePipelineProcessor.setGain(volume)
+  }
+
+  function applyNoiseSuppressionOption(option: NoiseSuppressionOption) {
+    void microphonePipelineProcessor.setNoiseSuppression(option)
   }
 
   async function toggleTransmissionMode() {
@@ -604,12 +615,12 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     if (enabled && room === target) appliedTransmissionMode = mode
   }
 
-  async function attachMicrophoneGain() {
+  async function attachMicrophonePipeline() {
     const target = room
     if (!target) return
     const track = target.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack
-    if (track && track.getProcessor() !== microphoneGainProcessor) {
-      await track.setProcessor(microphoneGainProcessor)
+    if (track && track.getProcessor() !== microphonePipelineProcessor) {
+      await track.setProcessor(microphonePipelineProcessor)
     }
   }
 
@@ -620,7 +631,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     await target.localParticipant.setMicrophoneEnabled(false)
     await target.localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions(), publishOptions(nextTransmissionMode))
     if (room === target) appliedTransmissionMode = nextTransmissionMode
-    await attachMicrophoneGain()
+    await attachMicrophonePipeline()
   }
 
   function resumeVoiceAudioContext() {
@@ -657,10 +668,11 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     updateConnectedChannelSettings,
     handleModeratorDisconnect,
     applyMicrophoneGain,
+    applyNoiseSuppressionOption,
     syncApplicationSoundPlayback,
     enableMicrophone,
     republishMicrophone,
-    attachMicrophoneGain,
+    attachMicrophonePipeline,
     syncParticipants,
     resumeVoiceAudioContext,
     applyPreferredDevicesToCurrentRoom,

@@ -299,6 +299,8 @@ function makeHarness(): Harness {
     microphoneGainInitial: () => state.microphoneGain,
     echoCancellation: () => state.echoCancellation,
     noiseSuppression: () => state.noiseSuppression,
+    noiseSuppressionOption: () => 'rnnoise',
+    rnnoiseBinary: async () => null,
     fetchVoiceToken: async () => {
       harness.voiceTokenCalls += 1
       if (harness.pendingTokens.length > 0) {
