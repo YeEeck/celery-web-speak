@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { MicOff, VolumeX } from '@lucide/vue'
 import type {
   VoiceOverlayConfig,
@@ -13,6 +13,8 @@ interface OverlayHost {
   getState(): Promise<{ state: VoiceOverlayState; config: VoiceOverlayConfig }>
   onState(listener: (state: VoiceOverlayState) => void): () => void
   onConfig(listener: (config: VoiceOverlayConfig) => void): () => void
+  /** 协议 3 起可用：向桌面壳上报内容尺寸，壳层据此调整窗口几何。 */
+  reportContentSize?(size: { width: number; height: number }): void
 }
 
 const host = (window as Window & { overlayHost?: OverlayHost }).overlayHost
@@ -20,6 +22,10 @@ const host = (window as Window & { overlayHost?: OverlayHost }).overlayHost
 const state = ref<VoiceOverlayState>({ channel: null, participants: [] })
 const avatarFailed = ref(new Set<string>())
 const config = ref<VoiceOverlayConfig>({ ...DEFAULT_VOICE_OVERLAY_CONFIG })
+const listEl = ref<HTMLElement | null>(null)
+let contentObserver: ResizeObserver | null = null
+let reportRaf = 0
+let lastReportedSize: { width: number; height: number } | null = null
 
 onMounted(() => {
   void host?.getState().then((snapshot) => {
@@ -30,8 +36,37 @@ onMounted(() => {
     state.value = next
     avatarFailed.value = new Set()
   })
-  host?.onConfig((next) => { config.value = next })
+  host?.onConfig((next) => {
+    config.value = next
+    // zoom 变化不触发 ResizeObserver，需显式重新测量上报。
+    scheduleReportContentSize()
+  })
+  if (typeof ResizeObserver === 'undefined') return
+  contentObserver = new ResizeObserver(() => scheduleReportContentSize())
+  contentObserver.observe(listEl.value!)
+  scheduleReportContentSize()
 })
+
+onUnmounted(() => {
+  contentObserver?.disconnect()
+  cancelAnimationFrame(reportRaf)
+})
+
+// 内容尺寸变化（参与者行数、缩放、头像加载等）经 rAF 合并后上报一次。
+function scheduleReportContentSize(): void {
+  cancelAnimationFrame(reportRaf)
+  reportRaf = requestAnimationFrame(reportContentSize)
+}
+
+function reportContentSize(): void {
+  const el = listEl.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const size = { width: Math.round(rect.width), height: Math.round(rect.height) }
+  if (lastReportedSize && lastReportedSize.width === size.width && lastReportedSize.height === size.height) return
+  lastReportedSize = size
+  host?.reportContentSize?.(size)
+}
 
 function opacityPercent(participant: VoiceOverlayParticipant): number {
   return rowOpacityPercent(config.value, participant.speaking)
@@ -48,6 +83,7 @@ function avatarColor(name: string): string {
 <template>
   <ul
     id="participants"
+    ref="listEl"
     :style="{ zoom: config.scalePercent / 100 }"
   >
     <li

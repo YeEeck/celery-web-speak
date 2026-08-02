@@ -1,5 +1,7 @@
-export const VOICE_OVERLAY_MIN_PROTOCOL = 1
-export const VOICE_OVERLAY_PROTOCOL = 2
+// 协议 3 起浮层可用（尺寸由浮层页面按内容上报）；协议 ≤ 2 的旧壳不提供，
+// 协商回退时视为浮层整体不可用。
+export const VOICE_OVERLAY_MIN_PROTOCOL = 3
+export const VOICE_OVERLAY_PROTOCOL = 3
 
 const REQUIRED_CAPABILITIES = [
   'voice_overlay',

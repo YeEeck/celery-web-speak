@@ -44,7 +44,7 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
     if (!connection) return
     bridge = connection.bridge
     supported.value = true
-    configSupported.value = connection.protocol >= 2
+    configSupported.value = connection.protocol >= 3
     try {
       await bridge.setEnabled(enabled.value)
     } catch {

@@ -42,7 +42,7 @@ function fakeBridge(): FakeBridge {
   return {
     helloCalls: 0,
     calls: [],
-    protocol: 1,
+    protocol: 3,
     capabilities: ['voice_overlay'],
     hasSetConfig: false,
   }
@@ -113,13 +113,13 @@ function participant(identity: string, name: string, overrides: Partial<VoicePar
   }
 }
 
-function createFixture(prefEnabled = false, protocol = 1, preseedConfig?: VoiceOverlayConfig) {
+function createFixture(prefEnabled = false, protocol = 3, preseedConfig?: VoiceOverlayConfig) {
   memoryStore.clear()
   if (prefEnabled) memoryStore.set(VOICE_OVERLAY_ENABLED_KEY, 'true')
   if (preseedConfig) memoryStore.set(VOICE_OVERLAY_CONFIG_KEY, JSON.stringify(preseedConfig))
   const bridge = fakeBridge()
   bridge.protocol = protocol
-  bridge.hasSetConfig = protocol >= 2
+  bridge.hasSetConfig = protocol >= 3
   installBridge(bridge)
   const status = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'>('idle')
   const channelName = ref('')
@@ -181,6 +181,7 @@ test('voice overlay: 初始化握手并重发偏好与当前状态', async () =>
   assert.equal(bridge.helloCalls, 1)
   assert.deepEqual(bridge.calls, [
     { type: 'setEnabled', enabled: false },
+    { type: 'setConfig', config: DEFAULT_VOICE_OVERLAY_CONFIG },
   ])
   await overlay.initializeVoiceOverlay()
   assert.equal(bridge.helloCalls, 1)
@@ -191,6 +192,7 @@ test('voice overlay: 开启偏好时初始化即启用浮层', async () => {
   await overlay.initializeVoiceOverlay()
   assert.deepEqual(bridge.calls, [
     { type: 'setEnabled', enabled: true },
+    { type: 'setConfig', config: DEFAULT_VOICE_OVERLAY_CONFIG },
     { type: 'push', state: { channel: null, participants: [] } },
   ])
 })
@@ -301,7 +303,7 @@ test('voice overlay: 关闭开关停止推送，重新开启恢复', async (t) =
 })
 
 test('voice overlay config: 协议 2 初始化即推送持久化配置', async () => {
-  const fixture = createFixture(false, 2, { ...DEFAULT_VOICE_OVERLAY_CONFIG, scalePercent: 130 })
+  const fixture = createFixture(false, 3, { ...DEFAULT_VOICE_OVERLAY_CONFIG, scalePercent: 130 })
   await fixture.overlay.initializeVoiceOverlay()
   assert.equal(fixture.overlay.configSupported.value, true)
   const configCall = fixture.bridge.calls.find((call) => call.type === 'setConfig') as { config: VoiceOverlayConfig }
@@ -320,7 +322,7 @@ test('voice overlay config: 默认值符合契约', async () => {
 
 test('voice overlay config: 拖动变化在 50ms 窗口合并推送最后值', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const { bridge, overlay } = createFixture(false, 2)
+  const { bridge, overlay } = createFixture(false, 3)
   await overlay.initializeVoiceOverlay()
   const before = bridge.calls.filter((call) => call.type === 'setConfig').length
 
@@ -337,7 +339,7 @@ test('voice overlay config: 拖动变化在 50ms 窗口合并推送最后值', a
 
 test('voice overlay config: 推送的对象不是响应式代理（IPC 可结构化克隆）', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const { bridge, overlay } = createFixture(false, 2)
+  const { bridge, overlay } = createFixture(false, 3)
   await overlay.initializeVoiceOverlay()
   const configCall = bridge.calls.find((call) => call.type === 'setConfig') as { config: VoiceOverlayConfig }
   const plain = configCall.config as unknown as { __isVue?: boolean }
@@ -351,7 +353,7 @@ test('voice overlay config: 推送的对象不是响应式代理（IPC 可结构
 })
 
 test('voice overlay config: 设置持久化到 localStorage', async () => {
-  const { overlay } = createFixture(false, 2)
+  const { overlay } = createFixture(false, 3)
   overlay.setOverlayConfig({ positionYPercent: 75, speakingOpacityPercent: 90 })
   const saved = JSON.parse(memoryStore.get(VOICE_OVERLAY_CONFIG_KEY) ?? '{}') as VoiceOverlayConfig
   assert.equal(saved.positionYPercent, 75)
@@ -360,9 +362,9 @@ test('voice overlay config: 设置持久化到 localStorage', async () => {
 })
 
 test('voice overlay config: 新会话恢复持久化配置', async () => {
-  const first = createFixture(false, 2)
+  const first = createFixture(false, 3)
   first.overlay.setOverlayConfig({ scalePercent: 140 })
-  const second = createFixture(false, 2, { ...DEFAULT_VOICE_OVERLAY_CONFIG, scalePercent: 140 })
+  const second = createFixture(false, 3, { ...DEFAULT_VOICE_OVERLAY_CONFIG, scalePercent: 140 })
   assert.equal(second.overlay.config.value.scalePercent, 140)
   await second.overlay.initializeVoiceOverlay()
   const configCall = second.bridge.calls.find((call) => call.type === 'setConfig') as { config: VoiceOverlayConfig }
@@ -370,7 +372,7 @@ test('voice overlay config: 新会话恢复持久化配置', async () => {
 })
 
 test('voice overlay config: 超出范围的值被收拢到边界', () => {
-  const { overlay } = createFixture(false, 2)
+  const { overlay } = createFixture(false, 3)
   overlay.setOverlayConfig({
     scalePercent: 200,
     positionXPercent: -10,
@@ -387,13 +389,14 @@ test('voice overlay config: 超出范围的值被收拢到边界', () => {
   })
 })
 
-test('voice overlay config: 协议 1 或损坏存储时用默认值且不推送配置', async (t) => {
+test('voice overlay config: 旧协议壳（<3）整体不可用，损坏存储用默认值且不推送配置', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   memoryStore.set(VOICE_OVERLAY_CONFIG_KEY, '{not json')
   const { bridge, overlay } = createFixture(false, 1)
   assert.deepEqual(overlay.config.value, DEFAULT_VOICE_OVERLAY_CONFIG)
-  assert.equal(overlay.configSupported.value, false)
   await overlay.initializeVoiceOverlay()
+  assert.equal(overlay.supported.value, false)
+  assert.equal(overlay.configSupported.value, false)
   overlay.setOverlayConfig({ scalePercent: 120 })
   t.mock.timers.tick(100)
   assert.equal(bridge.calls.some((call) => call.type === 'setConfig'), false)

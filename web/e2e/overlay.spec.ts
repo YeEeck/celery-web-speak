@@ -1,10 +1,11 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { DEFAULT_VOICE_OVERLAY_CONFIG } from '../src/audio/voiceOverlayBridge.ts'
 import type { VoiceOverlayConfig, VoiceOverlayState } from '../src/audio/voiceOverlayBridge.ts'
 
 interface WindowWithOverlay {
   __pushState?: (state: VoiceOverlayState) => void
   __pushConfig?: (config: VoiceOverlayConfig) => void
+  __contentSizes?: { width: number; height: number }[]
 }
 
 interface OverlayHostPayload {
@@ -23,9 +24,17 @@ function installOverlayHost({ state, config }: OverlayHostPayload): void {
       (window as unknown as WindowWithOverlay).__pushConfig = listener
       return () => undefined
     },
+    reportContentSize: (size: { width: number; height: number }) => {
+      const win = window as unknown as WindowWithOverlay
+      win.__contentSizes = win.__contentSizes ?? []
+      win.__contentSizes.push(size)
+    },
   }
   Object.defineProperty(window, 'overlayHost', { value: host })
 }
+
+const lastContentSize = (page: Page) => page.evaluate(() =>
+  (window as unknown as WindowWithOverlay).__contentSizes?.at(-1) ?? null)
 
 const defaultConfig: VoiceOverlayConfig = { ...DEFAULT_VOICE_OVERLAY_CONFIG }
 
@@ -45,6 +54,7 @@ test('语音浮层页面：按快照渲染参与者并应用配置', async ({ pa
   })
   await page.goto('/overlay.html')
   await expect(page.locator('.participant')).toHaveCount(5)
+  await expect.poll(() => lastContentSize(page)).toEqual({ width: 280, height: 204 })
   await expect(page.locator('.participant:has-text("😀表情") .participant-avatar-initial')).toHaveText('😀')
   await expect(page.locator('.participant.speaking', { hasText: 'alice' })).toHaveCount(1)
   await expect(page.getByText('alice（你）')).toBeVisible()
@@ -121,4 +131,5 @@ test('语音浮层页面：配置推送改变不透明度与缩放', async ({ pa
   expect(pushed).toEqual({ pushConfig: 'function', pushState: 'function' })
   await expect(page.locator('#participants')).toHaveCSS('zoom', '1.5')
   await expect(page.locator('.participant.speaking')).toHaveCSS('opacity', '0.9')
+  await expect.poll(() => lastContentSize(page)).toEqual({ width: 420, height: 54 })
 })
