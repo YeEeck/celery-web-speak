@@ -13,6 +13,8 @@ export interface MicrophonePipelineOptions {
   rnnoiseCapable: () => boolean
   loadRnnoiseBinary: () => Promise<ArrayBuffer | null>
   createRnnoiseNode?: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
+  onRnnoiseUnavailable?: () => void | Promise<void>
+  rnnoiseCaptureAllowed?: boolean
 }
 
 // 统一麦克风管线：降噪（RNNoise worklet）与增益在同一 AudioContext 图内。
@@ -32,7 +34,11 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
   private readonly rnnoiseCapable: () => boolean
   private readonly loadRnnoiseBinary: () => Promise<ArrayBuffer | null>
   private readonly createRnnoiseNode: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
-  private suppressionNodePromise: Promise<void> | null = null
+  private readonly onRnnoiseUnavailable?: () => void | Promise<void>
+  private rnnoiseCaptureAllowed: boolean
+  private pipelineGeneration = 0
+  private suppressionNodePromise: { generation: number; promise: Promise<void> } | null = null
+  private unavailableGeneration: number | null = null
 
   constructor(options: MicrophonePipelineOptions) {
     this.gain = options.gain
@@ -40,6 +46,8 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     this.rnnoiseCapable = options.rnnoiseCapable
     this.loadRnnoiseBinary = options.loadRnnoiseBinary
     this.createRnnoiseNode = options.createRnnoiseNode ?? createRnnoiseNode
+    this.onRnnoiseUnavailable = options.onRnnoiseUnavailable
+    this.rnnoiseCaptureAllowed = options.rnnoiseCaptureAllowed ?? true
   }
 
   async init(options: AudioProcessorOptions) {
@@ -70,12 +78,21 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     this.noiseSuppression = option
     if (!this.audioContext || !this.sourceNode || !this.gainNode || !this.destinationNode) return
     if (option !== 'rnnoise') {
-      this.rnnoiseNode?.destroy()
-      this.rnnoiseNode = undefined
-      this.rebuildSuppressionPath()
+      this.invalidateSuppression()
       return
     }
     await this.ensureSuppressionNode()
+  }
+
+  // 采集约束在设置处理器前确定。能力在 getUserMedia 之后才就绪时，
+  // 本次采集仍保持 WebRTC 直通，避免后来又叠加 RNNoise。
+  setCaptureNoiseSuppression(noiseSuppression: boolean) {
+    this.rnnoiseCaptureAllowed = !noiseSuppression
+    if (noiseSuppression) {
+      this.invalidateSuppression()
+    } else if (this.audioContext && this.sourceNode && this.noiseSuppression === 'rnnoise') {
+      void this.ensureSuppressionNode()
+    }
   }
 
   private connect(track: MediaStreamTrack) {
@@ -94,26 +111,54 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     void this.ensureSuppressionNode()
   }
 
-  // 选项为增强降噪时按需创建 RNNoise 节点：能力未就绪（WASM 未加载）或上下文
-  // 非 48kHz 时保持直通。能力判定与采集约束合成同刻进行——能力在采集之后翻转
-  // 时本次采集不回补增强降噪，避免 WebRTC 与 RNNoise 双重降噪，下次采集重建
-  // 时生效。并发调用共享同一 in-flight 承诺。
+  // 选项为增强降噪时按需创建 RNNoise 节点。异步创建绑定管线代次，
+  // 重启或切换选项后迟到的节点不能重新接入旧图。
   private ensureSuppressionNode(): Promise<void> {
     if (this.noiseSuppression !== 'rnnoise' || this.rnnoiseNode || !this.audioContext) return Promise.resolve()
-    if (!this.rnnoiseCapable()) return Promise.resolve()
-    if (this.suppressionNodePromise) return this.suppressionNodePromise
-    this.suppressionNodePromise = (async () => {
-      const binary = await this.loadRnnoiseBinary()
-      if (!binary || !this.audioContext || this.audioContext.sampleRate !== 48_000) return
-      const node = await this.createRnnoiseNode(this.audioContext, binary)
-      if (!node || this.noiseSuppression !== 'rnnoise') return
+    const generation = this.pipelineGeneration
+    if (!this.rnnoiseCaptureAllowed) return Promise.resolve()
+    if (!this.rnnoiseCapable()) return this.handleRnnoiseUnavailable(generation)
+    if (this.suppressionNodePromise?.generation === generation) return this.suppressionNodePromise.promise
+
+    let promise: Promise<void>
+    promise = (async () => {
+      let binary: ArrayBuffer | null
+      try {
+        binary = await this.loadRnnoiseBinary()
+      } catch {
+        await this.handleRnnoiseUnavailable(generation)
+        return
+      }
+      if (!this.isCurrentGeneration(generation)) return
+      if (!binary || !this.audioContext || this.audioContext.sampleRate !== 48_000) {
+        await this.handleRnnoiseUnavailable(generation)
+        return
+      }
+
+      let node: RnnoiseWorkletNode | null
+      try {
+        node = await this.createRnnoiseNode(this.audioContext, binary)
+      } catch {
+        node = null
+      }
+      if (!node) {
+        await this.handleRnnoiseUnavailable(generation)
+        return
+      }
+      if (!this.isCurrentGeneration(generation)
+        || this.noiseSuppression !== 'rnnoise'
+        || !this.rnnoiseCaptureAllowed) {
+        node.destroy()
+        return
+      }
       this.rnnoiseNode?.destroy()
       this.rnnoiseNode = node
       this.rebuildSuppressionPath()
     })().finally(() => {
-      this.suppressionNodePromise = null
+      if (this.suppressionNodePromise?.promise === promise) this.suppressionNodePromise = null
     })
-    return this.suppressionNodePromise
+    this.suppressionNodePromise = { generation, promise }
+    return promise
   }
 
   // 重建 source → (rnnoise?) → gain → destination 的中间路径。
@@ -134,9 +179,9 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
   }
 
   private disconnect() {
+    this.invalidateSuppression()
     this.sourceNode?.disconnect()
-    this.rnnoiseNode?.disconnect()
-    this.rnnoiseNode?.destroy()
+    this.destroyRnnoiseNode()
     this.gainNode?.disconnect()
     this.processedTrack?.stop()
     this.sourceNode = undefined
@@ -144,5 +189,37 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     this.gainNode = undefined
     this.destinationNode = undefined
     this.processedTrack = undefined
+  }
+
+  private invalidateSuppression() {
+    this.pipelineGeneration += 1
+    this.destroyRnnoiseNode()
+    this.rebuildSuppressionPath()
+  }
+
+  private destroyRnnoiseNode() {
+    this.rnnoiseNode?.disconnect()
+    this.rnnoiseNode?.destroy()
+    this.rnnoiseNode = undefined
+  }
+
+  private isCurrentGeneration(generation: number) {
+    return generation === this.pipelineGeneration
+      && this.noiseSuppression === 'rnnoise'
+      && this.rnnoiseCaptureAllowed
+      && this.audioContext !== undefined
+      && this.sourceNode !== undefined
+      && this.gainNode !== undefined
+      && this.destinationNode !== undefined
+  }
+
+  private async handleRnnoiseUnavailable(generation: number) {
+    if (!this.isCurrentGeneration(generation)) return
+    this.rnnoiseCaptureAllowed = false
+    this.destroyRnnoiseNode()
+    this.rebuildSuppressionPath()
+    if (this.unavailableGeneration === generation) return
+    this.unavailableGeneration = generation
+    await this.onRnnoiseUnavailable?.()
   }
 }

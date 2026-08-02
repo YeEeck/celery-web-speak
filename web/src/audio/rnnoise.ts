@@ -10,12 +10,20 @@ let wasmBinaryPromise: Promise<ArrayBuffer | null> | null = null
 // 预取 RNNoise WASM 二进制（启动时调用一次），失败返回 null。
 export function preloadRnnoiseWasm(): Promise<ArrayBuffer | null> {
   if (!wasmBinaryPromise) {
-    wasmBinaryPromise = import('@sapphi-red/web-noise-suppressor/rnnoise.wasm?url')
+    const loading = import('@sapphi-red/web-noise-suppressor/rnnoise.wasm?url')
       .then(async (module) => {
         const { loadRnnoise } = await import('@sapphi-red/web-noise-suppressor')
-        return loadRnnoise({ url: module.default, simdUrl: module.default })
+        const binary = await loadRnnoise({ url: module.default, simdUrl: module.default })
+        if (binary.byteLength === 0 || !WebAssembly.validate(new Uint8Array(binary))) {
+          throw new Error('RNNoise WASM binary is invalid')
+        }
+        return binary
       })
-      .catch(() => null)
+    wasmBinaryPromise = loading.catch(() => {
+      // A failed prefetch must be retried by the next voice session.
+      wasmBinaryPromise = null
+      return null
+    })
   }
   return wasmBinaryPromise
 }

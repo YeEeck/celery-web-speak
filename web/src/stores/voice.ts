@@ -42,13 +42,11 @@ export const useVoiceStore = defineStore('voice', () => {
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
   const echoCancellation = ref(getSavedBoolean(ECHO_CANCELLATION_KEY, true))
   const noiseSuppressionOption = ref(getSavedNoiseSuppressionOption())
-  // RNNoise 管线能力：WASM 应用启动时预取，成功后视为能力可用；不可用期间
-  // 增强降噪按回退链视作系统降噪。上下文采样率条件在语音上下文创建后参与合成。
-  const rnnoiseCapable = ref(false)
+  // RNNoise 在每次采集时都尝试加载。预取只是优化路径，失败不能把后续会话
+  // 永久锁死为系统降噪；节点创建失败由当前会话回退并在下一会话重试。
+  const rnnoiseCapable = ref(true)
   const rnnoiseBinaryPromise = preloadRnnoiseWasm()
-  rnnoiseBinaryPromise.then((binary) => {
-    rnnoiseCapable.value = binary !== null
-  })
+  void rnnoiseBinaryPromise
   // 语音音频上下文引用：约束合成需要知道实际采样率（RNNoise 仅支持 48kHz）。
   const voiceContextRef: { current: AudioContext | null } = { current: null }
 
@@ -127,7 +125,7 @@ export const useVoiceStore = defineStore('voice', () => {
     ),
     noiseSuppressionOption: () => noiseSuppressionOption.value,
     rnnoiseCapable: () => rnnoiseCapable.value,
-    loadRnnoiseBinary: () => rnnoiseBinaryPromise,
+    loadRnnoiseBinary: () => preloadRnnoiseWasm(),
     fetchVoiceToken: (guildId, channelId, deafened) => request<VoiceCredentials>(`/api/guilds/${guildId}/channels/${channelId}/voice/token`, {
       method: 'POST',
       body: JSON.stringify({ deafened }),

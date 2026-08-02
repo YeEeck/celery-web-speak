@@ -291,6 +291,49 @@ test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser
   }
 })
 
+test('语音中切换降噪选项立即更新采集约束', async ({ browser, request }, testInfo) => {
+  test.skip(!runVoiceTest, '需要已运行的 LiveKit Compose 环境')
+
+  await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
+  const guildID = await firstJoinedGuildID(request)
+  const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
+  const account = {
+    username: `noise_option_${suffix}`,
+    displayName: `降噪切换测试${suffix.slice(-5)}`,
+    password: 'noise-option-password',
+  }
+  const accountID = (await createGuildMember(request, guildID, account)).id
+  const context = await browser.newContext({ permissions: ['microphone'] })
+  await context.grantPermissions(['microphone'], { origin: baseURL })
+  const page = await context.newPage()
+  await installMicrophoneConstraintRecorder(page)
+
+  try {
+    await loginVoicePage(page, account, testInfo.project.name.startsWith('android'))
+    await page.getByRole('button', { name: /^语音频道/ }).click()
+    await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
+
+    await page.getByTitle('用户账户').click()
+    await page.getByRole('menu', { name: '用户账户操作' }).getByRole('menuitem', { name: '用户设置', exact: true }).click()
+    await page.getByRole('dialog', { name: '用户设置' }).getByRole('button', { name: '音频', exact: true }).click()
+    const noiseSelect = page.getByLabel('降噪选项')
+
+    await noiseSelect.selectOption('webrtc')
+    await expect.poll(() => microphoneNoiseConstraints(page)).toContain(true)
+    await expect(page.getByText('语音已连接', { exact: true })).toBeVisible()
+
+    await noiseSelect.selectOption('off')
+    await expect.poll(() => microphoneNoiseConstraints(page)).toContain(false)
+    await expect(page.getByText('语音已连接', { exact: true })).toBeVisible()
+  } finally {
+    await Promise.allSettled([
+      page.getByTitle('断开语音', { exact: true }).click(),
+      context.close(),
+    ])
+    await deletePlatformUser(request, accountID, account.username)
+  }
+})
+
 test('远端麦克风与暂停的背景音可独立调节并持久化', async ({ browser, request }, testInfo) => {
   test.skip(!runVoiceTest, '需要已运行的 LiveKit Compose 环境')
   test.setTimeout(60_000)
@@ -422,6 +465,34 @@ async function installToneCounter(page: Page) {
       target.__cwsToneCount = (target.__cwsToneCount ?? 0) + 1
       return original.call(this)
     }
+  })
+}
+
+async function installMicrophoneConstraintRecorder(page: Page) {
+  await page.addInitScript(() => {
+    const target = window as typeof window & { __cwsMicrophoneConstraints?: unknown[] }
+    target.__cwsMicrophoneConstraints = []
+    const mediaDevices = navigator.mediaDevices
+    const original = mediaDevices.getUserMedia.bind(mediaDevices)
+    Object.defineProperty(mediaDevices, 'getUserMedia', {
+      configurable: true,
+      value: (constraints: MediaStreamConstraints) => {
+        target.__cwsMicrophoneConstraints?.push(constraints)
+        return original(constraints)
+      },
+    })
+  })
+}
+
+async function microphoneNoiseConstraints(page: Page) {
+  return page.evaluate(() => {
+    const values = (window as typeof window & { __cwsMicrophoneConstraints?: unknown[] }).__cwsMicrophoneConstraints ?? []
+    return values.flatMap((value) => {
+      if (!value || typeof value !== 'object') return []
+      const audio = (value as { audio?: unknown }).audio
+      if (!audio || typeof audio !== 'object' || !('noiseSuppression' in audio)) return []
+      return [(audio as { noiseSuppression: unknown }).noiseSuppression]
+    })
   })
 }
 

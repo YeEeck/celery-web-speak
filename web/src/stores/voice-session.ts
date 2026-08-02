@@ -137,6 +137,12 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     noiseSuppression: ctx.noiseSuppressionOption(),
     rnnoiseCapable: () => ctx.rnnoiseCapable(),
     loadRnnoiseBinary: () => ctx.loadRnnoiseBinary(),
+    onRnnoiseUnavailable: () => new Promise<void>((resolve) => {
+      // AudioWorklet initialization can finish before LocalAudioTrack.setProcessor
+      // releases its track-change lock. Defer reacquisition until that lock is free.
+      setTimeout(() => { void fallbackToSystemNoiseSuppression().catch(() => undefined).finally(resolve) }, 0)
+    }),
+    rnnoiseCaptureAllowed: !ctx.noiseSuppression(),
   })
   const microphoneActivity = new MicrophoneActivityMonitor((identity, speaking) => {
     const participant = participantStates.value.find((item) => item.identity === identity)
@@ -147,6 +153,9 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   let participantSoundsReady = false
   let voiceSession = 0
   let appliedTransmissionMode: VoiceTransmissionMode | null = null
+  let rnnoiseFallback = false
+  let noiseSuppressionChangeRevision = 0
+  let noiseSuppressionChangePromise = Promise.resolve()
   let mutedSpeakingReminderTimer: number | null = null
   let recentEndedSession: EndedVoiceSession | null = null
 
@@ -241,6 +250,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     clearMutedSpeakingReminder()
     const session = voiceSession
     recentEndedSession = null
+    rnnoiseFallback = false
     status.value = 'connecting'
     errorMessage.value = ''
     transmissionModeError.value = ''
@@ -327,6 +337,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     await ctx.stopApplicationAudio()
     const wasJoined = targetRoom !== null && room === targetRoom
     voiceSession += 1
+    rnnoiseFallback = false
     participantSoundsReady = false
     if (wasJoined) {
       targetRoom.disconnect()
@@ -354,7 +365,27 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   }
 
   function applyNoiseSuppressionOption(option: NoiseSuppressionOption) {
-    void microphonePipelineProcessor.setNoiseSuppression(option)
+    const revision = ++noiseSuppressionChangeRevision
+    const apply = noiseSuppressionChangePromise.then(async () => {
+      if (revision !== noiseSuppressionChangeRevision) return
+      const target = room
+      const microphoneEnabled = target?.localParticipant.isMicrophoneEnabled === true
+      if (!target || !microphoneEnabled) {
+        await microphonePipelineProcessor.setNoiseSuppression(option)
+        return
+      }
+
+      const session = voiceSession
+      // Remove RNNoise before rebuilding a WebRTC/off capture. For the reverse
+      // direction, the processor is switched after the new constraint is live,
+      // so the two suppressors never overlap.
+      if (option !== 'rnnoise') await microphonePipelineProcessor.setNoiseSuppression(option)
+      if (revision !== noiseSuppressionChangeRevision || session !== voiceSession || room !== target) return
+      await republishMicrophone()
+      if (revision !== noiseSuppressionChangeRevision || session !== voiceSession || room !== target) return
+      await microphonePipelineProcessor.setNoiseSuppression(option)
+    })
+    noiseSuppressionChangePromise = apply.catch(() => undefined)
   }
 
   async function toggleTransmissionMode() {
@@ -596,11 +627,13 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     }
   }
 
-  function microphoneCaptureOptions() {
+  function microphoneCaptureOptions(noiseSuppressionOverride?: boolean) {
+    const selectedOption = ctx.noiseSuppressionOption()
     return buildMicrophoneCaptureOptions({
       deviceId: ctx.resolvedPreferredInputDeviceId(),
       echoCancellation: ctx.echoCancellation(),
-      noiseSuppression: ctx.noiseSuppression(),
+      noiseSuppression: noiseSuppressionOverride
+        ?? (selectedOption === 'rnnoise' && rnnoiseFallback ? true : ctx.noiseSuppression()),
     })
   }
 
@@ -609,31 +642,52 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     if (!target) return
     if (target.localParticipant.isMicrophoneEnabled === enabled) return
     const mode = transmissionMode.value
+    const captureOptions = enabled ? microphoneCaptureOptions() : undefined
+    if (captureOptions) microphonePipelineProcessor.setCaptureNoiseSuppression(captureOptions.noiseSuppression)
     await target.localParticipant.setMicrophoneEnabled(
       enabled,
-      enabled ? microphoneCaptureOptions() : undefined,
+      captureOptions,
       enabled ? publishOptions(mode) : undefined,
     )
     if (enabled && room === target) appliedTransmissionMode = mode
   }
 
-  async function attachMicrophonePipeline() {
-    const target = room
-    if (!target) return
+  async function attachMicrophonePipeline(expectedTarget?: Room, expectedSession?: number) {
+    const target = expectedTarget ?? room
+    if (!target || (expectedTarget && expectedSession !== undefined && (room !== target || voiceSession !== expectedSession))) return
     const track = target.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack
     if (track && track.getProcessor() !== microphonePipelineProcessor) {
+      microphonePipelineProcessor.setCaptureNoiseSuppression(microphoneCaptureOptions().noiseSuppression)
+      if (expectedTarget && expectedSession !== undefined && (room !== target || voiceSession !== expectedSession)) return
       await track.setProcessor(microphonePipelineProcessor)
     }
   }
 
-  async function republishMicrophone() {
+  async function republishMicrophone(noiseSuppressionOverride?: boolean) {
     const target = room
     if (!target) return
     const nextTransmissionMode = transmissionMode.value
+    const session = voiceSession
+    const captureOptions = microphoneCaptureOptions(noiseSuppressionOverride)
+    microphonePipelineProcessor.setCaptureNoiseSuppression(captureOptions.noiseSuppression)
     await target.localParticipant.setMicrophoneEnabled(false)
-    await target.localParticipant.setMicrophoneEnabled(true, microphoneCaptureOptions(), publishOptions(nextTransmissionMode))
-    if (room === target) appliedTransmissionMode = nextTransmissionMode
-    await attachMicrophonePipeline()
+    if (session !== voiceSession || room !== target) return
+    await target.localParticipant.setMicrophoneEnabled(true, captureOptions, publishOptions(nextTransmissionMode))
+    if (session !== voiceSession || room !== target) return
+    appliedTransmissionMode = nextTransmissionMode
+    await attachMicrophonePipeline(target, session)
+  }
+
+  async function fallbackToSystemNoiseSuppression() {
+    const target = room
+    if (ctx.noiseSuppressionOption() !== 'rnnoise'
+      || !target
+      || !target.localParticipant.isMicrophoneEnabled
+      || (status.value !== 'connected' && status.value !== 'connecting')) return
+    const session = voiceSession
+    rnnoiseFallback = true
+    await republishMicrophone(true)
+    if (session !== voiceSession || room !== target) return
   }
 
   function resumeVoiceAudioContext() {

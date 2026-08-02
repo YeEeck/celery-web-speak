@@ -21,6 +21,7 @@ Object.defineProperty(globalThis, 'MediaStream', {
 class FakeNode {
   connectCalls: unknown[] = []
   disconnectCalls = 0
+  destroyCalls = 0
   gain = { value: 1, setTargetAtTime: () => undefined }
   gainSetters: Array<[number, number]> = []
 
@@ -33,6 +34,7 @@ class FakeNode {
   }
 
   destroy() {
+    this.destroyCalls += 1
     this.disconnectCalls += 1
   }
 }
@@ -77,6 +79,10 @@ function makeHarness(options: {
   noiseSuppression: 'off' | 'webrtc' | 'rnnoise'
   rnnoiseCapable?: boolean
   sampleRate?: number
+  rnnoiseCaptureAllowed?: boolean
+  loadRnnoiseBinary?: () => Promise<ArrayBuffer | null>
+  createRnnoiseNode?: (context: AudioContext, binary: ArrayBuffer) => Promise<FakeNode | null>
+  onRnnoiseUnavailable?: () => void | Promise<void>
 }) {
   const context = new FakeAudioContext(options.sampleRate ?? 48_000)
   const state = { capable: options.rnnoiseCapable ?? false }
@@ -84,10 +90,20 @@ function makeHarness(options: {
     gain: 1,
     noiseSuppression: options.noiseSuppression,
     rnnoiseCapable: () => state.capable,
-    loadRnnoiseBinary: async () => (state.capable ? new ArrayBuffer(1) : null),
-    createRnnoiseNode: async () => new FakeNode() as never,
+    loadRnnoiseBinary: options.loadRnnoiseBinary ?? (async () => (state.capable ? new ArrayBuffer(1) : null)),
+    createRnnoiseNode: options.createRnnoiseNode
+      ? async (context, binary) => options.createRnnoiseNode!(context, binary) as never
+      : async () => new FakeNode() as never,
+    onRnnoiseUnavailable: options.onRnnoiseUnavailable,
+    rnnoiseCaptureAllowed: options.rnnoiseCaptureAllowed,
   })
   return { context, processor, state }
+}
+
+async function flushPromises() {
+  await Promise.resolve()
+  await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 test('init 建立 source→gain→destination 直通图并产出处理轨', async () => {
@@ -129,6 +145,64 @@ test('非 48kHz 上下文下增强降噪保持直通', async () => {
   await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(context.source.connectCalls.at(-1), context.gain)
+})
+
+test('采集约束已启用 WebRTC 时，能力后来就绪也不补挂 RNNoise', async () => {
+  const { context, processor, state } = makeHarness({
+    noiseSuppression: 'rnnoise',
+    rnnoiseCapable: false,
+    rnnoiseCaptureAllowed: false,
+  })
+  await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
+  state.capable = true
+  await flushPromises()
+  assert.equal(context.source.connectCalls.at(-1), context.gain)
+})
+
+test('RNNoise 节点创建失败时通知回退并保持直通', async () => {
+  let unavailable = 0
+  const { context, processor } = makeHarness({
+    noiseSuppression: 'rnnoise',
+    rnnoiseCapable: true,
+    createRnnoiseNode: async () => null,
+    onRnnoiseUnavailable: () => { unavailable += 1 },
+  })
+  await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
+  await flushPromises()
+  assert.equal(unavailable, 1)
+  assert.equal(context.source.connectCalls.at(-1), context.gain)
+})
+
+test('RNNoise 二进制加载抛错时通知回退并保持直通', async () => {
+  let unavailable = 0
+  const { context, processor } = makeHarness({
+    noiseSuppression: 'rnnoise',
+    rnnoiseCapable: true,
+    loadRnnoiseBinary: async () => { throw new Error('load failed') },
+    onRnnoiseUnavailable: () => { unavailable += 1 },
+  })
+  await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
+  await flushPromises()
+  assert.equal(unavailable, 1)
+  assert.equal(context.source.connectCalls.at(-1), context.gain)
+})
+
+test('销毁期间迟到的 RNNoise 节点会被释放且不会重新接图', async () => {
+  let resolveNode: (node: FakeNode) => void = () => undefined
+  const lateNodePromise = new Promise<FakeNode>((resolve) => { resolveNode = resolve })
+  const { processor } = makeHarness({
+    noiseSuppression: 'rnnoise',
+    rnnoiseCapable: true,
+    createRnnoiseNode: async () => lateNodePromise,
+  })
+  await processor.init({ audioContext: new FakeAudioContext(48_000) as unknown as AudioContext, track: fakeTrack } as never)
+  await Promise.resolve()
+  const lateNode = new FakeNode()
+  await processor.destroy()
+  resolveNode(lateNode)
+  await flushPromises()
+  assert.equal(lateNode.destroyCalls, 1)
+  assert.equal(processor.processedTrack, undefined)
 })
 
 test('setGain 传递到增益节点', async () => {
