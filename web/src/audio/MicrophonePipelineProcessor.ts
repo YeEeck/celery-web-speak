@@ -13,12 +13,12 @@ export interface MicrophonePipelineOptions {
   rnnoiseCapable: () => boolean
   loadRnnoiseBinary: () => Promise<ArrayBuffer | null>
   createRnnoiseNode?: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
-  onRnnoiseUnavailable?: () => void | Promise<void>
+  onRnnoiseUnavailable?: (isGenerationCurrent: () => boolean) => void | Promise<void>
   rnnoiseCaptureAllowed?: boolean
 }
 
 // 统一麦克风管线：降噪（RNNoise worklet）与增益在同一 AudioContext 图内。
-// 降噪选项控制 worklet 是否入图（直通/启用），切换不更换处理器、不中断音轨；
+// 降噪选项控制 worklet 是否入图（直通/启用），切换复用同一个处理器；
 // 增强降噪在能力未就绪或上下文非 48kHz 时保持直通（按回退链由 WebRTC 约束承担降噪）。
 export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Audio, AudioProcessorOptions> {
   readonly name = 'cws-microphone-pipeline'
@@ -34,7 +34,7 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
   private readonly rnnoiseCapable: () => boolean
   private readonly loadRnnoiseBinary: () => Promise<ArrayBuffer | null>
   private readonly createRnnoiseNode: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
-  private readonly onRnnoiseUnavailable?: () => void | Promise<void>
+  private readonly onRnnoiseUnavailable?: (isGenerationCurrent: () => boolean) => void | Promise<void>
   private rnnoiseCaptureAllowed: boolean
   private pipelineGeneration = 0
   private suppressionNodePromise: { generation: number; promise: Promise<void> } | null = null
@@ -220,6 +220,14 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     this.rebuildSuppressionPath()
     if (this.unavailableGeneration === generation) return
     this.unavailableGeneration = generation
-    await this.onRnnoiseUnavailable?.()
+    await this.onRnnoiseUnavailable?.(() => this.isGenerationActive(generation))
+  }
+
+  private isGenerationActive(generation: number) {
+    return generation === this.pipelineGeneration
+      && this.audioContext !== undefined
+      && this.sourceNode !== undefined
+      && this.gainNode !== undefined
+      && this.destinationNode !== undefined
   }
 }

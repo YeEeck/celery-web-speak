@@ -318,12 +318,20 @@ test('语音中切换降噪选项立即更新采集约束', async ({ browser, re
     await page.getByRole('dialog', { name: '用户设置' }).getByRole('button', { name: '音频', exact: true }).click()
     const noiseSelect = page.getByLabel('降噪选项')
 
+    let constraintCount = (await microphoneNoiseConstraints(page)).length
     await noiseSelect.selectOption('webrtc')
-    await expect.poll(() => microphoneNoiseConstraints(page)).toContain(true)
+    await expect.poll(async () => {
+      const values = await microphoneNoiseConstraints(page)
+      return values.length > constraintCount && values.slice(constraintCount).includes(true)
+    }).toBe(true)
     await expect(page.getByText('语音已连接', { exact: true })).toBeVisible()
 
+    constraintCount = (await microphoneNoiseConstraints(page)).length
     await noiseSelect.selectOption('off')
-    await expect.poll(() => microphoneNoiseConstraints(page)).toContain(false)
+    await expect.poll(async () => {
+      const values = await microphoneNoiseConstraints(page)
+      return values.length > constraintCount && values.slice(constraintCount).includes(false)
+    }).toBe(true)
     await expect(page.getByText('语音已连接', { exact: true })).toBeVisible()
   } finally {
     await Promise.allSettled([
