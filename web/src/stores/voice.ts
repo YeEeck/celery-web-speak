@@ -126,7 +126,8 @@ export const useVoiceStore = defineStore('voice', () => {
       rnnoiseCapable.value && voiceContextRef.current?.sampleRate === 48_000,
     ),
     noiseSuppressionOption: () => noiseSuppressionOption.value,
-    rnnoiseBinary: () => rnnoiseBinaryPromise,
+    rnnoiseCapable: () => rnnoiseCapable.value,
+    loadRnnoiseBinary: () => rnnoiseBinaryPromise,
     fetchVoiceToken: (guildId, channelId, deafened) => request<VoiceCredentials>(`/api/guilds/${guildId}/channels/${channelId}/voice/token`, {
       method: 'POST',
       body: JSON.stringify({ deafened }),

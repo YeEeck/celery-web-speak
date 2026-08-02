@@ -300,7 +300,8 @@ function makeHarness(): Harness {
     echoCancellation: () => state.echoCancellation,
     noiseSuppression: () => state.noiseSuppression,
     noiseSuppressionOption: () => 'rnnoise',
-    rnnoiseBinary: async () => null,
+    rnnoiseCapable: () => false,
+    loadRnnoiseBinary: async () => null,
     fetchVoiceToken: async () => {
       harness.voiceTokenCalls += 1
       if (harness.pendingTokens.length > 0) {

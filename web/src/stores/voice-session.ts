@@ -102,7 +102,8 @@ export interface VoiceSessionContext {
   echoCancellation(): boolean
   noiseSuppression(): boolean
   noiseSuppressionOption(): NoiseSuppressionOption
-  rnnoiseBinary(): Promise<ArrayBuffer | null>
+  rnnoiseCapable(): boolean
+  loadRnnoiseBinary(): Promise<ArrayBuffer | null>
 
   fetchVoiceToken(guildId: number, channelId: number, deafened: boolean): Promise<VoiceCredentials>
   postVoiceLeave(guildId: number): Promise<void>
@@ -134,7 +135,8 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   const microphonePipelineProcessor = new MicrophonePipelineProcessor({
     gain: ctx.microphoneGainInitial(),
     noiseSuppression: ctx.noiseSuppressionOption(),
-    rnnoiseBinary: () => ctx.rnnoiseBinary(),
+    rnnoiseCapable: () => ctx.rnnoiseCapable(),
+    loadRnnoiseBinary: () => ctx.loadRnnoiseBinary(),
   })
   const microphoneActivity = new MicrophoneActivityMonitor((identity, speaking) => {
     const participant = participantStates.value.find((item) => item.identity === identity)

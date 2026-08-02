@@ -291,7 +291,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
                   </select>
                 </label>
               </div>
-              <p v-if="voice.joined" class="profile-hint">处理开关更改将在下次加入语音时生效。</p>
+              <p v-if="voice.joined" class="profile-hint">回声抑制更改将在下次加入语音时生效。</p>
               <label class="setting-toggle">
                 <span>静音时说话提醒</span>
                 <input type="checkbox" :checked="voice.mutedSpeakingReminderEnabled" aria-label="静音时说话提醒" @change="voice.setMutedSpeakingReminderEnabled(($event.target as HTMLInputElement).checked)" />

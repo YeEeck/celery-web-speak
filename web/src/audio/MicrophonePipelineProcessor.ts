@@ -10,12 +10,14 @@ import { createRnnoiseNode } from './rnnoise.ts'
 export interface MicrophonePipelineOptions {
   gain: number
   noiseSuppression: NoiseSuppressionOption
-  rnnoiseBinary: () => Promise<ArrayBuffer | null>
+  rnnoiseCapable: () => boolean
+  loadRnnoiseBinary: () => Promise<ArrayBuffer | null>
+  createRnnoiseNode?: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
 }
 
 // 统一麦克风管线：降噪（RNNoise worklet）与增益在同一 AudioContext 图内。
 // 降噪选项控制 worklet 是否入图（直通/启用），切换不更换处理器、不中断音轨；
-// 增强降噪在 WASM 缺失或上下文非 48kHz 时保持直通（按回退链由 WebRTC 约束承担降噪）。
+// 增强降噪在能力未就绪或上下文非 48kHz 时保持直通（按回退链由 WebRTC 约束承担降噪）。
 export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Audio, AudioProcessorOptions> {
   readonly name = 'cws-microphone-pipeline'
   processedTrack?: MediaStreamTrack
@@ -27,13 +29,17 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
   private destinationNode?: MediaStreamAudioDestinationNode
   private gain: number
   private noiseSuppression: NoiseSuppressionOption
-  private readonly rnnoiseBinary: () => Promise<ArrayBuffer | null>
+  private readonly rnnoiseCapable: () => boolean
+  private readonly loadRnnoiseBinary: () => Promise<ArrayBuffer | null>
+  private readonly createRnnoiseNode: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
   private suppressionNodePromise: Promise<void> | null = null
 
   constructor(options: MicrophonePipelineOptions) {
     this.gain = options.gain
     this.noiseSuppression = options.noiseSuppression
-    this.rnnoiseBinary = options.rnnoiseBinary
+    this.rnnoiseCapable = options.rnnoiseCapable
+    this.loadRnnoiseBinary = options.loadRnnoiseBinary
+    this.createRnnoiseNode = options.createRnnoiseNode ?? createRnnoiseNode
   }
 
   async init(options: AudioProcessorOptions) {
@@ -73,7 +79,7 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
   }
 
   private connect(track: MediaStreamTrack) {
-    if (!this.audioContext) throw new Error('浏览器不支持麦克风增益处理')
+    if (!this.audioContext) throw new Error('浏览器不支持麦克风音频处理')
 
     const source = this.audioContext.createMediaStreamSource(new MediaStream([track]))
     const gain = this.audioContext.createGain()
@@ -88,15 +94,18 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     void this.ensureSuppressionNode()
   }
 
-  // 选项为增强降噪时按需创建 RNNoise 节点：WASM 缺失或上下文非 48kHz 时保持
-  // 直通（按回退链由 WebRTC 约束承担降噪）。并发调用共享同一 in-flight 承诺。
+  // 选项为增强降噪时按需创建 RNNoise 节点：能力未就绪（WASM 未加载）或上下文
+  // 非 48kHz 时保持直通。能力判定与采集约束合成同刻进行——能力在采集之后翻转
+  // 时本次采集不回补增强降噪，避免 WebRTC 与 RNNoise 双重降噪，下次采集重建
+  // 时生效。并发调用共享同一 in-flight 承诺。
   private ensureSuppressionNode(): Promise<void> {
     if (this.noiseSuppression !== 'rnnoise' || this.rnnoiseNode || !this.audioContext) return Promise.resolve()
+    if (!this.rnnoiseCapable()) return Promise.resolve()
     if (this.suppressionNodePromise) return this.suppressionNodePromise
     this.suppressionNodePromise = (async () => {
-      const binary = await this.rnnoiseBinary()
+      const binary = await this.loadRnnoiseBinary()
       if (!binary || !this.audioContext || this.audioContext.sampleRate !== 48_000) return
-      const node = await createRnnoiseNode(this.audioContext, binary)
+      const node = await this.createRnnoiseNode(this.audioContext, binary)
       if (!node || this.noiseSuppression !== 'rnnoise') return
       this.rnnoiseNode?.destroy()
       this.rnnoiseNode = node
