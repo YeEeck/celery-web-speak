@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { DEFAULT_VOICE_OVERLAY_CONFIG } from '../src/audio/voiceOverlayBridge.ts'
 import type { VoiceOverlayConfig, VoiceOverlayState } from '../src/audio/voiceOverlayBridge.ts'
 
 interface WindowWithOverlay {
@@ -26,13 +27,7 @@ function installOverlayHost({ state, config }: OverlayHostPayload): void {
   Object.defineProperty(window, 'overlayHost', { value: host })
 }
 
-const defaultConfig: VoiceOverlayConfig = {
-  scalePercent: 100,
-  positionXPercent: 9,
-  positionYPercent: 50,
-  speakingOpacityPercent: 80,
-  silentOpacityPercent: 40,
-}
+const defaultConfig: VoiceOverlayConfig = { ...DEFAULT_VOICE_OVERLAY_CONFIG }
 
 test('语音浮层页面：按快照渲染参与者并应用配置', async ({ page }) => {
   await page.addInitScript(installOverlayHost, {
@@ -43,12 +38,14 @@ test('语音浮层页面：按快照渲染参与者并应用配置', async ({ pa
         { identity: 'u2', name: '李四', avatarUrl: null, isLocal: false, speaking: false, microphoneMuted: true, deafened: false },
         { identity: 'u3', name: '王五', avatarUrl: null, isLocal: false, speaking: false, microphoneMuted: false, deafened: true },
         { identity: 'u4', name: '赵六', avatarUrl: null, isLocal: false, speaking: false, microphoneMuted: true, deafened: true },
+        { identity: 'u5', name: '😀表情', avatarUrl: null, isLocal: false, speaking: false, microphoneMuted: false, deafened: false },
       ],
     },
     config: defaultConfig,
   })
   await page.goto('/overlay.html')
-  await expect(page.locator('.participant')).toHaveCount(4)
+  await expect(page.locator('.participant')).toHaveCount(5)
+  await expect(page.locator('.participant:has-text("😀表情") .participant-avatar-initial')).toHaveText('😀')
   await expect(page.locator('.participant.speaking', { hasText: 'alice' })).toHaveCount(1)
   await expect(page.getByText('alice（你）')).toBeVisible()
   await expect(page.locator('.participant:has-text("alice") .participant-avatar-initial')).toHaveText('A')
