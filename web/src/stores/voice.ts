@@ -18,13 +18,17 @@ import {
   ECHO_CANCELLATION_KEY,
   MICROPHONE_ENABLED_KEY,
   MICROPHONE_GAIN_KEY,
-  NOISE_SUPPRESSION_KEY,
   OUTPUT_VOLUME_KEY,
   clampVolume,
   getSavedBoolean,
   getSavedLevel,
+  getSavedNoiseSuppressionOption,
+  parseNoiseSuppressionOption,
+  resolveNoiseSuppression,
   saveBoolean,
+  saveNoiseSuppressionOption,
   setAudioSink,
+  type NoiseSuppressionOption,
   type VoiceParticipant,
   type VoiceTransmissionMode,
 } from './voice-utils.ts'
@@ -36,7 +40,10 @@ export const useVoiceStore = defineStore('voice', () => {
   const microphoneGain = ref(getSavedLevel(MICROPHONE_GAIN_KEY))
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
   const echoCancellation = ref(getSavedBoolean(ECHO_CANCELLATION_KEY, true))
-  const noiseSuppression = ref(getSavedBoolean(NOISE_SUPPRESSION_KEY, true))
+  const noiseSuppressionOption = ref(getSavedNoiseSuppressionOption())
+  // RNNoise 管线能力：由降噪管线模块上报（预取/实例化失败或环境不支持时不可用），
+  // 不可用期间增强降噪按回退链视作系统降噪。
+  const rnnoiseCapable = ref(false)
 
   // 跨模块组合的延迟解析位：session 模块的 ctx 需要 mute/deafen、设备、应用音频
   // 模块的输出，而这些模块的 ctx 又需要 session 的输出，创建顺序由本层化解。
@@ -107,7 +114,7 @@ export const useVoiceStore = defineStore('voice', () => {
     mutedSpeakingReminderAudible: () => sounds.mutedSpeakingReminderAudible,
     microphoneGainInitial: () => microphoneGain.value,
     echoCancellation: () => echoCancellation.value,
-    noiseSuppression: () => noiseSuppression.value,
+    noiseSuppression: () => resolveNoiseSuppression(noiseSuppressionOption.value, rnnoiseCapable.value),
     fetchVoiceToken: (guildId, channelId, deafened) => request<VoiceCredentials>(`/api/guilds/${guildId}/channels/${channelId}/voice/token`, {
       method: 'POST',
       body: JSON.stringify({ deafened }),
@@ -250,9 +257,10 @@ export const useVoiceStore = defineStore('voice', () => {
     localStorage.setItem(ECHO_CANCELLATION_KEY, String(value))
   }
 
-  function setNoiseSuppression(value: boolean) {
-    noiseSuppression.value = value
-    localStorage.setItem(NOISE_SUPPRESSION_KEY, String(value))
+  function setNoiseSuppressionOption(value: NoiseSuppressionOption | string) {
+    const option = parseNoiseSuppressionOption(value)
+    noiseSuppressionOption.value = option
+    saveNoiseSuppressionOption(option)
   }
 
   return {
@@ -291,7 +299,7 @@ export const useVoiceStore = defineStore('voice', () => {
     microphoneGain,
     outputVolume,
     echoCancellation,
-    noiseSuppression,
+    noiseSuppressionOption,
     mutedSpeakingReminderEnabled: session.mutedSpeakingReminderEnabled,
     mutedSpeakingReminderVisible: session.mutedSpeakingReminderVisible,
     transmissionMode: session.transmissionMode,
@@ -321,7 +329,7 @@ export const useVoiceStore = defineStore('voice', () => {
     setMicrophoneGain,
     setOutputVolume,
     setEchoCancellation,
-    setNoiseSuppression,
+    setNoiseSuppressionOption,
     setMutedSpeakingReminderEnabled: session.setMutedSpeakingReminderEnabled,
     toggleTransmissionMode: session.toggleTransmissionMode,
     initializeApplicationAudio: appAudio.initializeApplicationAudio,

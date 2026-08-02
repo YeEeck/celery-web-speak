@@ -282,7 +282,14 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
               </label>
               <div class="toggle-list">
                 <label><span>回声抑制</span><input type="checkbox" :checked="voice.echoCancellation" @change="voice.setEchoCancellation(($event.target as HTMLInputElement).checked)" /></label>
-                <label><span>降噪</span><input type="checkbox" :checked="voice.noiseSuppression" @change="voice.setNoiseSuppression(($event.target as HTMLInputElement).checked)" /></label>
+                <label>
+                  <span>降噪选项</span>
+                  <select aria-label="降噪选项" :value="voice.noiseSuppressionOption" @change="voice.setNoiseSuppressionOption(($event.target as HTMLSelectElement).value)">
+                    <option value="off">关闭</option>
+                    <option value="webrtc">系统降噪（WebRTC）</option>
+                    <option value="rnnoise">增强降噪（RNNoise）</option>
+                  </select>
+                </label>
               </div>
               <p v-if="voice.joined" class="profile-hint">处理开关更改将在下次加入语音时生效。</p>
               <label class="setting-toggle">

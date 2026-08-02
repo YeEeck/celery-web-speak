@@ -1453,24 +1453,29 @@ test('音频处理与静音说话提醒开关持久化到浏览器', async ({ pa
   await page.getByRole('button', { name: '音频', exact: true }).click()
 
   const echoToggle = page.getByLabel('回声抑制')
-  const noiseToggle = page.getByLabel('降噪')
+  const noiseSelect = page.getByLabel('降噪选项')
   const reminderToggle = page.getByLabel('静音时说话提醒')
   await expect(echoToggle).toBeChecked()
-  await expect(noiseToggle).toBeChecked()
+  await expect(noiseSelect).toHaveValue('rnnoise')
+  await expect(noiseSelect.locator('option')).toHaveCount(3)
+  await expect(noiseSelect.locator('option[value="off"]')).toHaveText('关闭')
+  await expect(noiseSelect.locator('option[value="webrtc"]')).toHaveText('系统降噪（WebRTC）')
+  await expect(noiseSelect.locator('option[value="rnnoise"]')).toHaveText('增强降噪（RNNoise）')
   await expect(reminderToggle).toBeChecked()
 
   await echoToggle.uncheck()
-  await noiseToggle.uncheck()
+  await noiseSelect.selectOption('webrtc')
   await reminderToggle.uncheck()
   await expect.poll(() => page.evaluate(() => ({
     echo: localStorage.getItem('cws.echoCancellation'),
     noise: localStorage.getItem('cws.noiseSuppression'),
     mutedSpeakingReminder: localStorage.getItem('cws.mutedSpeakingReminder.enabled'),
-  }))).toEqual({ echo: 'false', noise: 'false', mutedSpeakingReminder: 'false' })
+  }))).toEqual({ echo: 'false', noise: 'webrtc', mutedSpeakingReminder: 'false' })
 
   await page.reload()
   await openUserSettings(page)
   await page.getByRole('button', { name: '音频', exact: true }).click()
+  await expect(page.getByLabel('降噪选项')).toHaveValue('webrtc')
   await expect(page.getByLabel('静音时说话提醒')).not.toBeChecked()
 })
 

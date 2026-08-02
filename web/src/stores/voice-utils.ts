@@ -24,6 +24,34 @@ export const DEFAULT_AUDIO_BITRATE_KBPS = 64
 
 export type VoiceTransmissionMode = 'voice-activity' | 'continuous'
 
+export type NoiseSuppressionOption = 'off' | 'webrtc' | 'rnnoise'
+export const DEFAULT_NOISE_SUPPRESSION_OPTION: NoiseSuppressionOption = 'rnnoise'
+
+// 降噪选项复用旧的 cws.noiseSuppression 键：旧布尔值（true→增强降噪、false→关闭）
+// 在读取时一次性迁移，写入后即为枚举字符串。
+export function parseNoiseSuppressionOption(saved: string | null): NoiseSuppressionOption {
+  if (saved === 'off' || saved === 'webrtc' || saved === 'rnnoise') return saved
+  if (saved === 'true') return 'rnnoise'
+  if (saved === 'false') return 'off'
+  return DEFAULT_NOISE_SUPPRESSION_OPTION
+}
+
+export function getSavedNoiseSuppressionOption(): NoiseSuppressionOption {
+  return parseNoiseSuppressionOption(localStorage.getItem(NOISE_SUPPRESSION_KEY))
+}
+
+export function saveNoiseSuppressionOption(option: NoiseSuppressionOption) {
+  localStorage.setItem(NOISE_SUPPRESSION_KEY, option)
+}
+
+// 选项与 RNNoise 管线能力合成 WebRTC 约束值：增强降噪启用时由管线承担降噪，
+// WebRTC 约束关闭避免双重降噪；管线能力不可用时按回退链视作系统降噪（约束开启）。
+export function resolveNoiseSuppression(option: NoiseSuppressionOption, rnnoiseAvailable: boolean): boolean {
+  if (option === 'off') return false
+  if (option === 'webrtc') return true
+  return !rnnoiseAvailable
+}
+
 export interface VoiceDevicePreference {
   deviceId: string
   label: string
