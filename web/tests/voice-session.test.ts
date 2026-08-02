@@ -27,10 +27,16 @@ class FakeParticipant {
   connectionQuality = 3
   joinedAt = new Date()
   setMicrophoneCalls: Array<boolean | undefined> = []
+  publishCalls: Array<{ track: unknown; options: unknown }> = []
+  unpublishCalls: Array<{ track: unknown; stopOnUnpublish?: boolean }> = []
   publishError: Error | null = null
+  publishTrackError: Error | null = null
   processor: unknown = null
   getProcessor: unknown = null
   setProcessorError: Error | null = null
+  microphoneTrack: FakeMicrophoneTrack | null = null
+  microphoneUnpublished = false
+  microphonePublishOptions: unknown = undefined
 
   constructor(identity: string, name: string) {
     this.identity = identity
@@ -38,13 +44,70 @@ class FakeParticipant {
   }
 
   getTrackPublication() {
-    return null
+    if (!this.microphoneTrack || this.microphoneUnpublished) return null
+    return { audioTrack: this.microphoneTrack, options: this.microphonePublishOptions }
   }
 
-  async setMicrophoneEnabled(enabled: boolean) {
+  async setMicrophoneEnabled(enabled: boolean, _captureOptions?: unknown, publishOptions?: unknown) {
     this.setMicrophoneCalls.push(enabled)
     if (this.publishError) throw this.publishError
     this.isMicrophoneEnabled = enabled
+    if (enabled) {
+      this.microphoneUnpublished = false
+      this.microphonePublishOptions = publishOptions
+    }
+  }
+
+  async unpublishTrack(track: unknown, stopOnUnpublish?: boolean) {
+    this.unpublishCalls.push({ track, stopOnUnpublish })
+    if (this.publishError) throw this.publishError
+    this.microphoneUnpublished = true
+    this.isMicrophoneEnabled = false
+    return undefined
+  }
+
+  async publishTrack(track: unknown, options?: unknown) {
+    this.publishCalls.push({ track, options })
+    if (this.publishTrackError) {
+      const error = this.publishTrackError
+      this.publishTrackError = null
+      throw error
+    }
+    if (this.publishError) throw this.publishError
+    this.microphoneTrack = track as FakeMicrophoneTrack
+    this.microphoneUnpublished = false
+    this.isMicrophoneEnabled = true
+    this.microphonePublishOptions = options
+    return { track, audioTrack: this.microphoneTrack, options }
+  }
+}
+
+class FakeMicrophoneTrack {
+  constraints: MediaTrackConstraints = { noiseSuppression: false }
+  mediaStreamTrack = {} as MediaStreamTrack
+  restartCalls: unknown[] = []
+  setProcessorCalls = 0
+  stopProcessorCalls = 0
+  processor: unknown = null
+
+  getProcessor() {
+    return this.processor
+  }
+
+  async setProcessor(processor: unknown) {
+    this.setProcessorCalls += 1
+    this.processor = processor
+    return undefined
+  }
+
+  async stopProcessor() {
+    this.stopProcessorCalls += 1
+    this.processor = null
+  }
+
+  async restartTrack(options: unknown) {
+    this.restartCalls.push(options)
+    this.constraints = options as MediaTrackConstraints
   }
 }
 
@@ -300,7 +363,6 @@ function makeHarness(): Harness {
     echoCancellation: () => state.echoCancellation,
     noiseSuppression: () => state.noiseSuppression,
     noiseSuppressionOption: () => 'rnnoise',
-    rnnoiseCapable: () => false,
     loadRnnoiseBinary: async () => null,
     fetchVoiceToken: async () => {
       harness.voiceTokenCalls += 1
@@ -435,6 +497,97 @@ test('toggleTransmissionMode republishes the microphone and flips the mode', asy
   assert.equal(h.session.transmissionMode.value, 'continuous')
   assert.deepEqual(h.room.localParticipant.setMicrophoneCalls, [false, true])
   assert.equal(h.state.notifyPreferenceChangeCalls, 1)
+})
+
+test('republishMicrophone restarts an existing publication with new capture constraints', async () => {
+  const h = makeHarness()
+  await h.session.join(7)
+  const microphoneTrack = new FakeMicrophoneTrack()
+  h.room.localParticipant.microphoneTrack = microphoneTrack
+  const callsBefore = [...h.room.localParticipant.setMicrophoneCalls]
+
+  await h.session.republishMicrophone()
+
+  assert.equal(microphoneTrack.restartCalls.length, 1)
+  assert.equal((microphoneTrack.restartCalls[0] as { noiseSuppression: boolean }).noiseSuppression, true)
+  assert.deepEqual(h.room.localParticipant.setMicrophoneCalls, callsBefore)
+  assert.equal(h.room.localParticipant.unpublishCalls.length, 1)
+  assert.equal(h.room.localParticipant.publishCalls.length, 1)
+  assert.deepEqual(h.room.localParticipant.publishCalls[0]?.options, {
+    audioPreset: { maxBitrate: 96_000 },
+    dtx: true,
+    red: true,
+    forceStereo: false,
+  })
+})
+
+test('toggleTransmissionMode republishes existing publication with the new DTX option', async () => {
+  const h = makeHarness()
+  await h.session.join(7)
+  h.room.localParticipant.microphoneTrack = new FakeMicrophoneTrack()
+
+  await h.session.toggleTransmissionMode()
+
+  assert.equal(h.session.transmissionMode.value, 'continuous')
+  assert.equal(h.room.localParticipant.publishCalls.length, 1)
+  assert.equal((h.room.localParticipant.publishCalls[0]?.options as { dtx: boolean }).dtx, false)
+})
+
+test('republishMicrophone restores the previous publication when new publish options fail', async () => {
+  const h = makeHarness()
+  await h.session.join(7)
+  h.room.localParticipant.microphoneTrack = new FakeMicrophoneTrack()
+  h.room.localParticipant.publishTrackError = new Error('publish failed')
+
+  await assert.rejects(h.session.republishMicrophone(), /publish failed/)
+
+  assert.equal(h.room.localParticipant.isMicrophoneEnabled, true)
+  assert.equal(h.room.localParticipant.microphoneUnpublished, false)
+  assert.equal(h.room.localParticipant.publishCalls.length, 2)
+})
+
+test('enableMicrophone refreshes stale capture constraints before unmuting', async () => {
+  const h = makeHarness()
+  await h.session.join(7)
+  const microphoneTrack = new FakeMicrophoneTrack()
+  h.room.localParticipant.microphoneTrack = microphoneTrack
+  h.room.localParticipant.isMicrophoneEnabled = false
+
+  await h.session.enableMicrophone(true)
+
+  assert.equal(microphoneTrack.restartCalls.length, 1)
+  assert.equal(h.room.localParticipant.isMicrophoneEnabled, true)
+  assert.equal(h.session.appliedTransmissionModeValue(), null)
+})
+
+test('attachMicrophonePipeline falls back to system noise suppression for a closed context', async () => {
+  const h = makeHarness()
+  await h.session.join(7)
+  const microphoneTrack = new FakeMicrophoneTrack()
+  h.room.localParticipant.microphoneTrack = microphoneTrack
+  h.audioContexts[0]?.setState('closed')
+
+  await h.session.attachMicrophonePipeline()
+
+  assert.equal(microphoneTrack.setProcessorCalls, 0)
+  assert.equal(microphoneTrack.restartCalls.length, 1)
+  assert.equal((microphoneTrack.restartCalls[0] as { noiseSuppression: boolean }).noiseSuppression, true)
+})
+
+test('closed context first detaches the existing pipeline processor before fallback', async () => {
+  const h = makeHarness()
+  await h.session.join(7)
+  const microphoneTrack = new FakeMicrophoneTrack()
+  h.room.localParticipant.microphoneTrack = microphoneTrack
+
+  await h.session.attachMicrophonePipeline()
+  h.audioContexts[0]?.setState('closed')
+  await h.session.attachMicrophonePipeline()
+
+  assert.equal(microphoneTrack.setProcessorCalls, 1)
+  assert.equal(microphoneTrack.stopProcessorCalls, 1)
+  assert.equal(microphoneTrack.getProcessor(), null)
+  assert.equal((microphoneTrack.restartCalls[0] as { noiseSuppression: boolean }).noiseSuppression, true)
 })
 
 test('toggleTransmissionMode rolls back to the previous mode on failure', async () => {

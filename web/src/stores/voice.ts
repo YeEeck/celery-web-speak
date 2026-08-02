@@ -44,7 +44,6 @@ export const useVoiceStore = defineStore('voice', () => {
   const noiseSuppressionOption = ref(getSavedNoiseSuppressionOption())
   // RNNoise 在每次采集时都尝试加载。预取只是优化路径，失败不能把后续会话
   // 永久锁死为系统降噪；节点创建失败由当前会话回退并在下一会话重试。
-  const rnnoiseCapable = ref(true)
   const rnnoiseBinaryPromise = preloadRnnoiseWasm()
   void rnnoiseBinaryPromise
   // 语音音频上下文引用：约束合成需要知道实际采样率（RNNoise 仅支持 48kHz）。
@@ -119,12 +118,14 @@ export const useVoiceStore = defineStore('voice', () => {
     mutedSpeakingReminderAudible: () => sounds.mutedSpeakingReminderAudible,
     microphoneGainInitial: () => microphoneGain.value,
     echoCancellation: () => echoCancellation.value,
-    noiseSuppression: () => resolveNoiseSuppression(
-      noiseSuppressionOption.value,
-      rnnoiseCapable.value && voiceContextRef.current?.sampleRate === 48_000,
-    ),
+    noiseSuppression: () => {
+      const context = voiceContextRef.current
+      return resolveNoiseSuppression(
+        noiseSuppressionOption.value,
+        context !== null && context.state !== 'closed' && context.sampleRate === 48_000,
+      )
+    },
     noiseSuppressionOption: () => noiseSuppressionOption.value,
-    rnnoiseCapable: () => rnnoiseCapable.value,
     loadRnnoiseBinary: () => preloadRnnoiseWasm(),
     fetchVoiceToken: (guildId, channelId, deafened) => request<VoiceCredentials>(`/api/guilds/${guildId}/channels/${channelId}/voice/token`, {
       method: 'POST',
@@ -135,9 +136,22 @@ export const useVoiceStore = defineStore('voice', () => {
     createAudioContext: () => {
       const AudioContextConstructor = window.AudioContext
         || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-      const context = AudioContextConstructor
-        ? new AudioContextConstructor({ latencyHint: 'interactive', sampleRate: 48_000 })
-        : null
+      if (!AudioContextConstructor) {
+        voiceContextRef.current = null
+        return null
+      }
+      let context: AudioContext | null
+      try {
+        context = new AudioContextConstructor({ latencyHint: 'interactive', sampleRate: 48_000 })
+      } catch {
+        // Some browsers reject an explicit rate; retain the WebRTC fallback
+        // path with their default context instead of failing voice join.
+        try {
+          context = new AudioContextConstructor({ latencyHint: 'interactive' })
+        } catch {
+          context = null
+        }
+      }
       voiceContextRef.current = context
       return context
     },

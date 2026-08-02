@@ -2,7 +2,7 @@
 
 `web/src/stores/voice.ts` 现在把麦克风静音偏好、耳机静音偏好、服务器语音禁言投影、当前会话同步以及耳机静音后端同步混在一个 1214 行的 Pinia store 里，并通过 10 次复制的 `target = room / session = voiceSession` race-guard idiom 维护私有并发契约。同一份契约还散在 `toggleMute`、`toggleDeafen`、`syncGuildMute`、`bindRoom` 的 Reconnected 分支、`applyJoiningPreferences` 和耳机静音同步队列里；`voice.ts` 之外的 `AppShell.vue` 还用两个 watcher 协调"服务器语音禁言变更要重算偏好"和"业务 socket 恢复要重试耳机静音同步"——这两个时机决策都属于静音/耳机静音 module 自己的生命周期，与 ADR-0010 把应用提示音生命周期移出根应用的方向相反。
 
-决定按 A 最窄边界抽出独立的 `useVoiceMuteDeafenModule`：只收麦克风静音偏好、耳机静音偏好、服务器语音禁言输入、当前会话投影和耳机静音后端同步队列；其他副作用（应用提示音 follow、应用音频 pause/resume/stop、麦克风 republish、麦克风增益 attach、参与者音量 applyAllVolumes）作为 context adapter 由 module 内部 await，不暴露给调用方。module 不接触 `Room` 类型——`bindRoom` 仍是 voice store 的职责，Reconnected 后只调 `module.transportRecovered()`，随之再做与静音无关的 syncParticipants、participantSoundsReady、requestVoiceRoomsRefresh。
+决定按 A 最窄边界抽出独立的 `useVoiceMuteDeafenModule`：只收麦克风静音偏好、耳机静音偏好、服务器语音禁言输入、当前会话投影和耳机静音后端同步队列；其他副作用（应用提示音 follow、应用音频 pause/resume/stop、麦克风 republish、麦克风管线挂载、参与者音量 applyAllVolumes）作为 context adapter 由 module 内部 await，不暴露给调用方。module 不接触 `Room` 类型——`bindRoom` 仍是 voice store 的职责，Reconnected 后只调 `module.transportRecovered()`，随之再做与静音无关的 syncParticipants、participantSoundsReady、requestVoiceRoomsRefresh。
 
 Interface 由 5 个专用入口与若干只读 reactive state 组成：`userToggledMute()`、`userToggledDeafen()`、`guildMuteChanged(muted)`、`transportRecovered()`、`connectionReset()`；调用方不再看见 `target/session` race 检查。`muted/deafened/guildMuted/microphoneEnabledPreference/deafenedPreference/muteChanging/deafenChanging/voicePreferenceFeedback/deafenedSyncError` 直接 forward 到 voice store 导出，与 voice store 其他 ref 风格一致。
 
@@ -18,7 +18,7 @@ Mute/deafen reconcile 过程触碰的其他 module 副作用通过 context adapt
 
 - 应用提示音 follow：`syncApplicationSoundPlayback(deafened, outputDeviceId)` adapter
 - 应用音频 pause/resume/stop：`pauseApplicationAudio, resumeApplicationAudio, stopApplicationAudio` adapter
-- 麦克风 republish 与 attach gain：`republishMicrophone, attachMicrophoneGain` adapter
+- 麦克风 republish 与管线挂载：`republishMicrophone, attachMicrophonePipeline` adapter
 - 参与者音量 applyAllVolumes：`applyAllVolumes` adapter
 - 麦克风音轨开关：`setMicrophoneEnabled, startAudio` adapter（module 决定开关，不拥有 `microphoneCaptureOptions`）
 - `voiceAudioContextController.resumeIfNeeded` adapter

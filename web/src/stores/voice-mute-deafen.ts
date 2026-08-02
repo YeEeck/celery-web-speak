@@ -292,7 +292,8 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
         if (ctx.microphoneCurrentlyEnabled() !== shouldEnableMicrophone) {
           await ctx.enableMicrophone(shouldEnableMicrophone)
           if (session !== ctx.voiceSession() || ctx.room() !== target) return
-        } else if (shouldEnableMicrophone && ctx.appliedTransmissionMode() !== ctx.transmissionMode()) {
+        }
+        if (shouldEnableMicrophone && ctx.appliedTransmissionMode() !== ctx.transmissionMode()) {
           await ctx.republishMicrophone()
           if (session !== ctx.voiceSession() || ctx.room() !== target) return
         }

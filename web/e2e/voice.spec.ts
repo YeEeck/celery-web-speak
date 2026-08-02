@@ -58,33 +58,33 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
     await expectVoiceOrder(contexts.map(({ page }) => page), accounts.map(({ displayName }) => displayName))
 
     const firstAccountRows = contexts.map(({ page }) => page.locator('.voice-member').filter({ hasText: accounts[0].displayName }))
-    await contexts[0].page.getByTitle('耳机静音', { exact: true }).click()
-    await expect(contexts[0].page.getByTitle('取消耳机静音', { exact: true })).toBeEnabled()
+    await contexts[0].page.getByTitle(/^耳机静音/).click()
+    await expect(contexts[0].page.getByTitle(/^取消耳机静音/)).toBeEnabled()
     for (const row of firstAccountRows) {
       await expect(row.getByTitle('麦克风已静音', { exact: true })).toBeVisible()
       await expect(row.getByTitle('耳机已静音', { exact: true })).toBeVisible()
     }
 
-    await contexts[0].page.getByTitle('取消耳机静音', { exact: true }).click()
+    await contexts[0].page.getByTitle(/^取消耳机静音/).click()
     for (const row of firstAccountRows) {
       await expect(row.getByTitle('麦克风已静音', { exact: true })).toHaveCount(0)
       await expect(row.getByTitle('耳机已静音', { exact: true })).toHaveCount(0)
     }
 
-    await contexts[0].page.getByTitle('麦克风静音', { exact: true }).click()
+    await contexts[0].page.getByTitle(/^麦克风静音/).click()
     for (const row of firstAccountRows) {
       await expect(row.getByTitle('麦克风已静音', { exact: true })).toBeVisible()
     }
-    await contexts[0].page.getByTitle('耳机静音', { exact: true }).click()
-    await contexts[0].page.getByTitle('取消耳机静音', { exact: true }).click()
+    await contexts[0].page.getByTitle(/^耳机静音/).click()
+    await contexts[0].page.getByTitle(/^取消耳机静音/).click()
     for (const row of firstAccountRows) {
       await expect(row.getByTitle('麦克风已静音', { exact: true })).toBeVisible()
       await expect(row.getByTitle('耳机已静音', { exact: true })).toHaveCount(0)
     }
-    await contexts[0].page.getByTitle('取消静音', { exact: true }).click()
+    await contexts[0].page.getByTitle(/^取消静音/).click()
 
     const remoteMember = contexts[0].page.locator('.voice-member').filter({ hasText: accounts[1].displayName })
-    await remoteMember.locator('.voice-member-main').click()
+    await remoteMember.locator('.voice-member-main').click({ button: 'right' })
     const participantPanel = contexts[0].page.getByRole('dialog', { name: `${accounts[1].displayName}的语音参与者操作` })
     await expect(participantPanel).toBeVisible()
     await expect(remoteMember.getByLabel('麦克风音量')).toHaveCount(0)
@@ -92,7 +92,7 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
     await expect(remoteMicrophoneVolume).toHaveValue('1')
     await expect(remoteMicrophoneVolume).toHaveAttribute('max', '3')
     await remoteMicrophoneVolume.fill('3')
-    await expect(remoteMember.getByText('300%', { exact: true })).toBeVisible()
+    await expect(participantPanel.getByText('300%', { exact: true })).toBeVisible()
     await expect.poll(() => contexts[0].page.evaluate((userId) => localStorage.getItem(`cws.volume.${userId}`), secondAccountId)).toBe('3')
 
     const beforeRemoteLeave = await toneCount(contexts[0].page)
@@ -214,8 +214,8 @@ test('主动退出语音与被动离开和耳机静音区分', async ({ browser,
 
     await page.getByRole('button', { name: /语音频道/ }).click()
     await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
-    await page.getByTitle('耳机静音', { exact: true }).click()
-    const deafenedButton = page.getByTitle('取消耳机静音', { exact: true })
+    await page.getByTitle(/^耳机静音/).click()
+    const deafenedButton = page.getByTitle(/^取消耳机静音/)
     await expect(deafenedButton).toBeVisible()
     const beforeDeafenedLeave = await toneCount(page)
     await deafenedButton.press('Escape')
@@ -271,16 +271,16 @@ test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser
     await expect(modeButton).toBeEnabled()
     await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.voiceTransmissionMode'))).toBe('voice-activity')
 
-    await page.getByTitle('麦克风静音', { exact: true }).click()
-    await expect(page.getByTitle('取消静音', { exact: true })).toBeVisible()
+    await page.getByTitle(/^麦克风静音/).click()
+    await expect(page.getByTitle(/^取消静音/)).toBeVisible()
     await expect.poll(() => page.evaluate(() => performance.getEntriesByType('resource').some((entry) => entry.name.includes('muted-speaking-')))).toBe(true)
     await modeButton.click()
     modeButton = page.locator('.transmission-mode-button')
     await expect(modeButton).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
     await expect(modeButton).toBeEnabled()
     await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.voiceTransmissionMode'))).toBe('continuous')
-    await page.getByTitle('取消静音', { exact: true }).click()
-    await expect(page.getByTitle('麦克风静音', { exact: true })).toBeVisible()
+    await page.getByTitle(/^取消静音/).click()
+    await expect(page.getByTitle(/^麦克风静音/)).toBeVisible()
     expect(mutedSpeakingWarnings).toEqual([])
 
     await page.getByTitle('断开语音', { exact: true }).click()
@@ -306,10 +306,12 @@ test('语音中切换降噪选项立即更新采集约束', async ({ browser, re
   const context = await browser.newContext({ permissions: ['microphone'] })
   await context.grantPermissions(['microphone'], { origin: baseURL })
   const page = await context.newPage()
-  await installMicrophoneConstraintRecorder(page)
 
   try {
     await loginVoicePage(page, account, testInfo.project.name.startsWith('android'))
+    // LiveKit installs browser compatibility shims during app startup. Install
+    // the recorder after login so those shims cannot replace the wrapper.
+    await installMicrophoneConstraintRecorder(page)
     await page.getByRole('button', { name: /^语音频道/ }).click()
     await page.getByText('语音已连接', { exact: true }).waitFor({ timeout: 20_000 })
 
@@ -324,7 +326,7 @@ test('语音中切换降噪选项立即更新采集约束', async ({ browser, re
       const values = await microphoneNoiseConstraints(page)
       return values.length > constraintCount && values.slice(constraintCount).includes(true)
     }).toBe(true)
-    await expect(page.getByText('语音已连接', { exact: true })).toBeVisible()
+    await expect(page.locator('.voice-connection-panel')).toContainText('语音已连接')
 
     constraintCount = (await microphoneNoiseConstraints(page)).length
     await noiseSelect.selectOption('off')
@@ -332,7 +334,7 @@ test('语音中切换降噪选项立即更新采集约束', async ({ browser, re
       const values = await microphoneNoiseConstraints(page)
       return values.length > constraintCount && values.slice(constraintCount).includes(false)
     }).toBe(true)
-    await expect(page.getByText('语音已连接', { exact: true })).toBeVisible()
+    await expect(page.locator('.voice-connection-panel')).toContainText('语音已连接')
   } finally {
     await Promise.allSettled([
       page.getByTitle('断开语音', { exact: true }).click(),
@@ -477,18 +479,28 @@ async function installToneCounter(page: Page) {
 }
 
 async function installMicrophoneConstraintRecorder(page: Page) {
-  await page.addInitScript(() => {
+  await page.evaluate(() => {
     const target = window as typeof window & { __cwsMicrophoneConstraints?: unknown[] }
     target.__cwsMicrophoneConstraints = []
     const mediaDevices = navigator.mediaDevices
-    const original = mediaDevices.getUserMedia.bind(mediaDevices)
+    const originalGetUserMedia = mediaDevices.getUserMedia
     Object.defineProperty(mediaDevices, 'getUserMedia', {
       configurable: true,
-      value: (constraints: MediaStreamConstraints) => {
+      value(this: MediaDevices, constraints: MediaStreamConstraints) {
         target.__cwsMicrophoneConstraints?.push(constraints)
-        return original(constraints)
+        return originalGetUserMedia.call(this, constraints)
       },
     })
+
+    const originalApplyConstraints = MediaStreamTrack.prototype.applyConstraints
+    MediaStreamTrack.prototype.applyConstraints = function applyRecordedConstraints(
+      constraints?: MediaTrackConstraints,
+    ) {
+      if (this.kind === 'audio' && constraints) {
+        target.__cwsMicrophoneConstraints?.push({ audio: constraints })
+      }
+      return originalApplyConstraints.call(this, constraints)
+    }
   })
 }
 

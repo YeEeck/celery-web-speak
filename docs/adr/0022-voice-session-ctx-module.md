@@ -4,11 +4,11 @@ voice store 的会话核心——join/leave/bindRoom、重连处理、参与者�
 
 ## 边界划分
 
-**进模块**:会话生命周期(join/leave/bindRoom/Reconnecting/Reconnected/Disconnected/pagehide 信标)、参与者合成(syncParticipants/toVoiceParticipant/attachTrack/detachTrack/麦克风活动监控)、发布行为(enableMicrophone/republishMicrophone/增益处理器/microphoneCaptureOptions/publishOptions/toggleTransmissionMode/applyPublishSettingsChange/updateConnectedChannelSettings)、静音说话提醒(6 条策略 computed + watch + 定时器)、会话簿记(rememberEndedSession/handleModeratorDisconnect)、音频上下文管理、连带状态(status/connectedChannelId/GuildId/Name/connectedPublishSettings/errorMessage/participantStates/transmissionMode 及 changing/error/mutedSpeakingReminderEnabled/Visible/voiceSession/recentEndedSession/appliedTransmissionMode/participantSoundsReady)。
+**进模块**:会话生命周期(join/leave/bindRoom/Reconnecting/Reconnected/Disconnected/pagehide 信标)、参与者合成(syncParticipants/toVoiceParticipant/attachTrack/detachTrack/麦克风活动监控)、发布行为(enableMicrophone/republishMicrophone/麦克风管线处理器/microphoneCaptureOptions/publishOptions/toggleTransmissionMode/applyPublishSettingsChange/updateConnectedChannelSettings)、静音说话提醒(6 条策略 computed + watch + 定时器)、会话簿记(rememberEndedSession/handleModeratorDisconnect)、音频上下文管理、连带状态(status/connectedChannelId/GuildId/Name/connectedPublishSettings/errorMessage/participantStates/transmissionMode 及 changing/error/mutedSpeakingReminderEnabled/Visible/voiceSession/recentEndedSession/appliedTransmissionMode/participantSoundsReady)。
 
-**留 store**:与连接无关的纯偏好(microphoneGain/outputVolume/echoCancellation/noiseSuppression,仅经 ctx getter 单向供模块读取)、五个子模块的 ctx 接线、对外接口转发。transmissionMode 与提醒偏好虽是"偏好",但被会话行为读写,整体随模块走,避免 ADR 0020 否决过的"状态仍散两处"。
+**留 store**:与连接无关的纯偏好(microphoneGain/outputVolume/echoCancellation/noiseSuppressionOption,仅经 ctx getter 单向供模块读取)、五个子模块的 ctx 接线、对外接口转发。transmissionMode 与提醒偏好虽是"偏好",但被会话行为读写,整体随模块走,避免 ADR 0020 否决过的"状态仍散两处"。
 
-**对外接口不变**:store 仍暴露全部 82 个成员,六个组件与 e2e 零改动;store 自身实现归零为组装 + 转发,与既有的 muteDeafen/devices 处理同构。导航性收益来自模块本身:一个概念一个文件。
+**会话对外接口不变**:除降噪选项功能将旧布尔偏好迁移为枚举外,voice store 继续转发会话模块成员,组件与 e2e 无需感知 ctx 拆分;store 自身实现归零为组装 + 转发,与既有的 muteDeafen/devices 处理同构。导航性收益来自模块本身:一个概念一个文件。
 
 ## ctx seam 划分
 

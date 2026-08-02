@@ -10,7 +10,6 @@ import { createRnnoiseNode } from './rnnoise.ts'
 export interface MicrophonePipelineOptions {
   gain: number
   noiseSuppression: NoiseSuppressionOption
-  rnnoiseCapable: () => boolean
   loadRnnoiseBinary: () => Promise<ArrayBuffer | null>
   createRnnoiseNode?: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
   onRnnoiseUnavailable?: (isGenerationCurrent: () => boolean) => void | Promise<void>
@@ -31,7 +30,6 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
   private destinationNode?: MediaStreamAudioDestinationNode
   private gain: number
   private noiseSuppression: NoiseSuppressionOption
-  private readonly rnnoiseCapable: () => boolean
   private readonly loadRnnoiseBinary: () => Promise<ArrayBuffer | null>
   private readonly createRnnoiseNode: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
   private readonly onRnnoiseUnavailable?: (isGenerationCurrent: () => boolean) => void | Promise<void>
@@ -43,7 +41,6 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
   constructor(options: MicrophonePipelineOptions) {
     this.gain = options.gain
     this.noiseSuppression = options.noiseSuppression
-    this.rnnoiseCapable = options.rnnoiseCapable
     this.loadRnnoiseBinary = options.loadRnnoiseBinary
     this.createRnnoiseNode = options.createRnnoiseNode ?? createRnnoiseNode
     this.onRnnoiseUnavailable = options.onRnnoiseUnavailable
@@ -117,7 +114,6 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     if (this.noiseSuppression !== 'rnnoise' || this.rnnoiseNode || !this.audioContext) return Promise.resolve()
     const generation = this.pipelineGeneration
     if (!this.rnnoiseCaptureAllowed) return Promise.resolve()
-    if (!this.rnnoiseCapable()) return this.handleRnnoiseUnavailable(generation)
     if (this.suppressionNodePromise?.generation === generation) return this.suppressionNodePromise.promise
 
     let promise: Promise<void>
@@ -169,6 +165,7 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     if (!source || !gain || !destination) return
     source.disconnect()
     this.rnnoiseNode?.disconnect()
+    gain.disconnect()
     if (this.noiseSuppression === 'rnnoise' && this.rnnoiseNode) {
       source.connect(this.rnnoiseNode)
       this.rnnoiseNode.connect(gain)
