@@ -105,7 +105,7 @@ export class SpeechDetectionEngine {
         channelCount: 1,
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        autoGainControl: false,
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints })
