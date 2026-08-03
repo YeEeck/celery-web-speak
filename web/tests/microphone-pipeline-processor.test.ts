@@ -47,6 +47,7 @@ class FakeAudioContext {
   readonly gain = new FakeNode()
   readonly destination = new FakeNode() as FakeNode & { stream: { getAudioTracks(): unknown[] } }
   currentTime = 0
+  state: AudioContextState = 'running'
 
   constructor(sampleRate: number) {
     this.sampleRate = sampleRate
@@ -54,6 +55,10 @@ class FakeAudioContext {
     this.destination.stream = {
       getAudioTracks: () => [processedTrack],
     }
+  }
+
+  setState(state: AudioContextState) {
+    this.state = state
   }
 
   createMediaStreamSource() {
@@ -252,6 +257,17 @@ test('setGain 传递到增益节点', async () => {
   }
   processor.setGain(0.5)
   assert.equal(context.gain.gainSetters[0]?.[0], 0.5)
+})
+
+test('音频上下文关闭后清理不再连接节点（不触发浏览器告警）', async () => {
+  const { context, processor } = makeHarness({ noiseSuppression: 'rnnoise' })
+  await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
+  await flushPromises()
+  const connects = context.source.connectCalls.length
+  assert.ok(connects > 0)
+  context.setState('closed')
+  await processor.destroy()
+  assert.equal(context.source.connectCalls.length, connects)
 })
 
 test('destroy 释放处理轨与节点', async () => {

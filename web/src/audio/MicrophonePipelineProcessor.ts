@@ -167,6 +167,9 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     const gain = this.gainNode
     const destination = this.destinationNode
     if (!source || !gain || !destination) return
+    // 上下文已关闭（如断开语音时 track 清理先于/晚于上下文销毁）时整个图
+    // 已失效，继续连接节点只会产生浏览器告警且无实际效果。
+    if (this.audioContext?.state === 'closed') return
     source.disconnect()
     this.rnnoiseNode?.disconnect()
     gain.disconnect()
