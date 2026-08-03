@@ -20,7 +20,13 @@ async function openUserSettings(page: Page) {
 
 async function openCurrentGuildActions(page: Page) {
   const trigger = page.getByTitle('服务器操作')
-  if (!(await trigger.isVisible())) await page.getByTitle('频道', { exact: true }).click()
+  // 移动端频道栏是抽屉：trigger 是否可见随开合动画变动，不能作为抽屉状态的判断依据；
+  // 以 .mobile-drawer-open（反映状态而非动画位置）为准，关闭时点「频道」幂等打开。
+  const viewport = page.viewportSize()
+  if (viewport && viewport.width <= 760 && (await page.locator('.channel-sidebar.mobile-drawer-open').count()) === 0) {
+    await page.getByTitle('频道', { exact: true }).click()
+  }
+  await expect(trigger).toBeVisible()
   await trigger.click()
   const menu = page.getByRole('menu', { name: /的服务器操作$/ })
   await expect(menu).toBeVisible()
@@ -311,8 +317,8 @@ test('浏览器图标与服务器切换栏可用', async ({ page, isMobile }) =>
   const guildButton = page.locator('.guild-button').filter({ has: page.locator('.guild-initial') }).first()
   await expect(guildButton).toBeVisible()
   const bounds = await guildButton.boundingBox()
-  expect(bounds?.width).toBe(46)
-  expect(bounds?.height).toBe(46)
+  expect(bounds?.width).toBe(52)
+  expect(bounds?.height).toBe(52)
 
   if (isMobile) {
     await expect(page.getByLabel('切换服务器')).toHaveCount(0)
@@ -654,6 +660,8 @@ test('离线语音快捷控制可调音量、选择设备并直达设置', async
   await expect(microphoneVolume).toHaveCount(0)
   const inputMenu = page.getByRole('menu', { name: '输入设备', exact: true })
   await expect(inputMenu).toBeVisible()
+  // 等入场动画（scale .98→1，160ms）落定再测量，动画期间 boundingBox 尺寸与锚点偏移
+  await expect.poll(() => inputMenu.evaluate((element) => getComputedStyle(element).transform)).toBe('none')
   const [inputMenuBounds, microphoneBounds] = await Promise.all([inputMenu.boundingBox(), microphone.boundingBox()])
   if (!inputMenuBounds || !microphoneBounds) throw new Error('无法测量输入设备菜单锚点')
   const viewportWidth = page.viewportSize()?.width ?? 0
@@ -680,6 +688,7 @@ test('离线语音快捷控制可调音量、选择设备并直达设置', async
 
   await microphone.press('Shift+F10')
   await expect(inputMenu).toBeVisible()
+  await expect.poll(() => inputMenu.evaluate((element) => getComputedStyle(element).transform)).toBe('none')
   const keyboardInputMenuBounds = await inputMenu.boundingBox()
   if (!keyboardInputMenuBounds) throw new Error('无法测量键盘打开的输入设备菜单锚点')
   expect(keyboardInputMenuBounds.x).toBeCloseTo(inputMenuBounds.x, 0)
@@ -885,7 +894,8 @@ test('普通成员离开服务器前看到明确后果且失败时保留对话�
     }))
     await leaveButton.click()
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole('alert')).toHaveText('测试离开失败')
+    // 失败反馈按 ADR-0002 统一走 toast，对话框保留不关闭
+    await expect(targetPage.getByRole('status').filter({ hasText: '测试离开失败' })).toBeVisible()
     await expect.poll(async () => {
       const response = await target.request.get('/api/bootstrap')
       const payload = await response.json() as { guilds: Array<{ id: number; joined: boolean }> }
@@ -1434,6 +1444,8 @@ test('操作提示音默认开启并持久化到浏览器', async ({ page, isMob
   await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.notificationSounds.enabled'))).toBe('false')
 
   await page.reload()
+  // reload 后先等应用就绪再交互：bootstrap 未完成时点击账户入口不会打开菜单
+  await expect(page.getByRole('heading', { name: '文字聊天', exact: true })).toBeVisible()
   await openUserSettings(page)
   await page.getByRole('button', { name: '音效', exact: true }).click()
   await expect(page.getByLabel('启用提示音')).not.toBeChecked()
@@ -1517,11 +1529,14 @@ test('语音浮层按钮独立成行：桌面壳显示、左对齐且未加入�
   await expect(overlayButton).toBeVisible()
   await expect(page.locator('.user-controls').getByTitle('游戏内显示语音浮层')).toHaveCount(0)
 
-  const rowBox = await row.boundingBox()
-  const buttonBox = await overlayButton.boundingBox()
-  expect(buttonBox).not.toBeNull()
-  expect(rowBox).not.toBeNull()
-  const offset = buttonBox!.x - rowBox!.x
+  // 移动端抽屉开合动画期间两次 boundingBox 会捕获到不同帧，改为单次 evaluate 同帧测量
+  const offset = await page.evaluate(() => {
+    const row = document.querySelector('.voice-overlay-row')!
+    const button = row.querySelector('button')!
+    const rowBox = row.getBoundingClientRect()
+    const buttonBox = button.getBoundingClientRect()
+    return buttonBox.x - rowBox.x
+  })
   expect(offset).toBeGreaterThanOrEqual(4)
   expect(offset).toBeLessThanOrEqual(12)
 
@@ -1960,6 +1975,8 @@ test('管理控制台外框不随页签内容变化', async ({ page, isMobile })
     const rect = element.getBoundingClientRect()
     return { width: rect.width, height: rect.height }
   })
+  // 视口调整触发的布局过渡会短暂影响外框尺寸，先等落定再取基准
+  await expect.poll(panelSize).toEqual(isMobile ? { width: 412, height: 800 } : { width: 980, height: 820 })
   const channelSize = await panelSize()
 
   await page.getByRole('button', { name: '成员', exact: true }).click()
@@ -1972,6 +1989,7 @@ test('管理控制台外框不随页签内容变化', async ({ page, isMobile })
     const rect = element.getBoundingClientRect()
     return { width: rect.width, height: rect.height }
   })
+  await expect.poll(platformSize).toEqual(isMobile ? { width: 412, height: 800 } : { width: 980, height: 820 })
   const platformInitialSize = await platformSize()
   await page.getByRole('button', { name: '创建与邀请', exact: true }).click()
   expect(await platformSize()).toEqual(platformInitialSize)
@@ -2017,7 +2035,8 @@ test('平台管理员可通过登录名确认删除账号', async ({ page, reque
 
     await openPlatformAccounts(page)
     await page.getByRole('button', { name: '平台账号', exact: true }).click()
-    await page.getByRole('button', { name: new RegExp(account.displayName) }).click()
+    // 限定在平台管理面板内：聊天区的消息作者按钮（头像/名字）可读名也含显示名，宽正则会歧义
+    await page.locator('.admin-panel').getByRole('button', { name: new RegExp(account.displayName) }).click()
     await page.getByRole('button', { name: '删除账号', exact: true }).click()
 
     const dialog = page.getByRole('alertdialog', { name: '永久删除账号？' })

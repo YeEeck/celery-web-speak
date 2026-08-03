@@ -15,7 +15,12 @@ async function login(page: Page) {
 
 async function openGuildAdmin(page: Page) {
   const trigger = page.getByTitle('服务器操作')
-  if (!(await trigger.isVisible())) await page.getByTitle('频道', { exact: true }).click()
+  // 移动端频道栏是抽屉：以 .mobile-drawer-open（状态而非动画位置）判断，关闭时点「频道」幂等打开
+  const viewport = page.viewportSize()
+  if (viewport && viewport.width <= 760 && (await page.locator('.channel-sidebar.mobile-drawer-open').count()) === 0) {
+    await page.getByTitle('频道', { exact: true }).click()
+  }
+  await expect(trigger).toBeVisible()
   await trigger.click()
   const menu = page.getByRole('menu', { name: /的服务器操作$/ })
   await expect(menu).toBeVisible()
