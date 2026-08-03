@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, reactive, ref, watch } from 'vue'
-import { Hash, Plus, Radio, Save, Trash2, X } from '@lucide/vue'
+import { Eraser, Hash, Plus, Radio, Save, Trash2, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
@@ -67,6 +67,8 @@ const showCreateDialog = ref(false)
 const createNameInput = ref<HTMLInputElement | null>(null)
 const showDeleteConfirmation = ref(false)
 const deleteConfirmation = ref('')
+const showClearConfirmation = ref(false)
+const clearMessageCount = ref<number | null>(null)
 
 const voiceOnlineCount = computed(() => {
   const channel = selectedChannel.value
@@ -74,11 +76,57 @@ const voiceOnlineCount = computed(() => {
   return app.voiceRooms.find((room) => room.channelId === channel.id)?.participants.length ?? 0
 })
 
+const channelStats = ref<{ messageCount: number; contentBytes: number } | null>(null)
+
+function formatBytes(bytes: number) {
+  return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`
+}
+
+async function loadChannelStats(channel: Channel | null) {
+  if (!channel || channel.type !== 'text') return
+  try {
+    const payload = await request<{ messageCount: number; contentBytes: number }>(`/api/guilds/${app.activeGuildId}/channels/${channel.id}/stats`)
+    if (selectedChannel.value?.id === channel.id) channelStats.value = payload
+  } catch {
+    // 统计为只读展示，加载失败时保持占位符
+  }
+}
+
 watch(selectedChannel, (channel) => {
   Object.assign(draft, settingsDraft(channel))
   showDeleteConfirmation.value = false
   deleteConfirmation.value = ''
+  showClearConfirmation.value = false
+  clearMessageCount.value = null
+  channelStats.value = null
+  loadChannelStats(channel)
 })
+loadChannelStats(selectedChannel.value)
+
+function openClearConfirmation() {
+  const channel = selectedChannel.value
+  if (!channel) return
+  showClearConfirmation.value = true
+  clearMessageCount.value = null
+  request<{ messageCount: number }>(`/api/guilds/${app.activeGuildId}/channels/${channel.id}/stats`)
+    .then((stats) => {
+      if (selectedChannel.value?.id === channel.id) clearMessageCount.value = stats.messageCount
+    })
+    .catch(() => {
+      clearMessageCount.value = 0
+    })
+}
+
+async function clearChannelMessages() {
+  const channel = selectedChannel.value
+  if (!channel) return
+  await run(async () => {
+    await request(`/api/guilds/${app.activeGuildId}/channels/${channel.id}/messages`, { method: 'DELETE' })
+    showClearConfirmation.value = false
+    clearMessageCount.value = null
+    channelStats.value = { messageCount: 0, contentBytes: 0 }
+  }, '频道消息已清空')
+}
 
 function openCreateDialog() {
   newChannelType.value = 'text'
@@ -175,6 +223,7 @@ async function deleteChannel() {
       <dl class="guild-metadata">
         <div><dt>频道类型</dt><dd>{{ selectedChannelTypeDetails?.label }}</dd></div>
         <div><dt>创建时间</dt><dd>{{ new Date(selectedChannel.createdAt).toLocaleString('zh-CN') }}</dd></div>
+        <div v-if="selectedChannel.type === 'text'"><dt>消息占用</dt><dd>{{ channelStats ? `${channelStats.messageCount} 条消息 · ${formatBytes(channelStats.contentBytes)}` : '—' }}</dd></div>
         <div v-if="selectedChannel.type === 'voice'"><dt>语音在线</dt><dd>{{ voiceOnlineCount }} 人</dd></div>
       </dl>
 
@@ -206,12 +255,23 @@ async function deleteChannel() {
       </section>
 
       <section class="channel-admin-danger">
-        <div><h3><Trash2 :size="18" />删除频道</h3><p>{{ selectedChannelTypeDetails?.deletionWarning }}</p></div>
-        <button v-if="!showDeleteConfirmation" class="secondary-button danger-text" type="button" @click="showDeleteConfirmation = true">删除</button>
-        <div v-else class="channel-delete-confirmation">
-          <input v-model="deleteConfirmation" :placeholder="selectedChannel.name" aria-label="输入频道名称确认删除" />
-          <button class="secondary-button" type="button" @click="showDeleteConfirmation = false; deleteConfirmation = ''">取消</button>
-          <button class="danger-button" type="button" :disabled="busy || deleteConfirmation !== selectedChannel.name" @click="deleteChannel">确认删除</button>
+        <div v-if="selectedChannel.type === 'text'" class="channel-danger-row">
+          <div><h3><Eraser :size="18" />清空消息</h3><p>删除频道内全部消息，频道本体与保留设置保留。</p></div>
+          <button v-if="!showClearConfirmation" class="secondary-button danger-text" type="button" @click="openClearConfirmation">清空消息</button>
+          <div v-else class="channel-delete-confirmation">
+            <p class="channel-clear-warning">将永久删除 <strong>{{ clearMessageCount ?? '…' }}</strong> 条消息，此操作无法恢复。</p>
+            <button class="secondary-button" type="button" @click="showClearConfirmation = false; clearMessageCount = null">取消</button>
+            <button class="danger-button" type="button" :disabled="busy" @click="clearChannelMessages">确认清空</button>
+          </div>
+        </div>
+        <div class="channel-danger-row">
+          <div><h3><Trash2 :size="18" />删除频道</h3><p>{{ selectedChannelTypeDetails?.deletionWarning }}</p></div>
+          <button v-if="!showDeleteConfirmation" class="secondary-button danger-text" type="button" @click="showDeleteConfirmation = true">删除</button>
+          <div v-else class="channel-delete-confirmation">
+            <input v-model="deleteConfirmation" :placeholder="selectedChannel.name" aria-label="输入频道名称确认删除" />
+            <button class="secondary-button" type="button" @click="showDeleteConfirmation = false; deleteConfirmation = ''">取消</button>
+            <button class="danger-button" type="button" :disabled="busy || deleteConfirmation !== selectedChannel.name" @click="deleteChannel">确认删除</button>
+          </div>
         </div>
       </section>
     </div>

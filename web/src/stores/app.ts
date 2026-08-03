@@ -386,6 +386,13 @@ export const useAppStore = defineStore('app', () => {
       state.messages = state.messages.filter((message) => message.id !== payload.id)
       const readState = ensureReadState(channelId)
       if (payload.id > readState.lastReadMessageId && readState.unreadCount > 0) readState.unreadCount -= 1
+    } else if (type === 'channel_messages_cleared') {
+      const channelId = (data as { channelId: number }).channelId
+      const state = ensureMessageState(channelId)
+      state.messages = []
+      state.hasEarlier = false
+      const readState = ensureReadState(channelId)
+      readState.unreadCount = 0
     } else if (type === 'channel_created') {
       upsertChannel(data as Channel)
     } else if (type === 'channel_updated') {
