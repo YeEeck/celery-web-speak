@@ -102,12 +102,12 @@ onMounted(async () => {
   const triggerBounds = props.trigger.getBoundingClientRect()
   maxHeight.value = Math.max(0, triggerBounds.top - gap - margin)
   await nextTick()
-  const bounds = menu.value?.getBoundingClientRect()
-  if (!bounds) return
+  const menuElement = menu.value
+  if (!menuElement) return
   // 进入动画会对菜单施加 transform（scale(.98)），getBoundingClientRect 会返回
   // 缩放后的尺寸导致锚定偏移；offsetWidth/offsetHeight 是未变换的布局尺寸。
-  const menuWidth = menu.value!.offsetWidth
-  const menuHeight = menu.value!.offsetHeight
+  const menuWidth = menuElement.offsetWidth
+  const menuHeight = menuElement.offsetHeight
   const centeredLeft = triggerBounds.left + (triggerBounds.width - menuWidth) / 2
   left.value = Math.min(Math.max(margin, centeredLeft), window.innerWidth - menuWidth - margin)
   top.value = Math.max(margin, triggerBounds.top - gap - menuHeight)

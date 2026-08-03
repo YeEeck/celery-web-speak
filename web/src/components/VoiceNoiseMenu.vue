@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Check, Settings2, Volume2 } from '@lucide/vue'
 import { useVoiceStore } from '../stores/voice'
 
@@ -11,17 +11,18 @@ const emit = defineEmits<{
   settings: [trigger: HTMLButtonElement]
 }>()
 
+const MENU_OPTIONS = [
+  { value: 'off', label: '关闭' },
+  { value: 'webrtc', label: '系统降噪（WebRTC）' },
+  { value: 'rnnoise', label: '增强降噪（RNNoise）' },
+] as const
+
 const voice = useVoiceStore()
 const menu = ref<HTMLElement | null>(null)
 const left = ref(0)
 const top = ref(0)
 const maxHeight = ref<number | null>(null)
 const positioned = ref(false)
-const options = computed(() => [
-  { value: 'off', label: '关闭' },
-  { value: 'webrtc', label: '系统降噪（WebRTC）' },
-  { value: 'rnnoise', label: '增强降噪（RNNoise）' },
-] as const)
 
 function radioItems() {
   return Array.from(menu.value?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]:not(:disabled)') ?? [])
@@ -73,7 +74,7 @@ function closeOnViewportChange(event: Event) {
   emit('close', false)
 }
 
-function selectOption(option: (typeof options.value)[number]['value']) {
+function selectOption(option: (typeof MENU_OPTIONS)[number]['value']) {
   if (option !== voice.noiseSuppressionOption) voice.setNoiseSuppressionOption(option)
 }
 
@@ -91,12 +92,12 @@ onMounted(async () => {
   const triggerBounds = props.trigger.getBoundingClientRect()
   maxHeight.value = Math.max(0, triggerBounds.top - gap - margin)
   await nextTick()
-  const bounds = menu.value?.getBoundingClientRect()
-  if (!bounds) return
+  const menuElement = menu.value
+  if (!menuElement) return
   // 进入动画会对菜单施加 transform（scale(.98)），getBoundingClientRect 会返回
   // 缩放后的尺寸导致锚定偏移；offsetWidth/offsetHeight 是未变换的布局尺寸。
-  const menuWidth = menu.value!.offsetWidth
-  const menuHeight = menu.value!.offsetHeight
+  const menuWidth = menuElement.offsetWidth
+  const menuHeight = menuElement.offsetHeight
   const centeredLeft = triggerBounds.left + (triggerBounds.width - menuWidth) / 2
   left.value = Math.min(Math.max(margin, centeredLeft), window.innerWidth - menuWidth - margin)
   top.value = Math.max(margin, triggerBounds.top - gap - menuHeight)
@@ -118,6 +119,7 @@ onBeforeUnmount(() => {
     class="voice-noise-menu motion-origin-bottom"
     :class="{ positioned }"
     :style="{ left: `${left}px`, top: `${top}px`, maxHeight: maxHeight === null ? undefined : `${maxHeight}px` }"
+    id="noise-suppression-menu"
     role="menu"
     aria-label="降噪方法"
     @keydown="handleKeyDown"
@@ -125,7 +127,7 @@ onBeforeUnmount(() => {
     <header><Volume2 :size="16" /><strong>降噪方法</strong></header>
     <div class="voice-noise-option-list">
       <button
-        v-for="option in options"
+        v-for="option in MENU_OPTIONS"
         :key="option.value"
         type="button"
         role="menuitemradio"

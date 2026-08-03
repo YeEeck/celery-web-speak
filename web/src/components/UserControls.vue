@@ -23,7 +23,6 @@ const volumePopover = ref<HTMLElement | null>(null)
 const suppressedVolumeHover = ref<'input' | 'output' | null>(null)
 const deviceMenu = ref<{ kind: 'input' | 'output'; trigger: HTMLButtonElement } | null>(null)
 const noiseMenu = ref<{ trigger: HTMLButtonElement } | null>(null)
-const noiseTrigger = ref<HTMLButtonElement | null>(null)
 let volumeCloseTimer: number | null = null
 
 const showApplicationAudio = computed(() => voice.applicationAudioSupported && voice.joined && !app.user?.voiceMuted)
@@ -70,7 +69,7 @@ function clearVolumeCloseTimer() {
 }
 
 function openVolume(kind: 'input' | 'output') {
-  if (deviceMenu.value || suppressedVolumeHover.value === kind) return
+  if (deviceMenu.value || noiseMenu.value || suppressedVolumeHover.value === kind) return
   clearVolumeCloseTimer()
   applicationAudioPanelOpen.value = false
   volumeOpen.value = kind
@@ -247,7 +246,6 @@ onBeforeUnmount(() => {
     </div>
     <div class="control-buttons">
       <button
-        ref="noiseTrigger"
         class="icon-button"
         :class="{ active: noiseSuppressionEnabled }"
         :title="noiseSuppressionTitle"
