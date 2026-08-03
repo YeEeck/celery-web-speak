@@ -47,5 +47,6 @@ input:not([type="range"]):not([type="checkbox"]):focus, textarea:focus { border-
 
 .toggle-list { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .toggle-list label { min-height: 42px; padding: 0 11px; border-radius: 4px; background: var(--main); display: flex; flex-direction: row; align-items: center; justify-content: space-between; transition: var(--t-colors); }
+.toggle-list label > span { flex: 0 0 auto; white-space: nowrap; }
 .toggle-list label:hover { background: var(--hover); }
 .toggle-list input { width: 18px; height: 18px; accent-color: var(--brand); }
