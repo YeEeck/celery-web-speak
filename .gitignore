@@ -6,3 +6,4 @@ data/
 .env
 .scratch/
 test-results/
+web/e2e/fixtures/
