@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
 import { rangeProgressStyle } from '../utils/range'
 import VoiceDeviceMenu from './VoiceDeviceMenu.vue'
+import VoiceNoiseMenu from './VoiceNoiseMenu.vue'
 
 const emit = defineEmits<{
   settings: [kind: 'input' | 'output', trigger: HTMLButtonElement]
@@ -21,6 +22,8 @@ const volumeOpen = ref<'input' | 'output' | null>(null)
 const volumePopover = ref<HTMLElement | null>(null)
 const suppressedVolumeHover = ref<'input' | 'output' | null>(null)
 const deviceMenu = ref<{ kind: 'input' | 'output'; trigger: HTMLButtonElement } | null>(null)
+const noiseMenu = ref<{ trigger: HTMLButtonElement } | null>(null)
+const noiseTrigger = ref<HTMLButtonElement | null>(null)
 let volumeCloseTimer: number | null = null
 
 const showApplicationAudio = computed(() => voice.applicationAudioSupported && voice.joined && !app.user?.voiceMuted)
@@ -108,6 +111,7 @@ function openDeviceMenu(kind: 'input' | 'output', event: MouseEvent) {
   const trigger = event.currentTarget as HTMLButtonElement
   closeVolume()
   applicationAudioPanelOpen.value = false
+  noiseMenu.value = null
   suppressedVolumeHover.value = kind
   deviceMenu.value = { kind, trigger }
 }
@@ -123,6 +127,7 @@ function handleControlKeyDown(kind: 'input' | 'output', event: KeyboardEvent) {
   const trigger = event.currentTarget as HTMLButtonElement
   closeVolume()
   applicationAudioPanelOpen.value = false
+  noiseMenu.value = null
   suppressedVolumeHover.value = kind
   deviceMenu.value = { kind, trigger }
 }
@@ -133,14 +138,47 @@ function closeDeviceMenu(restoreFocus = false) {
   if (restoreFocus) void nextTick(() => trigger?.focus())
 }
 
+function openNoiseMenu(event: MouseEvent) {
+  if (!finePointerAvailable()) return
+  event.preventDefault()
+  const trigger = event.currentTarget as HTMLButtonElement
+  closeVolume()
+  applicationAudioPanelOpen.value = false
+  deviceMenu.value = null
+  noiseMenu.value = { trigger }
+}
+
+function handleNoiseKeyDown(event: KeyboardEvent) {
+  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return
+  event.preventDefault()
+  const trigger = event.currentTarget as HTMLButtonElement
+  closeVolume()
+  applicationAudioPanelOpen.value = false
+  deviceMenu.value = null
+  noiseMenu.value = { trigger }
+}
+
+function closeNoiseMenu(restoreFocus = false) {
+  const trigger = noiseMenu.value?.trigger
+  noiseMenu.value = null
+  if (restoreFocus) void nextTick(() => trigger?.focus())
+}
+
 function openVoiceSettings(kind: 'input' | 'output', trigger: HTMLButtonElement) {
   deviceMenu.value = null
+  noiseMenu.value = null
   emit('settings', kind, trigger)
+}
+
+function openNoiseSettings(trigger: HTMLButtonElement) {
+  noiseMenu.value = null
+  emit('settings', 'input', trigger)
 }
 
 async function toggleApplicationAudioPanel() {
   closeVolume()
   closeDeviceMenu()
+  noiseMenu.value = null
   if (voice.applicationAudioActive) {
     applicationAudioPanelOpen.value = !applicationAudioPanelOpen.value
     return
@@ -209,11 +247,16 @@ onBeforeUnmount(() => {
     </div>
     <div class="control-buttons">
       <button
+        ref="noiseTrigger"
         class="icon-button"
         :class="{ active: noiseSuppressionEnabled }"
         :title="noiseSuppressionTitle"
         :aria-pressed="noiseSuppressionEnabled"
+        :aria-expanded="noiseMenu !== null"
+        aria-controls="noise-suppression-menu"
         @click="voice.toggleNoiseSuppression()"
+        @contextmenu="openNoiseMenu"
+        @keydown="handleNoiseKeyDown"
       >
         <AudioWaveform :size="18" />
       </button>
@@ -354,6 +397,14 @@ onBeforeUnmount(() => {
           :trigger="deviceMenu.trigger"
           @close="closeDeviceMenu"
           @settings="openVoiceSettings"
+        />
+      </Transition>
+      <Transition name="motion-popover" appear>
+        <VoiceNoiseMenu
+          v-if="noiseMenu"
+          :trigger="noiseMenu.trigger"
+          @close="closeNoiseMenu"
+          @settings="openNoiseSettings"
         />
       </Transition>
     </Teleport>

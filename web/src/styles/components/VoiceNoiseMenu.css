@@ -1,0 +1,11 @@
+.voice-noise-menu { position: fixed; z-index: 75; width: min(280px, calc(100vw - 16px)); max-height: calc(100vh - 16px); border: 1px solid var(--border-strong); border-radius: 6px; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; visibility: hidden; overflow: hidden; background: var(--elevated); box-shadow: 0 12px 32px rgba(0, 0, 0, .46); }
+.voice-noise-menu.positioned { visibility: visible; }
+.voice-noise-menu > header { min-height: 38px; padding: 0 12px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; color: var(--text); }
+.voice-noise-menu > header strong { font-size: 12px; }
+.voice-noise-option-list { min-height: 0; max-height: min(320px, calc(100vh - 150px)); padding: 5px; overflow-y: auto; }
+.voice-noise-option-list button, .voice-noise-actions button { width: 100%; min-height: 36px; padding: 0 8px; border: 0; border-radius: 4px; display: flex; align-items: center; gap: 8px; background: transparent; color: var(--muted); text-align: left; cursor: pointer; transition: var(--t-colors); }
+.voice-noise-option-list button:hover:not(:disabled), .voice-noise-option-list button:focus-visible, .voice-noise-actions button:hover:not(:disabled), .voice-noise-actions button:focus-visible { outline: none; background: var(--hover); color: var(--text); }
+.voice-noise-radio { width: 17px; height: 17px; border: 1px solid var(--faint-icon); border-radius: 50%; flex: 0 0 17px; display: grid; place-items: center; color: var(--brand-fg); }
+.voice-noise-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-noise-actions { padding: 5px; border-top: 1px solid var(--line); }
+.voice-noise-actions button { color: var(--text); }

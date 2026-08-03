@@ -9,6 +9,7 @@
 @import './components/VoiceParticipantActionMenu.css';
 @import './components/UserControls.css';
 @import './components/VoiceDeviceMenu.css';
+@import './components/VoiceNoiseMenu.css';
 @import './components/UserAvatar.css';
 @import './components/ChatPane.css';
 @import './components/MemberList.css';

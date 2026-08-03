@@ -1580,6 +1580,54 @@ test('语音操作区降噪按钮：左键切换降噪方法与关闭并持久�
   await expect(restoredButton).toHaveAttribute('title', '降噪开启（系统降噪 WebRTC）')
 })
 
+test('降噪按钮右键浮窗：选择降噪方法即时生效并同步设置页', async ({ page, isMobile }) => {
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+  const noiseButton = page.locator('.control-buttons').getByTitle(/^降噪/)
+  const openNoiseMenu = async () => {
+    if (isMobile) {
+      await noiseButton.focus()
+      await page.keyboard.press('Shift+F10')
+    } else {
+      await noiseButton.click({ button: 'right' })
+    }
+    await expect(page.getByRole('menu', { name: '降噪方法' })).toBeVisible()
+  }
+  const menu = page.getByRole('menu', { name: '降噪方法' })
+
+  await openNoiseMenu()
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(3)
+  await expect(menu.locator('[role="menuitemradio"][data-option="rnnoise"]')).toHaveAttribute('aria-checked', 'true')
+
+  await menu.getByTitle('系统降噪（WebRTC）', { exact: true }).click()
+  await expect(noiseButton).toHaveAttribute('title', '降噪开启（系统降噪 WebRTC）')
+  await expect(menu.locator('[role="menuitemradio"][data-option="webrtc"]')).toHaveAttribute('aria-checked', 'true')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.noiseSuppression'))).toBe('webrtc')
+
+  await page.locator('.rail-logo').click()
+  await expect(menu).toHaveCount(0)
+
+  await openNoiseMenu()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(noiseButton).toBeFocused()
+
+  await openNoiseMenu()
+  await menu.getByTitle('关闭', { exact: true }).click()
+  await expect(noiseButton).toHaveAttribute('title', '降噪已关闭')
+  await expect(menu.locator('[role="menuitemradio"][data-option="off"]')).toHaveAttribute('aria-checked', 'true')
+
+  await openUserSettings(page)
+  await page.getByRole('dialog', { name: '用户设置' }).getByRole('button', { name: '音频', exact: true }).click()
+  await expect(page.getByLabel('降噪选项')).toHaveValue('off')
+  await page.getByRole('dialog', { name: '用户设置' }).getByTitle('关闭').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+
+  await openNoiseMenu()
+  await menu.getByRole('menuitem', { name: '语音设置', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '用户设置' })).toBeVisible()
+  await expect(page.getByLabel('降噪选项')).toHaveValue('off')
+})
+
 test('他人的新消息播放提示音，自己的消息不播放', async ({ page, request, isMobile }, testInfo) => {
   await installToneCounter(page)
   await expect(page.locator('.rail-status.online')).toBeAttached()
