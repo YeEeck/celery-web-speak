@@ -360,6 +360,10 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
             <span>在游戏内显示语音浮层</span>
             <input type="checkbox" :checked="voice.overlayEnabled" aria-label="在游戏内显示语音浮层" @change="voice.setOverlayEnabled(($event.target as HTMLInputElement).checked)" />
           </label>
+          <label class="setting-toggle">
+            <span>用 Ctrl+Shift+O 切换浮层</span>
+            <input type="checkbox" :checked="voice.overlayShortcutEnabled" aria-label="用 Ctrl+Shift+O 切换浮层" @change="voice.setOverlayShortcutEnabled(($event.target as HTMLInputElement).checked)" />
+          </label>
           <label class="audio-level-control">
             <span><span>显示大小</span><strong>{{ voice.overlayConfig.scalePercent }}%</strong></span>
             <input type="range" :min="VOICE_OVERLAY_CONFIG_LIMITS.scalePercent.min" :max="VOICE_OVERLAY_CONFIG_LIMITS.scalePercent.max" step="1" :value="voice.overlayConfig.scalePercent" :style="rangeProgressStyle(voice.overlayConfig.scalePercent, VOICE_OVERLAY_CONFIG_LIMITS.scalePercent.min, VOICE_OVERLAY_CONFIG_LIMITS.scalePercent.max)" aria-label="显示大小" @input="voice.setOverlayConfig({ scalePercent: Number(($event.target as HTMLInputElement).value) })" />

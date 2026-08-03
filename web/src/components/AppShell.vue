@@ -744,7 +744,7 @@ function closeChangelog() {
         <button
           class="icon-button"
           :class="{ active: voice.overlayEnabled }"
-          title="游戏内显示语音浮层"
+          :title="voice.overlayShortcutEnabled ? '游戏内显示语音浮层 (Ctrl+Shift+O)' : '游戏内显示语音浮层'"
           :aria-pressed="voice.overlayEnabled"
           @click="voice.setOverlayEnabled(!voice.overlayEnabled)"
         >

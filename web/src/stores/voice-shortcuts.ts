@@ -2,7 +2,8 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import { useVoiceStore } from './voice'
 
 /**
- * 全局语音快捷键：Ctrl+Shift+M 切换麦克风静音，Ctrl+Shift+D 切换耳机静音。
+ * 全局语音快捷键：Ctrl+Shift+M 切换麦克风静音，Ctrl+Shift+D 切换耳机静音，
+ * Ctrl+Shift+O 切换语音浮层（可在设置面板停用）。
  * Meta（⌘）等价于 Ctrl；已登录主界面内任何焦点位置均生效，
  * 模态弹窗（aria-modal）打开期间不拦截。
  * 参见 docs/adr/0004-voice-shortcuts-fire-during-text-input.md
@@ -20,6 +21,10 @@ export function useVoiceShortcuts() {
     } else if (event.code === 'KeyD') {
       event.preventDefault()
       void voice.toggleDeafen()
+    } else if (event.code === 'KeyO') {
+      if (!voice.overlaySupported || !voice.overlayShortcutEnabled) return
+      event.preventDefault()
+      voice.setOverlayEnabled(!voice.overlayEnabled)
     }
   }
 

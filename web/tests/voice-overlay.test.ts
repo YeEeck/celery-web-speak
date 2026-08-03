@@ -5,6 +5,7 @@ import {
   DEFAULT_VOICE_OVERLAY_CONFIG,
   VOICE_OVERLAY_CONFIG_KEY,
   VOICE_OVERLAY_ENABLED_KEY,
+  VOICE_OVERLAY_SHORTCUT_KEY,
   useVoiceOverlay,
 } from '../src/stores/voice-overlay.ts'
 import type { DesktopVoiceOverlayBridge, VoiceOverlayConfig, VoiceOverlayState } from '../src/audio/voiceOverlayBridge.ts'
@@ -157,6 +158,16 @@ test('voice overlay: 偏好默认关闭并持久化开关', async () => {
   assert.equal(memoryStore.get(VOICE_OVERLAY_ENABLED_KEY), 'true')
   overlay.setOverlayEnabled(false)
   assert.equal(memoryStore.get(VOICE_OVERLAY_ENABLED_KEY), 'false')
+})
+
+test('voice overlay: 快捷键偏好默认开启并持久化开关', async () => {
+  const { overlay } = createFixture()
+  assert.equal(overlay.shortcutEnabled.value, true)
+  overlay.setOverlayShortcutEnabled(false)
+  assert.equal(overlay.shortcutEnabled.value, false)
+  assert.equal(memoryStore.get(VOICE_OVERLAY_SHORTCUT_KEY), 'false')
+  overlay.setOverlayShortcutEnabled(true)
+  assert.equal(memoryStore.get(VOICE_OVERLAY_SHORTCUT_KEY), 'true')
 })
 
 test('voice overlay: 无桥环境不暴露能力且不推送', async () => {

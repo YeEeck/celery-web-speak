@@ -14,6 +14,7 @@ import { getSavedBoolean, saveBoolean } from './voice-utils.ts'
 
 export const VOICE_OVERLAY_ENABLED_KEY = 'cws.voiceOverlay.enabled'
 export const VOICE_OVERLAY_CONFIG_KEY = 'cws.voiceOverlay.config'
+export const VOICE_OVERLAY_SHORTCUT_KEY = 'cws.voiceOverlay.shortcutEnabled'
 export { DEFAULT_VOICE_OVERLAY_CONFIG, VOICE_OVERLAY_CONFIG_LIMITS } from '../audio/voiceOverlayBridge.ts'
 
 const VOICE_OVERLAY_THROTTLE_MS = 100
@@ -29,6 +30,7 @@ export interface VoiceOverlayContext {
 export function useVoiceOverlay(ctx: VoiceOverlayContext) {
   const supported = ref(false)
   const enabled = ref(getSavedBoolean(VOICE_OVERLAY_ENABLED_KEY, false))
+  const shortcutEnabled = ref(getSavedBoolean(VOICE_OVERLAY_SHORTCUT_KEY, true))
   const config = ref<VoiceOverlayConfig>(loadSavedConfig())
   const configSupported = ref(false)
   let bridge: DesktopVoiceOverlayBridge | null = null
@@ -89,6 +91,11 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
     scheduleConfigPush()
   }
 
+  function setOverlayShortcutEnabled(value: boolean) {
+    shortcutEnabled.value = value
+    saveBoolean(VOICE_OVERLAY_SHORTCUT_KEY, value)
+  }
+
   function schedulePush() {
     if (pendingTimer !== null || !bridge || !enabled.value) return
     pendingTimer = setTimeout(() => {
@@ -138,10 +145,12 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
   return {
     supported,
     enabled,
+    shortcutEnabled,
     config,
     configSupported,
     initializeVoiceOverlay,
     setOverlayEnabled,
+    setOverlayShortcutEnabled,
     setOverlayConfig,
   }
 }
