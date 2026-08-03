@@ -63,10 +63,14 @@ function handleKeyDown(event: KeyboardEvent) {
 function handlePointerDown(event: PointerEvent) {
   const target = event.target as Node
   if (menu.value?.contains(target) || props.trigger?.contains(target)) return
+  console.log('DBG menu close via pointerdown')
   emit('close', false)
 }
 
-function closeOnViewportChange() {
+function closeOnViewportChange(event?: Event) {
+  // 应用内元素（消息列表滚动恢复、虚拟列表渲染）的程序化滚动不应关闭菜单；
+  // 用户交互滚动由 handlePointerDown 兜底（移动端触摸滚动先触发 pointerdown）。
+  if (event?.type === 'scroll' && event.target !== document) return
   emit('close', false)
 }
 
