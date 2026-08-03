@@ -145,6 +145,8 @@ test('增强降噪资源未就绪时保持直通（回退系统降噪，设置�
   await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(context.source.connectCalls.at(-1), context.gain)
+  // 回退路径不挂补益：补益只随降噪节点创建，回退态电平 ≈ 关闭档。
+  assert.equal(context.makeupGains.length, 0)
 })
 
 test('资源就绪且上下文为 48kHz 时启用降噪路径（source→降噪→补益→gain）', async () => {
@@ -232,6 +234,7 @@ test('RNNoise 节点创建失败时通知回退并保持直通', async () => {
   await flushPromises()
   assert.equal(unavailable, 1)
   assert.equal(context.source.connectCalls.at(-1), context.gain)
+  assert.equal(context.makeupGains.length, 0)
 })
 
 test('RNNoise 二进制加载抛错时通知回退并保持直通', async () => {

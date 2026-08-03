@@ -20,6 +20,8 @@
 // 2026-08-03 修订：增强降噪分支内置 +3 dB 固定补益（ADR-0025），把 rnnoise 档
 // 噪声段与语音段一并抬高约 3 dB，噪声削减口径系统性 −3 dB；门禁①按推导折扣重标
 // （最差基线轮 8.8 − 3 = 5.8），待 Compose 环境可用时重跑基线按新基线重标。
+// 门禁②语义随之转变：补益后语音衰减趋负（过冲），该门禁从"防过度抑制"转为
+// 防过冲下界保护，与门禁④共同约束增强降噪语音电平。
 
 import { expect, test, type Page } from '@playwright/test'
 import { createGuildMember, deletePlatformUser, firstJoinedGuildID } from './api-helpers'

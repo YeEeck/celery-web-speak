@@ -160,12 +160,8 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
       this.rnnoiseNode?.destroy()
       this.rnnoiseNode = node
       if (!this.makeupGainNode) {
-        const audioContext = this.audioContext
-        if (!audioContext) {
-          node.destroy()
-          return
-        }
-        const makeupGain = audioContext.createGain()
+        // isCurrentGeneration 已保证上下文存在（其间无异步交叉）。
+        const makeupGain = this.audioContext!.createGain()
         makeupGain.gain.value = RNNOISE_MAKEUP_GAIN
         this.makeupGainNode = makeupGain
       }
