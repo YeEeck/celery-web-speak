@@ -44,6 +44,33 @@ export function saveNoiseSuppressionOption(option: NoiseSuppressionOption) {
   localStorage.setItem(NOISE_SUPPRESSION_KEY, option)
 }
 
+export const NOISE_SUPPRESSION_LAST_KEY = 'cws.noiseSuppression.lastEnabled'
+
+// "上次使用的非关闭方法"读取：关闭、无值与非法值都视为无记录，回退默认增强降噪。
+export function parseLastNoiseSuppressionOption(saved: string | null): NoiseSuppressionOption {
+  const parsed = parseNoiseSuppressionOption(saved)
+  return parsed === 'off' ? DEFAULT_NOISE_SUPPRESSION_OPTION : parsed
+}
+
+export function getSavedLastNoiseSuppressionOption(): NoiseSuppressionOption {
+  return parseLastNoiseSuppressionOption(localStorage.getItem(NOISE_SUPPRESSION_LAST_KEY))
+}
+
+export function saveLastNoiseSuppressionOption(option: NoiseSuppressionOption) {
+  localStorage.setItem(NOISE_SUPPRESSION_LAST_KEY, option)
+}
+
+// 降噪快控左键决策：非关闭→关闭；关闭→恢复上次非关闭方法（无记录回退默认）。
+export function toggleNoiseSuppressionOption(
+  current: NoiseSuppressionOption,
+  lastEnabled: NoiseSuppressionOption | null | undefined,
+): NoiseSuppressionOption {
+  if (current !== 'off') return 'off'
+  return lastEnabled !== null && lastEnabled !== undefined && lastEnabled !== 'off'
+    ? lastEnabled
+    : DEFAULT_NOISE_SUPPRESSION_OPTION
+}
+
 // 选项与 RNNoise 管线能力合成 WebRTC 约束值：增强降噪启用时由管线承担降噪，
 // WebRTC 约束关闭避免双重降噪；管线能力不可用时按回退链视作系统降噪（约束开启）。
 export function resolveNoiseSuppression(option: NoiseSuppressionOption, rnnoiseAvailable: boolean): boolean {

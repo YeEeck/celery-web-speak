@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { AudioLines, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RadioTower, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
+import { AudioLines, AudioWaveform, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RadioTower, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
 import { rangeProgressStyle } from '../utils/range'
@@ -40,6 +40,12 @@ const microphoneTitle = computed(() => {
     ? (voice.microphoneEnabledPreference ? '管理员禁言' : '取消静音')
     : (voice.muted ? '取消静音' : '麦克风静音')
   return `${label} (Ctrl+Shift+M)`
+})
+const noiseSuppressionEnabled = computed(() => voice.noiseSuppressionOption !== 'off')
+const noiseSuppressionTitle = computed(() => {
+  if (voice.noiseSuppressionOption === 'webrtc') return '降噪开启（系统降噪 WebRTC）'
+  if (voice.noiseSuppressionOption === 'rnnoise') return '降噪开启（增强降噪 RNNoise）'
+  return '降噪已关闭'
 })
 const deafenTitle = computed(() => {
   if (voice.deafenChanging) return '耳机状态切换中'
@@ -202,6 +208,15 @@ onBeforeUnmount(() => {
       <span class="transmission-mode-tooltip" aria-hidden="true">{{ transmissionModeTooltip }}</span>
     </div>
     <div class="control-buttons">
+      <button
+        class="icon-button"
+        :class="{ active: noiseSuppressionEnabled }"
+        :title="noiseSuppressionTitle"
+        :aria-pressed="noiseSuppressionEnabled"
+        @click="voice.toggleNoiseSuppression()"
+      >
+        <AudioWaveform :size="18" />
+      </button>
       <div
         class="voice-volume-control"
         @pointerenter="handleVolumePointerEnter('input', $event)"

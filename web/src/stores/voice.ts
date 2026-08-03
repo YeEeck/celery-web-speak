@@ -25,11 +25,14 @@ import {
   getSavedBoolean,
   getSavedLevel,
   getSavedNoiseSuppressionOption,
+  getSavedLastNoiseSuppressionOption,
   parseNoiseSuppressionOption,
   resolveNoiseSuppression,
   saveBoolean,
   saveNoiseSuppressionOption,
+  saveLastNoiseSuppressionOption,
   setAudioSink,
+  toggleNoiseSuppressionOption,
   type NoiseSuppressionOption,
   type VoiceParticipant,
   type VoiceTransmissionMode,
@@ -311,7 +314,13 @@ export const useVoiceStore = defineStore('voice', () => {
     const option = parseNoiseSuppressionOption(value)
     noiseSuppressionOption.value = option
     saveNoiseSuppressionOption(option)
+    if (option !== 'off') saveLastNoiseSuppressionOption(option)
     session.applyNoiseSuppressionOption(option)
+  }
+
+  // 降噪快控左键：非关闭与关闭之间切换，关闭时恢复上次使用的非关闭方法。
+  function toggleNoiseSuppression() {
+    setNoiseSuppressionOption(toggleNoiseSuppressionOption(noiseSuppressionOption.value, getSavedLastNoiseSuppressionOption()))
   }
 
   return {
@@ -381,6 +390,7 @@ export const useVoiceStore = defineStore('voice', () => {
     setOutputVolume,
     setEchoCancellation,
     setNoiseSuppressionOption,
+    toggleNoiseSuppression,
     setMutedSpeakingReminderEnabled: session.setMutedSpeakingReminderEnabled,
     toggleTransmissionMode: session.toggleTransmissionMode,
     initializeApplicationAudio: appAudio.initializeApplicationAudio,

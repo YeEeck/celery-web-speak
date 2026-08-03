@@ -1535,6 +1535,51 @@ test('浏览器环境不显示语音浮层行', async ({ page }) => {
   await expect(page.locator('.voice-overlay-row')).toHaveCount(0)
 })
 
+test('语音操作区降噪按钮：左键切换降噪方法与关闭并持久化上次方法', async ({ page, isMobile }) => {
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+  const noiseButton = page.locator('.control-buttons').getByTitle(/^降噪/)
+  const micButton = page.getByTitle('麦克风静音')
+
+  await expect(noiseButton).toHaveAttribute('aria-pressed', 'true')
+  const noiseBox = await noiseButton.boundingBox()
+  const micBox = await micButton.boundingBox()
+  expect(noiseBox).not.toBeNull()
+  expect(micBox).not.toBeNull()
+  expect(noiseBox!.x).toBeLessThan(micBox!.x)
+
+  await noiseButton.click()
+  await expect(noiseButton).toHaveAttribute('title', '降噪已关闭')
+  await expect(noiseButton).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.noiseSuppression'))).toBe('off')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.noiseSuppression.lastEnabled'))).toBe(null)
+
+  await noiseButton.click()
+  await expect(noiseButton).toHaveAttribute('title', '降噪开启（增强降噪 RNNoise）')
+  await expect(noiseButton).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.noiseSuppression'))).toBe('rnnoise')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.noiseSuppression.lastEnabled'))).toBe('rnnoise')
+
+  await openUserSettings(page)
+  await page.getByRole('dialog', { name: '用户设置' }).getByRole('button', { name: '音频', exact: true }).click()
+  await page.getByLabel('降噪选项').selectOption('webrtc')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('cws.noiseSuppression.lastEnabled'))).toBe('webrtc')
+  await page.getByRole('dialog', { name: '用户设置' }).getByTitle('关闭').click()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+
+  await noiseButton.click()
+  await noiseButton.click()
+  await expect(noiseButton).toHaveAttribute('title', '降噪开启（系统降噪 WebRTC）')
+
+  await page.reload()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+  const restoredButton = page.locator('.control-buttons').getByTitle(/^降噪/)
+  await expect(restoredButton).toHaveAttribute('title', '降噪开启（系统降噪 WebRTC）')
+  await restoredButton.click()
+  await expect(restoredButton).toHaveAttribute('title', '降噪已关闭')
+  await restoredButton.click()
+  await expect(restoredButton).toHaveAttribute('title', '降噪开启（系统降噪 WebRTC）')
+})
+
 test('他人的新消息播放提示音，自己的消息不播放', async ({ page, request, isMobile }, testInfo) => {
   await installToneCounter(page)
   await expect(page.locator('.rail-status.online')).toBeAttached()
