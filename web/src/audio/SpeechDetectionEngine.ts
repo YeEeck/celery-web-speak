@@ -28,6 +28,9 @@ export class SpeechDetectionEngine {
   private listeners = new Set<SpeechFrameListener>()
   private failureListeners = new Set<() => void>()
   private callbacks: SpeechDetectionEngineCallbacks
+  // 并发启动守卫：start 在启动完成前重复调用时复用进行中的启动，避免同设备
+  // 并发开出多条采集流（生命周期 sync 在异步窗口内可能连续触发）。
+  private startPromise: Promise<boolean> | null = null
 
   constructor(callbacks: SpeechDetectionEngineCallbacks) {
     this.callbacks = callbacks
@@ -55,11 +58,17 @@ export class SpeechDetectionEngine {
     const device = deviceId ?? 'default'
     if (this.activeDeviceId === device) return true
     if (this.failed) return false
+    if (this.startPromise) return this.startPromise
     if (this.activeDeviceId !== null) {
-      await this.restartCapture(device)
-      return true
+      this.startPromise = this.restartCapture(device).finally(() => {
+        this.startPromise = null
+      })
+      return this.startPromise
     }
-    return this.startCapture(device)
+    this.startPromise = this.startCapture(device).finally(() => {
+      this.startPromise = null
+    })
+    return this.startPromise
   }
 
   // stop 无条件释放采集与 VAD 资源，只由生命周期在登录退出或权限丢失时调用。
@@ -73,11 +82,11 @@ export class SpeechDetectionEngine {
     this.failed = false
   }
 
-  private async restartCapture(deviceId: string) {
+  private async restartCapture(deviceId: string): Promise<boolean> {
     this.operation += 1
     this.releaseResources()
-    if (this.failed) return
-    await this.startCapture(deviceId)
+    if (this.failed) return false
+    return this.startCapture(deviceId)
   }
 
   private async startCapture(deviceId: string): Promise<boolean> {
@@ -88,12 +97,16 @@ export class SpeechDetectionEngine {
       if (!window.AudioWorkletNode) throw new Error('当前浏览器不支持 AudioWorklet')
 
       const constraints: MediaTrackConstraints = {
+        // deviceId 一律以 {exact} 传入：Chromium 在部分平台（Linux/PulseAudio）
+        // 上省略 deviceId 或以字符串（ideal）传 'default' 会解析到错误的默认
+        // 设备（实测落到静音源），只有 {exact: 'default'} 才解析到操作系统
+        // 默认输入。与发布链（buildMicrophoneCaptureOptions）同一语义。
+        deviceId: { exact: deviceId },
         channelCount: 1,
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: false,
+        autoGainControl: true,
       }
-      if (deviceId !== 'default') constraints.deviceId = { exact: deviceId }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints })
       if (operation !== this.operation) {

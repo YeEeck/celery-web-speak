@@ -8,7 +8,9 @@ test('enables automatic gain and disables browser voice isolation while preservi
     echoCancellation: true,
     noiseSuppression: false,
   }), {
-    deviceId: 'preferred-microphone',
+    // deviceId 一律 {exact}：Chromium 以字符串（ideal）传 'default' 会解析到
+    // 错误默认设备（见源码注释）。
+    deviceId: { exact: 'preferred-microphone' },
     echoCancellation: true,
     noiseSuppression: false,
     autoGainControl: true,
