@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { EllipsisVertical, Hash, LogOut, Plus, Radio, ServerCog, Settings, X } from '@lucide/vue'
+import { EllipsisVertical, Gamepad2, Hash, LogOut, Plus, Radio, ServerCog, Settings, X } from '@lucide/vue'
 import AccountMenu from './AccountMenu.vue'
 import ChannelActionMenu from './ChannelActionMenu.vue'
 import MessageActionMenu from './MessageActionMenu.vue'
@@ -166,6 +166,7 @@ onMounted(() => {
   wideMemberQuery.addEventListener('change', handleWideMemberLayout)
   mobileQuery.addEventListener('change', closeTemporaryDrawers)
   void voice.initializeDevices()
+  void voice.initializeVoiceOverlay()
   void checkVersionAndShowChangelog()
 })
 onBeforeUnmount(() => {
@@ -738,6 +739,17 @@ function closeChangelog() {
           ><LogOut :size="18" /></button>
         </div>
         <p v-if="voice.transmissionModeError" class="voice-control-error" role="alert">{{ voice.transmissionModeError }}</p>
+      </div>
+      <div v-if="voice.overlaySupported" class="voice-overlay-row">
+        <button
+          class="icon-button"
+          :class="{ active: voice.overlayEnabled }"
+          title="游戏内显示语音浮层"
+          :aria-pressed="voice.overlayEnabled"
+          @click="voice.setOverlayEnabled(!voice.overlayEnabled)"
+        >
+          <Gamepad2 :size="18" />
+        </button>
       </div>
       <UserControls @settings="openVoiceSettings" />
     </aside>

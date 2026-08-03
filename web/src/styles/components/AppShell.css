@@ -68,5 +68,6 @@
 .voice-connection-location { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .voice-connection-bitrate { flex: 0 0 auto; }
 .voice-control-error { color: var(--danger-fg); font-size: 10px; line-height: 1.35; }
+.voice-overlay-row { min-height: 40px; padding: 2px 8px; display: flex; align-items: center; gap: 8px; background: var(--surface); border-bottom: 1px solid var(--border-input); }
 
 .drawer-scrim { display: none; }.mobile-only { display: none; }

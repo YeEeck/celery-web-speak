@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { AudioLines, Gamepad2, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RadioTower, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
+import { AudioLines, Headphones, LoaderCircle, Mic, MicOff, Music2, Pause, Play, RadioTower, RefreshCw, Square, Volume2, VolumeX } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
 import { rangeProgressStyle } from '../utils/range'
@@ -169,7 +169,6 @@ function handleKeyDown(event: KeyboardEvent) {
 
 onMounted(() => {
   void voice.initializeApplicationAudio()
-  void voice.initializeVoiceOverlay()
   document.addEventListener('pointerdown', handlePointerDown)
   document.addEventListener('keydown', handleKeyDown)
 })
@@ -297,16 +296,6 @@ onBeforeUnmount(() => {
       >
         <LoaderCircle v-if="voice.applicationAudioChanging" :size="18" class="spin" />
         <Music2 v-else :size="18" />
-      </button>
-      <button
-        v-if="voice.overlaySupported"
-        class="icon-button"
-        :class="{ active: voice.overlayEnabled }"
-        title="游戏内显示语音浮层"
-        :aria-pressed="voice.overlayEnabled"
-        @click="voice.setOverlayEnabled(!voice.overlayEnabled)"
-      >
-        <Gamepad2 :size="18" />
       </button>
     </div>
     <p v-if="voice.voicePreferenceFeedback" class="voice-preference-feedback" role="status">{{ voice.voicePreferenceFeedback }}</p>

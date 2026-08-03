@@ -46,6 +46,16 @@ async function openPlatformAccounts(page: Page) {
   await expect(page.locator('.admin-panel .panel-header p')).toHaveText('平台管理员')
 }
 
+function installFakeDesktopOverlay(): void {
+  const bridge = {
+    hello: async () => ({ protocol: 3, capabilities: ['voice_overlay'] }),
+    setEnabled: async () => undefined,
+    pushState: () => undefined,
+    setConfig: () => undefined,
+  }
+  Object.defineProperty(window, 'desktopVoiceOverlay', { value: bridge, configurable: true })
+}
+
 async function mockActiveGuildRole(
   page: Page,
   options: { actorRole: 'owner' | 'admin'; isPlatformAdmin?: boolean },
@@ -1494,6 +1504,35 @@ test('静音说话提醒高亮麦克风按钮并显示状态提示', async ({ pa
   await setMutedSpeakingReminderVisible(page, false)
   await expect(microphoneButton).not.toHaveClass(/muted-speaking-reminder/)
   await expect(reminderTooltip).toHaveCount(0)
+})
+
+test('语音浮层按钮独立成行：桌面壳显示、左对齐且未加入语音仍可用', async ({ page, isMobile }) => {
+  await page.addInitScript(installFakeDesktopOverlay)
+  await page.reload()
+  if (isMobile) await page.getByTitle('频道', { exact: true }).click()
+
+  const row = page.locator('.voice-overlay-row')
+  await expect(row).toBeVisible()
+  const overlayButton = row.getByTitle('游戏内显示语音浮层')
+  await expect(overlayButton).toBeVisible()
+  await expect(page.locator('.user-controls').getByTitle('游戏内显示语音浮层')).toHaveCount(0)
+
+  const rowBox = await row.boundingBox()
+  const buttonBox = await overlayButton.boundingBox()
+  expect(buttonBox).not.toBeNull()
+  expect(rowBox).not.toBeNull()
+  const offset = buttonBox!.x - rowBox!.x
+  expect(offset).toBeGreaterThanOrEqual(4)
+  expect(offset).toBeLessThanOrEqual(12)
+
+  await overlayButton.click()
+  await expect(overlayButton).toHaveAttribute('aria-pressed', 'true')
+  await overlayButton.click()
+  await expect(overlayButton).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('浏览器环境不显示语音浮层行', async ({ page }) => {
+  await expect(page.locator('.voice-overlay-row')).toHaveCount(0)
 })
 
 test('他人的新消息播放提示音，自己的消息不播放', async ({ page, request, isMobile }, testInfo) => {
