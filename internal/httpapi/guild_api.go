@@ -544,6 +544,36 @@ func (s *Server) handleGuildDeleteChannel(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, map[string]any{"channel": channel})
 }
 
+func (s *Server) handleGuildChannelStats(w http.ResponseWriter, r *http.Request) {
+	channelID, ok := parsePathID(w, r, "channelID")
+	if !ok {
+		return
+	}
+	stats, err := s.store.ChannelMessageStats(r.Context(), guildMembership(r).GuildID, channelID)
+	if err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+func (s *Server) handleGuildClearChannelMessages(w http.ResponseWriter, r *http.Request) {
+	channelID, ok := parsePathID(w, r, "channelID")
+	if !ok {
+		return
+	}
+	if _, err := s.store.GuildChannelByID(r.Context(), guildMembership(r).GuildID, channelID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	if _, err := s.store.ClearGuildChannelMessages(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, channelID); err != nil {
+		s.writeStoreError(w, err)
+		return
+	}
+	s.hub.BroadcastGuild(guildMembership(r).GuildID, "channel_messages_cleared", map[string]int64{"channelId": channelID})
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleGuildMessages(w http.ResponseWriter, r *http.Request) {
 	channelID, ok := parsePathID(w, r, "channelID")
 	if !ok {

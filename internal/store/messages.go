@@ -151,6 +151,53 @@ func (s *Store) DeleteGuildChannelMessage(ctx context.Context, guildID, actorID,
 	return tx.Commit()
 }
 
+func (s *Store) ChannelMessageStats(ctx context.Context, guildID, channelID int64) (ChannelMessageStats, error) {
+	channel, err := s.GuildChannelByID(ctx, guildID, channelID)
+	if err != nil {
+		return ChannelMessageStats{}, err
+	}
+	if channel.Type != ChannelTypeText {
+		return ChannelMessageStats{}, ErrNotFound
+	}
+	var stats ChannelMessageStats
+	if err := s.db.QueryRowContext(ctx, `
+SELECT COUNT(*), COALESCE(SUM(LENGTH(CAST(content AS BLOB))), 0)
+FROM messages WHERE channel_id = ?`, channelID).Scan(&stats.MessageCount, &stats.ContentBytes); err != nil {
+		return ChannelMessageStats{}, err
+	}
+	return stats, nil
+}
+
+func (s *Store) ClearGuildChannelMessages(ctx context.Context, guildID, actorID, channelID int64) (int64, error) {
+	channel, err := s.GuildChannelByID(ctx, guildID, channelID)
+	if err != nil {
+		return 0, err
+	}
+	if channel.Type != ChannelTypeText {
+		return 0, ErrNotFound
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, "DELETE FROM messages WHERE channel_id = ?", channelID)
+	if err != nil {
+		return 0, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := insertGuildAudit(ctx, tx, guildID, actorID, nil, "clear_channel_messages", fmt.Sprintf("channel_id=%d count=%d", channelID, count)); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func trimChannelMessages(ctx context.Context, tx *sql.Tx, channelID int64, retention int) error {
 	_, err := tx.ExecContext(ctx, `
 DELETE FROM messages

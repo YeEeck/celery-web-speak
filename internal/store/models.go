@@ -121,6 +121,11 @@ type Message struct {
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
+type ChannelMessageStats struct {
+	MessageCount int64 `json:"messageCount"`
+	ContentBytes int64 `json:"contentBytes"`
+}
+
 type Invite struct {
 	ID        int64      `json:"id"`
 	Code      string     `json:"code,omitempty"`
