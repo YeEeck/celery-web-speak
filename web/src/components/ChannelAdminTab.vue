@@ -4,7 +4,7 @@ import { Eraser, Hash, Plus, Radio, Save, Trash2, X } from '@lucide/vue'
 import { request } from '../api'
 import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
-import type { Channel, ChannelType } from '../types'
+import type { Channel, ChannelMessageStats, ChannelType } from '../types'
 import { guildAdminContextKey } from './guild-admin-context'
 import { rangeProgressStyle } from '../utils/range'
 
@@ -76,7 +76,7 @@ const voiceOnlineCount = computed(() => {
   return app.voiceRooms.find((room) => room.channelId === channel.id)?.participants.length ?? 0
 })
 
-const channelStats = ref<{ messageCount: number; contentBytes: number } | null>(null)
+const channelStats = ref<ChannelMessageStats | null>(null)
 
 function formatBytes(bytes: number) {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`
@@ -85,7 +85,7 @@ function formatBytes(bytes: number) {
 async function loadChannelStats(channel: Channel | null) {
   if (!channel || channel.type !== 'text') return
   try {
-    const payload = await request<{ messageCount: number; contentBytes: number }>(`/api/guilds/${app.activeGuildId}/channels/${channel.id}/stats`)
+    const payload = await request<ChannelMessageStats>(`/api/guilds/${app.activeGuildId}/channels/${channel.id}/stats`)
     if (selectedChannel.value?.id === channel.id) channelStats.value = payload
   } catch {
     // 统计为只读展示，加载失败时保持占位符
@@ -108,12 +108,12 @@ function openClearConfirmation() {
   if (!channel) return
   showClearConfirmation.value = true
   clearMessageCount.value = null
-  request<{ messageCount: number }>(`/api/guilds/${app.activeGuildId}/channels/${channel.id}/stats`)
+  request<ChannelMessageStats>(`/api/guilds/${app.activeGuildId}/channels/${channel.id}/stats`)
     .then((stats) => {
       if (selectedChannel.value?.id === channel.id) clearMessageCount.value = stats.messageCount
     })
     .catch(() => {
-      clearMessageCount.value = 0
+      // 统计加载失败时不编造条数，确认按钮保持禁用直到数字就绪
     })
 }
 
@@ -259,9 +259,9 @@ async function deleteChannel() {
           <div><h3><Eraser :size="18" />清空消息</h3><p>删除频道内全部消息，频道本体与保留设置保留。</p></div>
           <button v-if="!showClearConfirmation" class="secondary-button danger-text" type="button" @click="openClearConfirmation">清空消息</button>
           <div v-else class="channel-delete-confirmation">
-            <p class="channel-clear-warning">将永久删除 <strong>{{ clearMessageCount ?? '…' }}</strong> 条消息，此操作无法恢复。</p>
+            <p>将永久删除 <strong>{{ clearMessageCount ?? '…' }}</strong> 条消息，此操作无法恢复。</p>
             <button class="secondary-button" type="button" @click="showClearConfirmation = false; clearMessageCount = null">取消</button>
-            <button class="danger-button" type="button" :disabled="busy" @click="clearChannelMessages">确认清空</button>
+            <button class="danger-button" type="button" :disabled="busy || clearMessageCount === null" @click="clearChannelMessages">确认清空</button>
           </div>
         </div>
         <div class="channel-danger-row">

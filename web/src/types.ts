@@ -94,6 +94,11 @@ export interface ChannelReadState {
 	unreadCount: number
 }
 
+export interface ChannelMessageStats {
+	messageCount: number
+	contentBytes: number
+}
+
 export interface VoiceRoomParticipant {
 	userId: number
 	identity: string

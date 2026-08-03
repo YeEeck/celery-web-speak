@@ -562,10 +562,6 @@ func (s *Server) handleGuildClearChannelMessages(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	if _, err := s.store.GuildChannelByID(r.Context(), guildMembership(r).GuildID, channelID); err != nil {
-		s.writeStoreError(w, err)
-		return
-	}
 	if _, err := s.store.ClearGuildChannelMessages(r.Context(), guildMembership(r).GuildID, currentUser(r).ID, channelID); err != nil {
 		s.writeStoreError(w, err)
 		return
