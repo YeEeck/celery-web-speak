@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { MicrophonePipelineProcessor } from '../src/audio/MicrophonePipelineProcessor.ts'
 
-// 处理器编排缝：选项→管线图形态（直通/增强）、增益传值、能力未就绪回退。
+// 处理器编排缝：选项→管线图形态（直通/增强）、补益常量与传值、能力未就绪回退。
 // RNNoise worklet 本体与真实降噪效果不在本缝覆盖范围（见 spec.md 测试决策）。
 
 Object.defineProperty(globalThis, 'MediaStream', {
@@ -44,10 +44,13 @@ class FakeNode {
 class FakeAudioContext {
   readonly sampleRate: number
   readonly source = new FakeNode()
+  // 首个 createGain 调用即用户增益节点（connect 时先创建）。
   readonly gain = new FakeNode()
+  readonly makeupGains: FakeNode[] = []
   readonly destination = new FakeNode() as FakeNode & { stream: { getAudioTracks(): unknown[] } }
   currentTime = 0
   state: AudioContextState = 'running'
+  private createGainCalls = 0
 
   constructor(sampleRate: number) {
     this.sampleRate = sampleRate
@@ -66,7 +69,11 @@ class FakeAudioContext {
   }
 
   createGain() {
-    return this.gain
+    this.createGainCalls += 1
+    if (this.createGainCalls === 1) return this.gain
+    const node = new FakeNode()
+    this.makeupGains.push(node)
+    return node
   }
 
   createMediaStreamDestination() {
@@ -140,36 +147,61 @@ test('增强降噪资源未就绪时保持直通（回退系统降噪，设置�
   assert.equal(context.source.connectCalls.at(-1), context.gain)
 })
 
-test('资源就绪且上下文为 48kHz 时启用降噪路径（source→降噪→gain）', async () => {
+test('资源就绪且上下文为 48kHz 时启用降噪路径（source→降噪→补益→gain）', async () => {
   const { context, processor } = makeHarness({ noiseSuppression: 'rnnoise' })
   await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
   await new Promise((resolve) => setTimeout(resolve, 0))
   const rnnoiseNode = context.source.connectCalls.at(-1) as FakeNode
   assert.notEqual(rnnoiseNode, context.gain)
-  assert.equal(rnnoiseNode.connectCalls[0], context.gain)
+  const makeupNode = rnnoiseNode.connectCalls[0] as FakeNode
+  assert.notEqual(makeupNode, context.gain)
+  assert.equal(makeupNode.connectCalls[0], context.gain)
   assert.equal(context.gain.connectCalls[0], context.destination)
+  assert.equal(makeupNode.gain.value, 1.41)
   assert.equal(rnnoiseNode.channelCount, 1)
   assert.equal(rnnoiseNode.channelCountMode, 'explicit')
+  // 用户增益调节只作用于用户增益节点，补益保持固定常量。
+  processor.setGain(0.5)
+  assert.equal(makeupNode.gain.value, 1.41)
 })
 
 test('切走系统降噪再切回增强降噪时重新创建降噪节点并保持单声道', async () => {
   const { context, processor } = makeHarness({ noiseSuppression: 'rnnoise' })
   await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
   await flushPromises()
-  const firstNode = context.source.connectCalls.at(-1)
+  const firstNode = context.source.connectCalls.at(-1) as FakeNode
+  const firstMakeup = firstNode.connectCalls[0] as FakeNode
   assert.notEqual(firstNode, context.gain)
+  assert.equal(firstMakeup.connectCalls[0], context.gain)
   await processor.setNoiseSuppression('webrtc')
   processor.setCaptureNoiseSuppression(true)
   assert.equal(context.source.connectCalls.at(-1), context.gain)
+  // 补益节点随降噪节点一并销毁。
+  assert.ok(firstMakeup.disconnectCalls >= 1)
   processor.setCaptureNoiseSuppression(false)
   await processor.setNoiseSuppression('rnnoise')
   await flushPromises()
   const secondNode = context.source.connectCalls.at(-1) as FakeNode
   assert.notEqual(secondNode, context.gain)
   assert.notEqual(secondNode, firstNode)
-  assert.equal(secondNode.connectCalls[0], context.gain)
+  const secondMakeup = secondNode.connectCalls[0] as FakeNode
+  assert.notEqual(secondMakeup, firstMakeup)
+  assert.equal(secondMakeup.connectCalls[0], context.gain)
+  assert.equal(secondMakeup.gain.value, 1.41)
   assert.equal(secondNode.channelCount, 1)
   assert.equal(secondNode.channelCountMode, 'explicit')
+})
+
+test('销毁时补益节点随降噪节点一并断开', async () => {
+  const { context, processor } = makeHarness({ noiseSuppression: 'rnnoise' })
+  await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
+  await flushPromises()
+  const rnnoiseNode = context.source.connectCalls.at(-1) as FakeNode
+  const makeupNode = rnnoiseNode.connectCalls[0] as FakeNode
+  // 重建路径时补益节点会被断开一次（与降噪节点同模式），以销毁前为基准。
+  const disconnectsBeforeDestroy = makeupNode.disconnectCalls
+  await processor.destroy()
+  assert.ok(makeupNode.disconnectCalls > disconnectsBeforeDestroy)
 })
 
 test('非 48kHz 上下文下增强降噪保持直通', async () => {

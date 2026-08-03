@@ -7,6 +7,11 @@ import type { RnnoiseWorkletNode } from '@sapphi-red/web-noise-suppressor'
 import type { NoiseSuppressionOption } from '../stores/voice-utils.ts'
 import { createRnnoiseNode } from './rnnoise.ts'
 
+// RNNoise 时频掩码在真实使用中压低发送电平：输出无内部补益，采集端 AGC 在
+// 抑制器上游无法补偿。增强降噪分支内置固定补益（+3 dB 起步，×1.41），
+// 直通分支不挂载；不向用户暴露，按真实场景听感标定（见 ADR-0025 修订）。
+const RNNOISE_MAKEUP_GAIN = 1.41
+
 export interface MicrophonePipelineOptions {
   gain: number
   noiseSuppression: NoiseSuppressionOption
@@ -26,6 +31,7 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
   private audioContext?: AudioContext
   private sourceNode?: MediaStreamAudioSourceNode
   private rnnoiseNode?: RnnoiseWorkletNode
+  private makeupGainNode?: GainNode
   private gainNode?: GainNode
   private destinationNode?: MediaStreamAudioDestinationNode
   private gain: number
@@ -153,6 +159,16 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
       }
       this.rnnoiseNode?.destroy()
       this.rnnoiseNode = node
+      if (!this.makeupGainNode) {
+        const audioContext = this.audioContext
+        if (!audioContext) {
+          node.destroy()
+          return
+        }
+        const makeupGain = audioContext.createGain()
+        makeupGain.gain.value = RNNOISE_MAKEUP_GAIN
+        this.makeupGainNode = makeupGain
+      }
       this.rebuildSuppressionPath()
     })().finally(() => {
       if (this.suppressionNodePromise?.promise === promise) this.suppressionNodePromise = null
@@ -161,7 +177,7 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     return promise
   }
 
-  // 重建 source → (rnnoise?) → gain → destination 的中间路径。
+  // 重建 source → (rnnoise → 补益?) → gain → destination 的中间路径。
   private rebuildSuppressionPath() {
     const source = this.sourceNode
     const gain = this.gainNode
@@ -172,10 +188,12 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     if (this.audioContext?.state === 'closed') return
     source.disconnect()
     this.rnnoiseNode?.disconnect()
+    this.makeupGainNode?.disconnect()
     gain.disconnect()
-    if (this.noiseSuppression === 'rnnoise' && this.rnnoiseNode) {
+    if (this.noiseSuppression === 'rnnoise' && this.rnnoiseNode && this.makeupGainNode) {
       source.connect(this.rnnoiseNode)
-      this.rnnoiseNode.connect(gain)
+      this.rnnoiseNode.connect(this.makeupGainNode)
+      this.makeupGainNode.connect(gain)
     } else {
       source.connect(gain)
     }
@@ -205,6 +223,8 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     this.rnnoiseNode?.disconnect()
     this.rnnoiseNode?.destroy()
     this.rnnoiseNode = undefined
+    this.makeupGainNode?.disconnect()
+    this.makeupGainNode = undefined
   }
 
   private isCurrentGeneration(generation: number) {
