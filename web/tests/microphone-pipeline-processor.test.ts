@@ -147,6 +147,26 @@ test('资源就绪且上下文为 48kHz 时启用降噪路径（source→降噪�
   assert.equal(rnnoiseNode.channelCountMode, 'explicit')
 })
 
+test('切走系统降噪再切回增强降噪时重新创建降噪节点并保持单声道', async () => {
+  const { context, processor } = makeHarness({ noiseSuppression: 'rnnoise' })
+  await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
+  await flushPromises()
+  const firstNode = context.source.connectCalls.at(-1)
+  assert.notEqual(firstNode, context.gain)
+  await processor.setNoiseSuppression('webrtc')
+  processor.setCaptureNoiseSuppression(true)
+  assert.equal(context.source.connectCalls.at(-1), context.gain)
+  processor.setCaptureNoiseSuppression(false)
+  await processor.setNoiseSuppression('rnnoise')
+  await flushPromises()
+  const secondNode = context.source.connectCalls.at(-1) as FakeNode
+  assert.notEqual(secondNode, context.gain)
+  assert.notEqual(secondNode, firstNode)
+  assert.equal(secondNode.connectCalls[0], context.gain)
+  assert.equal(secondNode.channelCount, 1)
+  assert.equal(secondNode.channelCountMode, 'explicit')
+})
+
 test('非 48kHz 上下文下增强降噪保持直通', async () => {
   const { context, processor } = makeHarness({ noiseSuppression: 'rnnoise', sampleRate: 44_100 })
   await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)

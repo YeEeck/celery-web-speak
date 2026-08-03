@@ -18,6 +18,18 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
   writable: true,
 })
+Object.defineProperty(globalThis, 'MediaStream', {
+  value: class MediaStream {
+    tracks: MediaStreamTrack[]
+    constructor(tracks: MediaStreamTrack[]) {
+      this.tracks = tracks
+    }
+    getAudioTracks() {
+      return this.tracks
+    }
+  },
+  configurable: true,
+})
 
 class FakeParticipant {
   identity: string
@@ -89,6 +101,7 @@ class FakeMicrophoneTrack {
   setProcessorCalls = 0
   stopProcessorCalls = 0
   processor: unknown = null
+  audioContextForProcessor: FakeAudioContext | null = null
 
   getProcessor() {
     return this.processor
@@ -97,6 +110,15 @@ class FakeMicrophoneTrack {
   async setProcessor(processor: unknown) {
     this.setProcessorCalls += 1
     this.processor = processor
+    // LiveKit 在 setProcessor 内调用 processor.init；这里模拟之，
+    // 让回退编排（节点创建失败→onRnnoiseUnavailable）可以跑通。
+    if (processor && this.audioContextForProcessor) {
+      const init = (processor as { init?: (options: unknown) => Promise<void> }).init
+      await init?.call(processor, {
+        audioContext: this.audioContextForProcessor,
+        track: this.mediaStreamTrack,
+      })
+    }
     return undefined
   }
 
@@ -190,6 +212,7 @@ function fakeElement() {
 class FakeAudioContext extends EventTarget {
   state: AudioContextState = 'running'
   closeCalls = 0
+  sampleRate = 48_000
 
   async close() {
     this.closeCalls += 1
@@ -199,6 +222,22 @@ class FakeAudioContext extends EventTarget {
   setState(state: AudioContextState) {
     this.state = state
     this.dispatchEvent(new Event('statechange'))
+  }
+
+  createMediaStreamSource() {
+    return { connect: () => undefined, disconnect: () => undefined }
+  }
+
+  createGain() {
+    return { connect: () => undefined, disconnect: () => undefined, gain: { value: 1, setTargetAtTime: () => undefined } }
+  }
+
+  createMediaStreamDestination() {
+    return {
+      connect: () => undefined,
+      disconnect: () => undefined,
+      stream: { getAudioTracks: () => [{ stop: () => undefined }] },
+    }
   }
 }
 
@@ -588,6 +627,33 @@ test('closed context first detaches the existing pipeline processor before fallb
   assert.equal(microphoneTrack.stopProcessorCalls, 1)
   assert.equal(microphoneTrack.getProcessor(), null)
   assert.equal((microphoneTrack.restartCalls[0] as { noiseSuppression: boolean }).noiseSuppression, true)
+})
+
+test('switching back to RNNoise retries the enhancement path after a session fallback', async () => {
+  const h = makeHarness()
+  await h.session.join(7)
+  const microphoneTrack = new FakeMicrophoneTrack()
+  h.room.localParticipant.microphoneTrack = microphoneTrack
+  microphoneTrack.audioContextForProcessor = h.audioContexts[0] ?? null
+  h.state.noiseSuppression = false
+
+  // attach 时约束为 false（增强降噪）→ 处理器尝试创建 RNNoise 节点 →
+  // loadRnnoiseBinary 返回 null（harness 恒不可用）→ 回退：约束回到 true。
+  await h.session.attachMicrophonePipeline()
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.equal((microphoneTrack.restartCalls.at(-1) as { noiseSuppression: boolean }).noiseSuppression, true)
+
+  // 切到系统降噪再切回增强降噪：会话内回退粘滞被解除，本次采集约束重新按
+  // 增强降噪合成（noiseSuppression: false）并触发新的尝试；随后再次失败
+  // 回退（记录中出现 true）。修复前回退粘滞会让整个序列都是 true。
+  await h.session.applyNoiseSuppressionOption('webrtc')
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.equal((microphoneTrack.restartCalls.at(-1) as { noiseSuppression: boolean }).noiseSuppression, true)
+  await h.session.applyNoiseSuppressionOption('rnnoise')
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.ok(microphoneTrack.restartCalls.some((call) => (call as { noiseSuppression: boolean }).noiseSuppression === false))
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.equal((microphoneTrack.restartCalls.at(-1) as { noiseSuppression: boolean }).noiseSuppression, true)
 })
 
 test('toggleTransmissionMode rolls back to the previous mode on failure', async () => {

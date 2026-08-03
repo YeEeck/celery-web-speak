@@ -384,6 +384,10 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     const revision = ++noiseSuppressionChangeRevision
     const apply = noiseSuppressionChangePromise.then(async () => {
       if (revision !== noiseSuppressionChangeRevision) return
+      // 切回增强降噪即重新尝试 RNNoise：解除会话内回退粘滞，让本次采集约束
+      // 重新按增强降噪合成（noiseSuppression: false），处理器随之重建降噪节点。
+      // 若再次失败，回退链仍会逐次收敛到系统降噪。
+      if (option === 'rnnoise') rnnoiseFallback = false
       const target = room
       const microphoneEnabled = target?.localParticipant.isMicrophoneEnabled === true
       if (!target || !microphoneEnabled) {
