@@ -6,6 +6,8 @@
 
 RNNoise 能力按当前采集会话单独判定。WASM 加载、AudioWorklet 注册或节点实例化失败时，处理器保持直通并将当前采集轨切换到 WebRTC `noiseSuppression: true`；`rnnoise` 偏好不改写。离开语音后下一次会话重新尝试加载和注册，失败不能永久阻塞后续重试。
 
+RNNoise 是单声道语音增强算法，管线中强制 worklet 节点输入单声道（`channelCountMode: 'explicit'` + `channelCount: 1`）。若不强制，立体声麦克风轨（部分浏览器默认 2 声道）会让 worklet 输出保持 2 声道而仅写入左声道，右声道静音，对端只能听到左声道。强制单声道后输出随输入为单声道，链路下游（增益→MediaStream 目标）保持单声道，对端正常混音；同时单实例 RNNoise 的 CPU 开销恒定。
+
 ## Considered Options
 
 - **Krisp 官方集成（@livekit/krisp-noise-filter）**：质量最好，但启用授权绑定 LiveKit Cloud，自托管部署必然失败；伪造授权端点属绕过机制且模型权重私有，拒绝。

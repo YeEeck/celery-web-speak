@@ -141,6 +141,10 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
         await this.handleRnnoiseUnavailable(generation)
         return
       }
+      // RNNoise 为单声道语音增强：强制 worklet 输入单声道（输出随之单声道），
+      // 否则立体声麦克风下输出右声道保持静音，对端仅听到左声道。
+      node.channelCount = 1
+      node.channelCountMode = 'explicit'
       if (!this.isCurrentGeneration(generation)
         || this.noiseSuppression !== 'rnnoise'
         || !this.rnnoiseCaptureAllowed) {

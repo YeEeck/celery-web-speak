@@ -24,6 +24,8 @@ class FakeNode {
   destroyCalls = 0
   gain = { value: 1, setTargetAtTime: () => undefined }
   gainSetters: Array<[number, number]> = []
+  channelCount = 2
+  channelCountMode = 'max'
 
   connect(target: unknown) {
     this.connectCalls.push(target)
@@ -137,10 +139,12 @@ test('资源就绪且上下文为 48kHz 时启用降噪路径（source→降噪�
   const { context, processor } = makeHarness({ noiseSuppression: 'rnnoise' })
   await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)
   await new Promise((resolve) => setTimeout(resolve, 0))
-  const rnnoiseNode = context.source.connectCalls.at(-1)
+  const rnnoiseNode = context.source.connectCalls.at(-1) as FakeNode
   assert.notEqual(rnnoiseNode, context.gain)
-  assert.equal((rnnoiseNode as FakeNode).connectCalls[0], context.gain)
+  assert.equal(rnnoiseNode.connectCalls[0], context.gain)
   assert.equal(context.gain.connectCalls[0], context.destination)
+  assert.equal(rnnoiseNode.channelCount, 1)
+  assert.equal(rnnoiseNode.channelCountMode, 'explicit')
 })
 
 test('非 48kHz 上下文下增强降噪保持直通', async () => {
