@@ -12,12 +12,12 @@ export interface SpeechDetectionEngineCallbacks {
 // SpeechDetectionEngine 是常开的本地说话检测引擎：一条麦克风采集流、一个
 // AudioContext、一个 AudioWorklet 与一个 libfvad Worker，对外只发布逐帧的
 // 说话活动事件。所有消费方（静音说话提醒、在线状态检测）都订阅同一事件流，
-// 不各自持有采集与 VAD 资源。start/stop 以引用计数协作：最后一个消费方
-// 停止时引擎才真正释放采集。
+// 不各自持有采集与 VAD 资源。引擎的启停由应用级生命周期驱动（登录 + 麦克风
+// 授权），不采用消费方引用计数；失败后由生命周期在环境事件上重试
+// （SpeechDetectionLifecycle）。
 export class SpeechDetectionEngine {
   private operation = 0
   private failed = false
-  private refs = 0
   private activeDeviceId: string | null = null
   private stream: MediaStream | null = null
   private context: AudioContext | null = null
@@ -49,14 +49,12 @@ export class SpeechDetectionEngine {
     }
   }
 
+  // start 是幂等的：同一设备下重复调用直接返回；设备不同则重启采集。引擎
+  // 已失败时返回 false，由生命周期先 resetFailure 再重试。
   async start(deviceId?: string) {
     const device = deviceId ?? 'default'
-    this.refs += 1
     if (this.activeDeviceId === device) return true
-    if (this.failed) {
-      this.refs = Math.max(0, this.refs - 1)
-      return false
-    }
+    if (this.failed) return false
     if (this.activeDeviceId !== null) {
       await this.restartCapture(device)
       return true
@@ -64,9 +62,8 @@ export class SpeechDetectionEngine {
     return this.startCapture(device)
   }
 
+  // stop 无条件释放采集与 VAD 资源，只由生命周期在登录退出或权限丢失时调用。
   stop() {
-    this.refs = Math.max(0, this.refs - 1)
-    if (this.refs > 0) return
     this.operation += 1
     this.activeDeviceId = null
     this.releaseResources()
