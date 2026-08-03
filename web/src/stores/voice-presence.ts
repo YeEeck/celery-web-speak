@@ -56,20 +56,15 @@ export function useVoicePresence(ctx: VoicePresenceContext) {
     }
   })
 
+  // 引擎生命周期由应用级生命周期驱动（voice.ts 装配，ADR-0024），此处只按
+  // 权限与登录状态启停本地的检测状态机。
   watch(() => ctx.devicePermissionState(), (state) => {
-    if (state === 'granted') {
-      void engine.start().then((started) => {
-        if (started) tracker.start()
-        else tracker.stop()
-      })
-    } else {
-      engine.stop()
-      tracker.stop()
-    }
+    if (state === 'granted') tracker.start()
+    else tracker.stop()
   })
 
   watch(() => ctx.currentUserID(), (userID) => {
-    if (userID === null) engine.stop()
+    if (userID === null) tracker.stop()
   })
 
   watch(() => ctx.socketStatus(), (status) => {

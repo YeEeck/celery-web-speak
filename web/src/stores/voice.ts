@@ -1,4 +1,4 @@
-import { markRaw, ref } from 'vue'
+import { markRaw, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { Room, supportsAudioOutputSelection } from 'livekit-client'
 import { request } from '../api.ts'
@@ -6,6 +6,7 @@ import type { VoiceCredentials } from '../types.ts'
 import { useAppStore } from './app.ts'
 import { useApplicationSoundStore } from './application-sounds.ts'
 import { SpeechDetectionEngine } from '../audio/SpeechDetectionEngine.ts'
+import { SpeechDetectionLifecycle } from '../audio/SpeechDetectionLifecycle.ts'
 import { preloadRnnoiseWasm } from '../audio/rnnoise.ts'
 import { useVoiceDevices } from './voice-devices.ts'
 import { useParticipantVolume } from './voice-participant-volume.ts'
@@ -59,7 +60,8 @@ export const useVoiceStore = defineStore('voice', () => {
   const sounds = useApplicationSoundStore()
 
   // 共享说话检测引擎：静音说话提醒与在线状态检测共用一条采集流与一个 VAD
-  // worker（ADR-0024）。引擎生命周期由两个消费方的引用计数协作。
+  // worker（ADR-0024）。引擎生命周期由应用级驱动（登录 + 麦克风授权），
+  // 见 detectionLifecycle，消费方只订阅不参与启停。
   const speechDetection = new SpeechDetectionEngine({
     onError: (error) => console.warn('说话检测已停用', error),
   })
@@ -256,6 +258,25 @@ export const useVoiceStore = defineStore('voice', () => {
   devicesRef.current = devices
   appAudioRef.current = appAudio
   participantVolumeRef.current = participantVolume
+
+  // 常开说话检测引擎的应用级生命周期（ADR-0024）：登录且麦克风授权时启动，
+  // 退出登录或权限丢失时停止，首选输入设备变化时重启采集；失败后在标签页
+  // 恢复可见、设备变化或权限重新授予时自动重试。
+  const detectionLifecycle = new SpeechDetectionLifecycle({
+    engine: speechDetection,
+    isActive: () => useAppStore().user !== null
+      && (devicesRef.current?.devicePermissionState.value ?? 'idle') === 'granted',
+    preferredInputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('input') ?? '',
+    subscribeRetryEvents: (listener) => {
+      window.addEventListener('visibilitychange', listener)
+      navigator.mediaDevices?.addEventListener('devicechange', listener)
+      return () => {
+        window.removeEventListener('visibilitychange', listener)
+        navigator.mediaDevices?.removeEventListener('devicechange', listener)
+      }
+    },
+  })
+  watch(() => detectionLifecycle.state(), () => detectionLifecycle.sync(), { flush: 'sync' })
 
   const presence = useVoicePresence({
     createSpeechDetectionEngine: () => speechDetection,

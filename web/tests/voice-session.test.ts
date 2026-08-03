@@ -717,23 +717,21 @@ test('handleModeratorDisconnect matches the current session and signals', async 
   assert.equal(h.session.handleModeratorDisconnect(9, 7), false)
 })
 
-test('muted speaking reminder monitor starts when the policy turns on', async () => {
+test('muted speaking reminder policy does not start the shared engine', async () => {
   const h = makeHarness()
   h.state.microphoneEnabledPreference.value = false
   await h.session.join(7)
   await flushPromises()
-  assert.ok(h.monitor.startCalls.length >= 1)
+  assert.equal(h.monitor.startCalls.length, 0)
 })
 
-test('muted speaking reminder monitor stops when the policy turns off', async () => {
+test('leaving voice while the reminder policy is on does not stop the shared engine', async () => {
   const h = makeHarness()
   h.state.microphoneEnabledPreference.value = false
   await h.session.join(7)
   await flushPromises()
-  const before = h.monitor.stopCalls
-  h.state.guildMuted.value = true
-  await flushPromises()
-  assert.ok(h.monitor.stopCalls > before)
+  await h.session.leave()
+  assert.equal(h.monitor.stopCalls, 0)
 })
 
 test('setMutedSpeakingReminderEnabled persists the preference', () => {

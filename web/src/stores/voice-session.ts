@@ -179,7 +179,6 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   const connectedAudioBitrateKbps = computed(() => connectedPublishSettings.value.audioBitrateKbps)
   const dtxEnabled = computed(() => transmissionMode.value === 'voice-activity')
 
-  const mutedSpeakingReminderInputDeviceId = computed(() => ctx.resolvedPreferredInputDeviceId())
   const shouldRunMutedSpeakingReminder = computed(() => (
     status.value === 'connected'
     && !ctx.microphoneEnabledPreference()
@@ -196,20 +195,16 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     onReminder: showMutedSpeakingReminder,
   })
 
+  // 门控翻转时只重置提醒状态机（武装延迟与冷却从零开始）；引擎本身由应用级
+  // 生命周期驱动（ADR-0024），不随提醒门控启停。
   watch(
-    () => ({
-      enabled: shouldRunMutedSpeakingReminder.value,
-      deviceId: mutedSpeakingReminderInputDeviceId.value,
-    }),
-    (current, previous) => {
-      if (!current.enabled) {
-        mutedSpeakingReminder.stop()
+    shouldRunMutedSpeakingReminder,
+    (enabled, previous) => {
+      if (!enabled) {
         clearMutedSpeakingReminder()
         return
       }
-      if (!previous?.enabled || current.deviceId !== previous.deviceId) {
-        void mutedSpeakingReminder.start(current.deviceId)
-      }
+      if (!previous) mutedSpeakingReminder.reset()
     },
     { flush: 'sync' },
   )
@@ -262,7 +257,6 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     if (room) await leave({ intent: 'active' })
     await destroyVoiceAudioContext()
     voiceSession += 1
-    mutedSpeakingReminder.resetFailure()
     clearMutedSpeakingReminder()
     const session = voiceSession
     recentEndedSession = null
@@ -348,7 +342,6 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     const targetRoom = room
     const guildId = connectedGuildId.value
     rememberEndedSession()
-    mutedSpeakingReminder.stop()
     clearMutedSpeakingReminder()
     await ctx.stopApplicationAudio()
     const wasJoined = targetRoom !== null && room === targetRoom
