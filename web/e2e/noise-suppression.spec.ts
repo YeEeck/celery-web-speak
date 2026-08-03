@@ -12,10 +12,14 @@
 //   1. 增强降噪噪声削减（相对关闭档）≥ NOISE_REDUCTION_MIN_DB
 //   2. 增强降噪语音衰减 ≤ SPEECH_ATTENUATION_MAX_DB（防过度抑制）
 //   3. 增强降噪噪声削减 ≥ 系统降噪噪声削减 − ORDERING_MARGIN_DB（名副其实）
+//   4. 增强降噪语音不过冲 ≤ 关闭档 + SPEECH_BOOST_MAX_DB（防补益调大后语音过响）
 // 脉冲段与语音衰减只进报告，不设门槛（RNNoise 对脉冲噪声的弱项是已知模型局限）。
 // 绝对 dB 只进报告（stdout 对比表），不设绝对门槛。
 //
 // 阈值按基线实测标定（见文件头常量注释），stdout 始终打印三档对比表。
+// 2026-08-03 修订：增强降噪分支内置 +3 dB 固定补益（ADR-0025），把 rnnoise 档
+// 噪声段与语音段一并抬高约 3 dB，噪声削减口径系统性 −3 dB；门禁①按推导折扣重标
+// （最差基线轮 8.8 − 3 = 5.8），待 Compose 环境可用时重跑基线按新基线重标。
 
 import { expect, test, type Page } from '@playwright/test'
 import { createGuildMember, deletePlatformUser, firstJoinedGuildID } from './api-helpers'
@@ -28,9 +32,14 @@ import {
 // 门禁阈值（基线标定：2026-08 本地 Compose 环境三档基线跑 3 轮，增强降噪噪声
 // 削减 8.8~19.8dB（会话间波动）、语音衰减 ~0dB、系统降噪 ~0dB）。阈值取最差
 // 轮的折扣值，避免无头环境会话间波动造成假失败。见 spec.md 测试决策节。
-const NOISE_REDUCTION_MIN_DB = 6
+// 2026-08-03：补益（+3 dB）把噪声削减口径系统性压低约 3 dB，门禁①按推导
+// 8.8 − 3 = 5.8 再折扣重标为 5；待 Compose 环境可用时重跑基线按新基线重标。
+const NOISE_REDUCTION_MIN_DB = 5
 const SPEECH_ATTENUATION_MAX_DB = 3
 const ORDERING_MARGIN_DB = 3
+// 语音不过冲上限：增强降噪语音段 ≤ 关闭档 + 6 dB。fixture 条件下增强降噪
+// 语音衰减基线 ~0 dB，补益 +3 dB 后预期 +3 dB，6 dB 上限为调大补益留护栏。
+const SPEECH_BOOST_MAX_DB = 6
 
 // 录制 22s：跳过前 4s（预热/对齐边界）后剩余 18s ≥ 循环 14s + 段窗 2.8s，
 // 保证任意相位下每段窗口都有一次完整出现。
@@ -114,6 +123,8 @@ test('三档降噪选项的客观降噪测量与门禁', async ({ browser, reque
     expect(rnnoise.noiseReduction).toBeGreaterThanOrEqual(NOISE_REDUCTION_MIN_DB)
     expect(rnnoise.speechAttenuation).toBeLessThanOrEqual(SPEECH_ATTENUATION_MAX_DB)
     expect(rnnoise.noiseReduction).toBeGreaterThanOrEqual(webrtc.noiseReduction - ORDERING_MARGIN_DB)
+    // 语音不过冲：补益后增强降噪语音段不得显著高于关闭档（防未来补益调大过冲）。
+    expect(rnnoise.speechAttenuation).toBeGreaterThanOrEqual(-SPEECH_BOOST_MAX_DB)
   } finally {
     await Promise.allSettled([
       page.getByTitle('断开语音', { exact: true }).click(),
