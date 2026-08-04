@@ -177,6 +177,11 @@ docker compose up -d app
 后端：
 
 ```bash
+# 前端产物经 go:embed 嵌入 Go 服务且不入库，首次运行前需先构建
+cd web
+npm ci
+npm run build
+cd ..
 export COOKIE_SECURE=false
 export BOOTSTRAP_ADMIN_USERNAME=admin
 export BOOTSTRAP_ADMIN_PASSWORD=admin-password-123
@@ -205,12 +210,16 @@ docker compose -f compose.yml -f compose.build.yml -f compose.dev.yml up --build
 
 ## 检查
 
+`internal/webui/dist` 是构建产物（由 `npm run build` 生成、经 `go:embed` 嵌入），不入库；`go test` 与 e2e 前需先完成前端构建。
+
 ```bash
-go test ./...
 cd web
 npm ci
 npm run typecheck
 npm run build
+cd ..
+go test ./...
+cd web
 npm run test:e2e
 ```
 

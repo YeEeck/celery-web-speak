@@ -78,12 +78,15 @@ rg -n 'v0\.4\.4|v<上一个稳定版本>' README.md docs/deployment.md
 
 ### 5. 构建与测试
 
+> `internal/webui/dist` 是构建产物（由 `npm run build` 生成、经 `go:embed` 嵌入 Go 服务），不入库；`go test` 前需先完成前端构建。
+
 ```bash
-go test ./...
 cd web
 npm ci
 npm run typecheck
 npm run build
+cd ..
+go test ./...
 ```
 
 ### 6. 提交与打标签
