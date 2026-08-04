@@ -2,6 +2,7 @@ web/node_modules/
 web/test-results/
 web/playwright-report/
 web/*.tsbuildinfo
+internal/webui/dist/
 data/
 .env
 .scratch/
