@@ -120,7 +120,8 @@ export class MicrophonePublishOrchestrator {
 
   // 单一入口：声明目标状态，模块自决最小操作序列。并发调用串行执行，
   // 会话切换或更新的调用会让过期的进行中操作静默作废。
-  applyMicrophoneState(state: MicrophonePublishState): Promise<void> {
+  // 箭头函数字段：方法被以裸引用传递（voice-session 组装层转发），绑定实例 this。
+  applyMicrophoneState = (state: MicrophonePublishState): Promise<void> => {
     const revision = ++this.revision
     const run = this.queue.then(async () => {
       if (revision !== this.revision) return
