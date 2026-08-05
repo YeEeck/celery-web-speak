@@ -23,14 +23,31 @@ export default defineConfig({
     },
   },
   projects: [
-    { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } }, testIgnore: /noise-suppression\.spec\.ts/ },
-    { name: 'android-chromium', use: { ...devices['Pixel 7'] }, testIgnore: /noise-suppression\.spec\.ts/ },
+    { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } }, testIgnore: [/noise-suppression\.spec\.ts/, /voice-auto-balance\.spec\.ts/] },
+    { name: 'android-chromium', use: { ...devices['Pixel 7'] }, testIgnore: [/noise-suppression\.spec\.ts/, /voice-auto-balance\.spec\.ts/] },
     // 降噪测量专用项目：文件假麦克风注入确定性音频样本。与其余项目隔离——
     // 全局注入会改变现有用例的假麦克风输入（静音→语音信号），破坏
     // 在线状态/DTX 等依赖静音的断言。
     {
       name: 'desktop-chromium-noise',
       testMatch: /noise-suppression\.spec\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1440, height: 900 },
+        launchOptions: {
+          args: [
+            '--use-fake-device-for-media-stream',
+            '--use-fake-ui-for-media-stream',
+            `--use-file-for-fake-audio-capture=${noiseFixturePath}`,
+            '--autoplay-policy=no-user-gesture-required',
+          ],
+        },
+      },
+    },
+    // 自动音量平衡专用项目：fixture 音频注入确定性发送电平（隔离原则同噪声项目）。
+    {
+      name: 'desktop-chromium-voice-balance',
+      testMatch: /voice-auto-balance\.spec\.ts/,
       use: {
         ...devices['Desktop Chrome'],
         viewport: { width: 1440, height: 900 },
