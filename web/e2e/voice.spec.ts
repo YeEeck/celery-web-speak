@@ -158,13 +158,14 @@ test('语音参与者菜单支持播放控制与服务器管理操作', async ({
     await expect(adminPage.getByText(`已对 ${member.displayName} 启用服务器语音禁言`, { exact: true })).toBeVisible()
     await expect(remoteRow.getByText('已禁言', { exact: true })).toBeVisible()
 
-    await remoteTrigger.click()
+    // 左键打开的是个人信息卡片；语音参与者操作菜单需右键触发。
+    await remoteTrigger.click({ button: 'right' })
     panel = adminPage.getByRole('dialog', { name: `${member.displayName}的语音参与者操作` })
     await panel.getByRole('button', { name: '解除服务器语音禁言' }).click()
     await expect(adminPage.getByText(`已解除 ${member.displayName} 的服务器语音禁言`, { exact: true })).toBeVisible()
 
     const tonesBeforeDisconnect = await toneCount(memberPage)
-    await remoteTrigger.click()
+    await remoteTrigger.click({ button: 'right' })
     panel = adminPage.getByRole('dialog', { name: `${member.displayName}的语音参与者操作` })
     await panel.getByRole('button', { name: '断开语音', exact: true }).click()
     await expect(memberPage.getByText('你已被服务器管理员断开语音', { exact: true })).toBeVisible()
@@ -273,7 +274,10 @@ test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser
 
     await page.getByTitle(/^麦克风静音/).click()
     await expect(page.getByTitle(/^取消静音/)).toBeVisible()
-    await expect.poll(() => page.evaluate(() => performance.getEntriesByType('resource').some((entry) => entry.name.includes('muted-speaking-')))).toBe(true)
+    // 说话检测引擎（含 muted-speaking worklet）就绪标记：AudioWorklet 模块的
+    // fetch 发生在 AudioWorkletGlobalScope（独立线程），主线程 performance 与
+    // 网络事件不可见，只能观察引擎在 worklet 加载完成后设置的 DOM 标记。
+    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.speechDetectionReady === 'true')).toBe(true)
     await modeButton.click()
     modeButton = page.locator('.transmission-mode-button')
     await expect(modeButton).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
@@ -375,7 +379,8 @@ test('远端麦克风与暂停的背景音可独立调节并持久化', async ({
     const senderId = accountIds[1]
     const remoteMember = listenerPage.locator('.voice-member').filter({ hasText: accounts[1].displayName })
     await expect(remoteMember).toBeVisible()
-    await remoteMember.locator('.voice-member-main').click()
+    // 左键打开的是个人信息卡片；语音参与者操作菜单需右键触发。
+    await remoteMember.locator('.voice-member-main').click({ button: 'right' })
     const participantPanel = listenerPage.getByRole('dialog', { name: `${accounts[1].displayName}的语音参与者操作` })
 
     const microphoneVolume = participantPanel.getByLabel('麦克风音量')

@@ -154,6 +154,10 @@ export class SpeechDetectionEngine {
       if (context.state !== 'running') await context.resume()
       if (context.state !== 'running') throw new Error('VAD 音频上下文无法启动')
       this.activeDeviceId = deviceId
+      // 可观测性标记：AudioWorklet 模块的 fetch 发生在 AudioWorkletGlobalScope
+      // （独立线程），主线程 performance 与网络事件看不到它；e2e 与排障依赖
+      // 此标记确认引擎（含 muted-speaking worklet）真正就绪。
+      document.documentElement.dataset.speechDetectionReady = 'true'
       return true
     } catch (error) {
       if (operation === this.operation) this.fail(asError(error))
