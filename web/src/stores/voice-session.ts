@@ -15,6 +15,7 @@ import { MicrophonePublishOrchestrator } from '../audio/MicrophonePublishOrchest
 import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor.ts'
 import type { SpeechDetectionEngine, SpeechDetectionEngineCallbacks } from '../audio/SpeechDetectionEngine.ts'
 import { VoiceAudioContextController } from '../audio/VoiceAudioContextController.ts'
+import { VoiceBalanceController } from '../audio/VoiceBalanceController.ts'
 import type { ApplicationSoundOccurrence } from '../application-sounds/core.ts'
 import type { Channel, User, VoiceCredentials } from '../types.ts'
 import {
@@ -93,6 +94,11 @@ export interface VoiceSessionContext {
   applyAllVolumes(): void
   applyVolume(userId: number): void
 
+  autoVoiceBalanceEnabled(): boolean
+  // DOM 可观测标记（data-voice-balance-gain）写入，供 e2e 与 manual-verification；
+  // gainDb 为 null 时移除标记。走 ctx 保持会话层无 DOM。
+  updateVoiceBalanceMarker(userId: number, gainDb: number | null): void
+
   signal(occurrence: ApplicationSoundOccurrence): void
   followPlayback(options: { deafened: boolean; outputDeviceId: string }): void
   mutedSpeakingReminderAudible(): boolean
@@ -149,6 +155,16 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   const microphoneActivity = new MicrophoneActivityMonitor((identity, speaking) => {
     const participant = participantStates.value.find((item) => item.identity === identity)
     if (participant) participant.isSpeaking = speaking
+  })
+  // 自动音量平衡：逐参与者播放端 AGC（ADR-0026）。analyser 经 SDK 实验扩展点
+  // 插在手动增益之前，修正系数变化时经 applyVolume 合成（voiceBalanceGain）。
+  const voiceBalance = new VoiceBalanceController({
+    getAudioContext: () => voiceAudioContextController?.context ?? null,
+    enabled: () => ctx.autoVoiceBalanceEnabled(),
+    onChange: (userId) => {
+      ctx.applyVolume(userId)
+      ctx.updateVoiceBalanceMarker(userId, voiceBalance.gainDbOf(userId))
+    },
   })
   let room: Room | null = null
   let voiceAudioContextController: VoiceAudioContextController | null = null
@@ -343,6 +359,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     ctx.connectionReset()
     transmissionModeError.value = ''
     microphoneActivity.destroy()
+    voiceBalance.destroy()
     if (wasJoined && options.intent === 'active') ctx.signal('voice-self-left')
     syncApplicationSoundPlayback()
     if (wasJoined && guildId !== null && options.notifyGuild !== false) {
@@ -478,6 +495,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
           participantStates.value = []
           ctx.connectionReset()
           microphoneActivity.destroy()
+          voiceBalance.destroy()
           void destroyVoiceAudioContext()
           syncApplicationSoundPlayback()
           ctx.requestVoiceRoomsRefresh()
@@ -530,6 +548,14 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
         muted: publication.isMuted,
       }] : []
     }))
+    voiceBalance.sync([...room.remoteParticipants.values()].flatMap((participant) => {
+      const publication = participant.getTrackPublication(Track.Source.Microphone)
+      const track = publication?.audioTrack
+      return track instanceof RemoteAudioTrack ? [{ userId: participantUserId(participant), track }] : []
+    }))
+    room.remoteParticipants.forEach((participant) => {
+      ctx.updateVoiceBalanceMarker(participantUserId(participant), voiceBalance.gainDbOf(participantUserId(participant)))
+    })
   }
 
   function toVoiceParticipant(participant: Participant, isLocal: boolean, userId: number): VoiceParticipant {
@@ -630,6 +656,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     applyMicrophoneGain,
     applyNoiseSuppressionOption,
     applyMicrophoneState: microphoneOrchestrator.applyMicrophoneState,
+    voiceBalanceGain: (userId: number) => voiceBalance.gainOf(userId),
     syncApplicationSoundPlayback,
     syncParticipants,
     resumeVoiceAudioContext,

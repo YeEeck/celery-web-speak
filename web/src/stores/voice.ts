@@ -9,6 +9,7 @@ import { SpeechDetectionEngine } from '../audio/SpeechDetectionEngine.ts'
 import { SpeechDetectionLifecycle } from '../audio/SpeechDetectionLifecycle.ts'
 import { preloadRnnoiseWasm } from '../audio/rnnoise.ts'
 import { useVoiceDevices } from './voice-devices.ts'
+import { getSavedAutoVoiceBalance, saveAutoVoiceBalance } from './voice-auto-balance-state.ts'
 import { useParticipantVolume } from './voice-participant-volume.ts'
 import { useApplicationAudio } from './voice-application-audio.ts'
 import { useVoiceMuteDeafenModule } from './voice-mute-deafen.ts'
@@ -46,6 +47,8 @@ export const useVoiceStore = defineStore('voice', () => {
   const outputVolume = ref(getSavedLevel(OUTPUT_VOLUME_KEY))
   const echoCancellation = ref(getSavedBoolean(ECHO_CANCELLATION_KEY, true))
   const noiseSuppressionOption = ref(getSavedNoiseSuppressionOption())
+  // 自动音量平衡（ADR-0026）：全局开关，仅本机，默认关闭。
+  const autoVoiceBalance = ref(getSavedAutoVoiceBalance(localStorage))
   // RNNoise 在每次采集时都尝试加载。预取只是优化路径，失败不能把后续会话
   // 永久锁死为系统降噪；节点创建失败由当前会话回退并在下一会话重试。
   const rnnoiseBinaryPromise = preloadRnnoiseWasm()
@@ -118,6 +121,13 @@ export const useVoiceStore = defineStore('voice', () => {
     applicationAudioHasActiveTrack: () => appAudioRef.current?.hasActiveTrack() ?? false,
     applyAllVolumes: () => participantVolumeRef.current?.applyAllVolumes(),
     applyVolume: (userId) => participantVolumeRef.current?.applyVolume(userId),
+    autoVoiceBalanceEnabled: () => autoVoiceBalance.value,
+    updateVoiceBalanceMarker: (userId, gainDb) => {
+      const element = document.querySelector<HTMLElement>(`#voice-audio-root audio[data-user-id="${userId}"]`)
+      if (!element) return
+      if (gainDb === null) delete element.dataset.voiceBalanceGain
+      else element.dataset.voiceBalanceGain = gainDb.toFixed(1)
+    },
     signal: (occurrence) => sounds.signal(occurrence),
     followPlayback: (options) => sounds.followPlayback(options),
     mutedSpeakingReminderAudible: () => sounds.mutedSpeakingReminderAudible,
@@ -241,6 +251,7 @@ export const useVoiceStore = defineStore('voice', () => {
     deafened: muteDeafen.deafened,
     outputVolume,
     participantStates: session.participantStates,
+    voiceBalanceGain: (userId) => session.voiceBalanceGain(userId),
   })
 
   const overlay = useVoiceOverlay({
@@ -319,6 +330,15 @@ export const useVoiceStore = defineStore('voice', () => {
     setNoiseSuppressionOption(toggleNoiseSuppressionOption(noiseSuppressionOption.value, getSavedLastNoiseSuppressionOption()))
   }
 
+  // 自动音量平衡开关：即时生效——开则对在场参与者逐个挂 analyser 并从 0dB
+  // 起步，关则摘除插件、增益复位（applyAllVolumes 回到纯手动合成）。
+  function setAutoVoiceBalance(value: boolean) {
+    autoVoiceBalance.value = value
+    saveAutoVoiceBalance(localStorage, value)
+    session.syncParticipants()
+    participantVolume.applyAllVolumes()
+  }
+
   return {
     status: session.status,
     connectedChannelId: session.connectedChannelId,
@@ -356,6 +376,7 @@ export const useVoiceStore = defineStore('voice', () => {
     outputVolume,
     echoCancellation,
     noiseSuppressionOption,
+    autoVoiceBalance,
     mutedSpeakingReminderEnabled: session.mutedSpeakingReminderEnabled,
     mutedSpeakingReminderVisible: session.mutedSpeakingReminderVisible,
     transmissionMode: session.transmissionMode,
@@ -387,6 +408,7 @@ export const useVoiceStore = defineStore('voice', () => {
     setEchoCancellation,
     setNoiseSuppressionOption,
     toggleNoiseSuppression,
+    setAutoVoiceBalance,
     setMutedSpeakingReminderEnabled: session.setMutedSpeakingReminderEnabled,
     toggleTransmissionMode: session.toggleTransmissionMode,
     initializeApplicationAudio: appAudio.initializeApplicationAudio,

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { composeMicrophoneGain } from '../src/stores/voice-participant-volume.ts'
 import { setParticipantTrackVolume, toggleParticipantTrackMuted, type ParticipantAudioState } from '../src/stores/voice-participant-volume-state.ts'
 
 class MemoryStorage implements Storage {
@@ -62,4 +63,24 @@ test('changing or resetting volume keeps background audio disabled until explici
   toggleParticipantTrackMuted(storage, 12, target, 'backgroundAudio')
   assert.equal(target.backgroundAudioMuted, false)
   assert.equal(target.backgroundAudioVolume, 1)
+})
+
+test('composeMicrophoneGain：静音/聋直接归零', () => {
+  assert.equal(composeMicrophoneGain({ manualVolume: 1, outputVolume: 1, balanceGain: 2, muted: true, deafened: false }), 0)
+  assert.equal(composeMicrophoneGain({ manualVolume: 1, outputVolume: 1, balanceGain: 2, muted: false, deafened: true }), 0)
+})
+
+test('composeMicrophoneGain：平衡系数乘入，关闭时（1）行为不变', () => {
+  assert.equal(composeMicrophoneGain({ manualVolume: 1, outputVolume: 1, balanceGain: 2, muted: false, deafened: false }), 2)
+  assert.equal(composeMicrophoneGain({ manualVolume: 1, outputVolume: 1, balanceGain: 1, muted: false, deafened: false }), 1)
+})
+
+test('composeMicrophoneGain：手动偏置与全局音量保留', () => {
+  assert.equal(composeMicrophoneGain({ manualVolume: 0.3, outputVolume: 1, balanceGain: 1, muted: false, deafened: false }), 0.3)
+  assert.equal(composeMicrophoneGain({ manualVolume: 1, outputVolume: 0.5, balanceGain: 1, muted: false, deafened: false }), 0.5)
+  assert.ok(Math.abs(composeMicrophoneGain({ manualVolume: 0.3, outputVolume: 0.5, balanceGain: 2, muted: false, deafened: false }) - 0.3) < 1e-9)
+})
+
+test('composeMicrophoneGain：合成结果按最大音量钳制', () => {
+  assert.equal(composeMicrophoneGain({ manualVolume: 3, outputVolume: 1, balanceGain: 2, muted: false, deafened: false }), 3)
 })

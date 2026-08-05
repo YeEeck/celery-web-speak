@@ -272,6 +272,7 @@ interface HarnessState {
   reminderAudible: boolean
   echoCancellation: boolean
   noiseSuppression: boolean
+  autoVoiceBalanceEnabled: boolean
   applyConnectionPreferencesCalls: number
   connectionResetCalls: number
   transportRecoveredCalls: number
@@ -324,6 +325,7 @@ function makeHarness(): Harness {
     reminderAudible: true,
     echoCancellation: true,
     noiseSuppression: true,
+    autoVoiceBalanceEnabled: false,
     applyConnectionPreferencesCalls: 0,
     connectionResetCalls: 0,
     transportRecoveredCalls: 0,
@@ -395,6 +397,8 @@ function makeHarness(): Harness {
     applicationAudioHasActiveTrack: () => false,
     applyAllVolumes: () => undefined,
     applyVolume: () => undefined,
+    autoVoiceBalanceEnabled: () => state.autoVoiceBalanceEnabled,
+    updateVoiceBalanceMarker: () => undefined,
     signal: (occurrence) => { signals.push(occurrence) },
     followPlayback: (options) => { followPlaybackCalls.push(options) },
     mutedSpeakingReminderAudible: () => state.reminderAudible,
