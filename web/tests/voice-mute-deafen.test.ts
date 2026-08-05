@@ -16,17 +16,15 @@ interface Harness {
   guildMuteValueRef: Ref<boolean | undefined>
   socketStatusRef: Ref<string>
   transmissionModeRef: Ref<'voice-activity' | 'continuous'>
-  appliedTransmissionModeRef: Ref<'voice-activity' | 'continuous' | null>
   microphoneCurrentlyEnabledRef: Ref<boolean>
   applicationAudioPlayingRef: Ref<boolean>
   applicationAudioAutoPausedRef: Ref<boolean>
   // throw switches
   syncDeafenedErrorRef: Ref<Error | null>
-  enableMicrophoneErrorRef: Ref<Error | null>
-  republishMicrophoneErrorRef: Ref<Error | null>
+  applyMicrophoneStateErrorRef: Ref<Error | null>
   startAudioErrorRef: Ref<Error | null>
   // hooks
-  onEnableMicrophoneHook: { current: (() => void) | null }
+  onApplyMicrophoneStateHook: { current: (() => void) | null }
 }
 
 const MICROPHONE_ENABLED_KEY = 'cws.microphoneEnabled'
@@ -55,9 +53,8 @@ function makeHarness(initial: {
   microphoneCurrentlyEnabled?: boolean
   applicationAudioPlaying?: boolean
   applicationAudioAutoPaused?: boolean
-  appliedTransmissionMode?: 'voice-activity' | 'continuous' | null
   transmissionMode?: 'voice-activity' | 'continuous'
-  enableMicrophoneError?: Error | null
+  applyMicrophoneStateError?: Error | null
   preseeMicrophoneEnabled?: boolean
   preseeDeafened?: boolean
 } = {}): Harness {
@@ -79,16 +76,14 @@ function makeHarness(initial: {
   const guildMuteValueRef = ref<boolean | undefined>(undefined)
   const socketStatusRef = ref<string>('offline')
   const transmissionModeRef = ref<'voice-activity' | 'continuous'>(initial.transmissionMode ?? 'voice-activity')
-  const appliedTransmissionModeRef = ref<'voice-activity' | 'continuous' | null>(initial.appliedTransmissionMode ?? null)
   const microphoneCurrentlyEnabledRef = ref(initial.microphoneCurrentlyEnabled ?? false)
   const applicationAudioPlayingRef = ref(initial.applicationAudioPlaying ?? false)
   const applicationAudioAutoPausedRef = ref(initial.applicationAudioAutoPaused ?? false)
   const syncDeafenedErrorRef = ref<Error | null>(null)
-  const enableMicrophoneErrorRef = ref<Error | null>(initial.enableMicrophoneError ?? null)
-  const republishMicrophoneErrorRef = ref<Error | null>(null)
+  const applyMicrophoneStateErrorRef = ref<Error | null>(initial.applyMicrophoneStateError ?? null)
   const startAudioErrorRef = ref<Error | null>(null)
 
-  const onEnableMicrophoneHook = { current: null as (() => void) | null }
+  const onApplyMicrophoneStateHook = { current: null as (() => void) | null }
 
   const ctx: MuteDeafenContext = {
     room: () => roomRef.value,
@@ -99,8 +94,6 @@ function makeHarness(initial: {
     guildMuteValue: () => guildMuteValueRef.value,
     socketStatus: () => socketStatusRef.value,
     transmissionMode: () => transmissionModeRef.value,
-    appliedTransmissionMode: () => appliedTransmissionModeRef.value,
-    microphoneCurrentlyEnabled: () => microphoneCurrentlyEnabledRef.value,
     saveMicrophonePreference: (enabled) => calls.push(`saveMicrophonePreference:${enabled}`),
     saveDeafenedPreference: (value) => calls.push(`saveDeafenedPreference:${value}`),
     syncApplicationSoundPlayback: () => calls.push('syncApplicationSoundPlayback'),
@@ -109,18 +102,13 @@ function makeHarness(initial: {
     stopApplicationAudio: async () => calls.push('stopApplicationAudio'),
     applicationAudioIsPlaying: () => applicationAudioPlayingRef.value,
     applicationAudioIsAutoPaused: () => applicationAudioAutoPausedRef.value,
-    enableMicrophone: async (enabled) => {
-      calls.push(`enableMicrophone:${enabled}`)
-      if (enableMicrophoneErrorRef.value) throw enableMicrophoneErrorRef.value
-      microphoneCurrentlyEnabledRef.value = enabled
-      onEnableMicrophoneHook.current?.()
+    // 编排器桩：模拟「单入口 diff」的最小语义（enabled 变化生效、模式在启用时生效）。
+    applyMicrophoneState: async (state) => {
+      calls.push(`applyMicrophoneState:${JSON.stringify(state)}`)
+      if (applyMicrophoneStateErrorRef.value) throw applyMicrophoneStateErrorRef.value
+      if (state.enabled !== undefined) microphoneCurrentlyEnabledRef.value = state.enabled
+      onApplyMicrophoneStateHook.current?.()
     },
-    republishMicrophone: async () => {
-      calls.push('republishMicrophone')
-      if (republishMicrophoneErrorRef.value) throw republishMicrophoneErrorRef.value
-      appliedTransmissionModeRef.value = transmissionModeRef.value
-    },
-    attachMicrophonePipeline: async () => calls.push('attachMicrophonePipeline'),
     startAudio: async () => {
       calls.push('startAudio')
       if (startAudioErrorRef.value) throw startAudioErrorRef.value
@@ -140,10 +128,10 @@ function makeHarness(initial: {
   const h: Harness = {
     ctx, calls, syncs,
     roomRef, voiceSessionRef, statusRef, connectedChannelIdRef, connectedGuildIdRef,
-    guildMuteValueRef, socketStatusRef, transmissionModeRef, appliedTransmissionModeRef,
+    guildMuteValueRef, socketStatusRef, transmissionModeRef,
     microphoneCurrentlyEnabledRef, applicationAudioPlayingRef, applicationAudioAutoPausedRef,
-    syncDeafenedErrorRef, enableMicrophoneErrorRef, republishMicrophoneErrorRef, startAudioErrorRef,
-    onEnableMicrophoneHook,
+    syncDeafenedErrorRef, applyMicrophoneStateErrorRef, startAudioErrorRef,
+    onApplyMicrophoneStateHook,
   }
   return h
 }
@@ -191,7 +179,7 @@ test('已连接时 userToggledDeafen off→on：关麦克风、暂停应用音�
   assert.deepEqual(h.calls, [
     'saveDeafenedPreference:true',
     'setErrorMessage:',
-    'enableMicrophone:false',
+    'applyMicrophoneState:{"enabled":false}',
     'pauseApplicationAudio:true',
     'syncApplicationSoundPlayback',
     'applyAllVolumes',
@@ -200,7 +188,7 @@ test('已连接时 userToggledDeafen off→on：关麦克风、暂停应用音�
   ])
 })
 
-test('已连接时 userToggledDeafen race 失败：在 enableMicrophone await 后 voiceSession 被 bump，reconcile 静默 return', async () => {
+test('已连接时 userToggledDeafen race 失败：在 applyMicrophoneState await 后 voiceSession 被 bump，reconcile 静默 return', async () => {
   const h = makeHarness({
     status: 'connected',
     room: { kind: 'room' },
@@ -210,7 +198,7 @@ test('已连接时 userToggledDeafen race 失败：在 enableMicrophone await �
     microphoneCurrentlyEnabled: true,
     applicationAudioPlaying: false,
   })
-  h.onEnableMicrophoneHook.current = () => {
+  h.onApplyMicrophoneStateHook.current = () => {
     h.voiceSessionRef.value += 1
   }
   const m = useVoiceMuteDeafenModule(h.ctx)
@@ -224,11 +212,11 @@ test('已连接时 userToggledDeafen race 失败：在 enableMicrophone await �
   assert.deepEqual(h.calls, [
     'saveDeafenedPreference:true',
     'setErrorMessage:',
-    'enableMicrophone:false',
+    'applyMicrophoneState:{"enabled":false}',
   ])
 })
 
-test('已连接时 userToggledDeafen enableMicrophone 失败：catch 回滚偏好并重新 reconcile，最后写入 error', async () => {
+test('已连接时 userToggledDeafen applyMicrophoneState 失败：catch 回滚偏好并重新 reconcile，最后写入 error', async () => {
   const h = makeHarness({
     status: 'connected',
     room: { kind: 'room' },
@@ -237,7 +225,7 @@ test('已连接时 userToggledDeafen enableMicrophone 失败：catch 回滚偏�
     connectedGuildId: 9,
     microphoneCurrentlyEnabled: true,
     applicationAudioPlaying: false,
-    enableMicrophoneError: new Error('enableMic failed'),
+    applyMicrophoneStateError: new Error('applyMic failed'),
   })
   const m = useVoiceMuteDeafenModule(h.ctx)
   await m.userToggledDeafen()
@@ -246,8 +234,8 @@ test('已连接时 userToggledDeafen enableMicrophone 失败：catch 回滚偏�
   assert.equal(m.deafened.value, false)
   assert.equal(m.muted.value, false)
   assert.equal(m.deafenChanging.value, false)
-  assert.ok(h.calls.includes('enableMicrophone:false'))
-  assert.ok(h.calls.some(c => c === 'setErrorMessage:enableMic failed'))
+  assert.ok(h.calls.includes('applyMicrophoneState:{"enabled":false}'))
+  assert.ok(h.calls.some(c => c === 'setErrorMessage:applyMic failed'))
   // 成功路径里的 syncParticipants 不应该再次出现（catch 路径里外层 syncParticipants 不会调）
   assert.ok(!h.calls.includes('syncParticipants'))
 })
@@ -271,7 +259,7 @@ test('已连接时 guildMuteChanged(true)：停应用音频 → 关麦克风 →
     'stopApplicationAudio',
     'startAudio',
     'resumeAudioContext',
-    'enableMicrophone:false',
+    'applyMicrophoneState:{"enabled":false,"transmissionMode":"voice-activity"}',
     'syncApplicationSoundPlayback',
     'applyAllVolumes',
     'syncDeafenedToBackend:9,5,false',
@@ -294,8 +282,7 @@ test('transportRecovered 调 reconcile 流程，不调 syncParticipants（由调
   assert.equal(m.deafened.value, false)
   assert.equal(m.muted.value, false)
   assert.ok(h.calls.includes('startAudio'))
-  assert.ok(h.calls.includes('enableMicrophone:true'))
-  assert.ok(h.calls.includes('attachMicrophonePipeline'))
+  assert.ok(h.calls.includes('applyMicrophoneState:{"enabled":true,"transmissionMode":"voice-activity"}'))
   assert.ok(h.calls.includes('applyAllVolumes'))
   assert.ok(h.calls.includes('syncDeafenedToBackend:9,5,false'))
   assert.ok(!h.calls.includes('syncParticipants'))

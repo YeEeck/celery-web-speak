@@ -538,27 +538,6 @@ test('toggleTransmissionMode republishes the microphone and flips the mode', asy
   assert.equal(h.state.notifyPreferenceChangeCalls, 1)
 })
 
-test('republishMicrophone restarts an existing publication with new capture constraints', async () => {
-  const h = makeHarness()
-  await h.session.join(7)
-  const microphoneTrack = new FakeMicrophoneTrack()
-  h.room.localParticipant.microphoneTrack = microphoneTrack
-  const callsBefore = [...h.room.localParticipant.setMicrophoneCalls]
-
-  await h.session.republishMicrophone()
-
-  assert.equal(microphoneTrack.restartCalls.length, 1)
-  assert.equal((microphoneTrack.restartCalls[0] as { noiseSuppression: boolean }).noiseSuppression, true)
-  assert.deepEqual(h.room.localParticipant.setMicrophoneCalls, callsBefore)
-  assert.equal(h.room.localParticipant.unpublishCalls.length, 1)
-  assert.equal(h.room.localParticipant.publishCalls.length, 1)
-  assert.deepEqual(h.room.localParticipant.publishCalls[0]?.options, {
-    audioPreset: { maxBitrate: 96_000 },
-    dtx: true,
-    red: true,
-    forceStereo: false,
-  })
-})
 
 test('toggleTransmissionMode republishes existing publication with the new DTX option', async () => {
   const h = makeHarness()
@@ -572,89 +551,6 @@ test('toggleTransmissionMode republishes existing publication with the new DTX o
   assert.equal((h.room.localParticipant.publishCalls[0]?.options as { dtx: boolean }).dtx, false)
 })
 
-test('republishMicrophone restores the previous publication when new publish options fail', async () => {
-  const h = makeHarness()
-  await h.session.join(7)
-  h.room.localParticipant.microphoneTrack = new FakeMicrophoneTrack()
-  h.room.localParticipant.publishTrackError = new Error('publish failed')
-
-  await assert.rejects(h.session.republishMicrophone(), /publish failed/)
-
-  assert.equal(h.room.localParticipant.isMicrophoneEnabled, true)
-  assert.equal(h.room.localParticipant.microphoneUnpublished, false)
-  assert.equal(h.room.localParticipant.publishCalls.length, 2)
-})
-
-test('enableMicrophone refreshes stale capture constraints before unmuting', async () => {
-  const h = makeHarness()
-  await h.session.join(7)
-  const microphoneTrack = new FakeMicrophoneTrack()
-  h.room.localParticipant.microphoneTrack = microphoneTrack
-  h.room.localParticipant.isMicrophoneEnabled = false
-
-  await h.session.enableMicrophone(true)
-
-  assert.equal(microphoneTrack.restartCalls.length, 1)
-  assert.equal(h.room.localParticipant.isMicrophoneEnabled, true)
-  assert.equal(h.session.appliedTransmissionModeValue(), null)
-})
-
-test('attachMicrophonePipeline falls back to system noise suppression for a closed context', async () => {
-  const h = makeHarness()
-  await h.session.join(7)
-  const microphoneTrack = new FakeMicrophoneTrack()
-  h.room.localParticipant.microphoneTrack = microphoneTrack
-  h.audioContexts[0]?.setState('closed')
-
-  await h.session.attachMicrophonePipeline()
-
-  assert.equal(microphoneTrack.setProcessorCalls, 0)
-  assert.equal(microphoneTrack.restartCalls.length, 1)
-  assert.equal((microphoneTrack.restartCalls[0] as { noiseSuppression: boolean }).noiseSuppression, true)
-})
-
-test('closed context first detaches the existing pipeline processor before fallback', async () => {
-  const h = makeHarness()
-  await h.session.join(7)
-  const microphoneTrack = new FakeMicrophoneTrack()
-  h.room.localParticipant.microphoneTrack = microphoneTrack
-
-  await h.session.attachMicrophonePipeline()
-  h.audioContexts[0]?.setState('closed')
-  await h.session.attachMicrophonePipeline()
-
-  assert.equal(microphoneTrack.setProcessorCalls, 1)
-  assert.equal(microphoneTrack.stopProcessorCalls, 1)
-  assert.equal(microphoneTrack.getProcessor(), null)
-  assert.equal((microphoneTrack.restartCalls[0] as { noiseSuppression: boolean }).noiseSuppression, true)
-})
-
-test('switching back to RNNoise retries the enhancement path after a session fallback', async () => {
-  const h = makeHarness()
-  await h.session.join(7)
-  const microphoneTrack = new FakeMicrophoneTrack()
-  h.room.localParticipant.microphoneTrack = microphoneTrack
-  microphoneTrack.audioContextForProcessor = h.audioContexts[0] ?? null
-  h.state.noiseSuppression = false
-
-  // attach 时约束为 false（增强降噪）→ 处理器尝试创建 RNNoise 节点 →
-  // loadRnnoiseBinary 返回 null（harness 恒不可用）→ 回退：约束回到 true。
-  await h.session.attachMicrophonePipeline()
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal((microphoneTrack.restartCalls.at(-1) as { noiseSuppression: boolean }).noiseSuppression, true)
-
-  // 切到系统降噪再切回增强降噪：会话内回退粘滞被解除，本次采集约束重新按
-  // 增强降噪合成（noiseSuppression: false）并触发新的尝试；随后再次失败
-  // 回退（记录中出现 true）。修复前回退粘滞会让整个序列都是 true。
-  await h.session.applyNoiseSuppressionOption('webrtc')
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal((microphoneTrack.restartCalls.at(-1) as { noiseSuppression: boolean }).noiseSuppression, true)
-  await h.session.applyNoiseSuppressionOption('rnnoise')
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.ok(microphoneTrack.restartCalls.some((call) => (call as { noiseSuppression: boolean }).noiseSuppression === false))
-  await new Promise((resolve) => setTimeout(resolve, 5))
-  assert.equal((microphoneTrack.restartCalls.at(-1) as { noiseSuppression: boolean }).noiseSuppression, true)
-})
 
 test('toggleTransmissionMode rolls back to the previous mode on failure', async () => {
   const h = makeHarness()
