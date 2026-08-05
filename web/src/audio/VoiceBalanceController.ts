@@ -5,6 +5,7 @@
 // AudioContext 时全量摘除、零开销。
 import { RemoteAudioTrack } from 'livekit-client'
 import {
+  VOICE_BALANCE_CONTROL_INTERVAL_S,
   createVoiceBalanceState,
   estimateVoiceBalanceGain,
   rmsToDbFS,
@@ -12,7 +13,8 @@ import {
   type VoiceBalanceEstimateState,
 } from './voice-balance-estimator.ts'
 
-const POLL_INTERVAL_MS = 200
+// 轮询间隔与控制率同源（估算器的平滑时间常数以该间隔为步长）。
+const POLL_INTERVAL_MS = VOICE_BALANCE_CONTROL_INTERVAL_S * 1000
 // 增益线性值变化 ≥0.001（≈0.009dB）才回调，避免每 tick 都触发合成。
 const GAIN_CHANGE_EPSILON = 0.001
 
@@ -70,13 +72,13 @@ export class VoiceBalanceController {
   }
 
   // 当前修正增益（dB）；未跟踪该参与者（未平衡）时为 null。
-  gainDbOf(userId: number): number | null {
+  balanceGainDbOf(userId: number): number | null {
     return this.participants.get(userId)?.state.gainDb ?? null
   }
 
-  // 当前修正增益（线性），未跟踪时为 1（合成层乘 1 即旧行为）。
-  gainOf(userId: number): number {
-    const gainDb = this.gainDbOf(userId)
+  // 当前修正增益（线性）；未跟踪时为 1（合成层乘 1 即旧行为）。
+  balanceGainLinearOf(userId: number): number {
+    const gainDb = this.balanceGainDbOf(userId)
     return gainDb === null ? 1 : voiceBalanceGainLinear(gainDb)
   }
 

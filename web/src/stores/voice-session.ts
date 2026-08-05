@@ -163,7 +163,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     enabled: () => ctx.autoVoiceBalanceEnabled(),
     onChange: (userId) => {
       ctx.applyVolume(userId)
-      ctx.updateVoiceBalanceMarker(userId, voiceBalance.gainDbOf(userId))
+      ctx.updateVoiceBalanceMarker(userId, voiceBalance.balanceGainDbOf(userId))
     },
   })
   let room: Room | null = null
@@ -554,7 +554,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
       return track instanceof RemoteAudioTrack ? [{ userId: participantUserId(participant), track }] : []
     }))
     room.remoteParticipants.forEach((participant) => {
-      ctx.updateVoiceBalanceMarker(participantUserId(participant), voiceBalance.gainDbOf(participantUserId(participant)))
+      ctx.updateVoiceBalanceMarker(participantUserId(participant), voiceBalance.balanceGainDbOf(participantUserId(participant)))
     })
   }
 
@@ -656,7 +656,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     applyMicrophoneGain,
     applyNoiseSuppressionOption,
     applyMicrophoneState: microphoneOrchestrator.applyMicrophoneState,
-    voiceBalanceGain: (userId: number) => voiceBalance.gainOf(userId),
+    voiceBalanceGain: (userId: number) => voiceBalance.balanceGainLinearOf(userId),
     syncApplicationSoundPlayback,
     syncParticipants,
     resumeVoiceAudioContext,

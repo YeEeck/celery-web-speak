@@ -295,7 +295,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
                   <input type="checkbox" :checked="voice.autoVoiceBalance" aria-label="自动音量平衡" @change="voice.setAutoVoiceBalance(($event.target as HTMLInputElement).checked)" />
                 </label>
               </div>
-              <p class="profile-hint">自动音量平衡开启后，各说话人的音量将自动均衡到相近水平；手动调节的参与者音量仍作为相对偏置生效。</p>
+              <p class="profile-hint">自动音量平衡开启后，各说话人的音量将自动均衡到相近水平；按参与者播放控制的手动调节仍作为相对偏置生效。</p>
               <p v-if="voice.joined" class="profile-hint">回声抑制更改将在下次加入语音时生效。</p>
               <label class="setting-toggle">
                 <span>静音时说话提醒</span>

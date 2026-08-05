@@ -1,5 +1,5 @@
 // 自动音量平衡——估算器纯函数测试（seam 1）。
-// 数学转正自原型 AGC 模拟器（web/prototype/agc-sim.test.ts，01 标定验证）。
+// 数学转正自 01 原型的 AGC 模拟器（标定数据与策略见 ADR-0026 修订记录）。
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
