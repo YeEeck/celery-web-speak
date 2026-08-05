@@ -1,5 +1,6 @@
 import { ref, watch, type Ref } from 'vue'
 import { type Room } from 'livekit-client'
+import type { MicrophonePublishState } from '../audio/MicrophonePublishOrchestrator.ts'
 import {
   DEAFENED_PREFERENCE_KEY,
   MICROPHONE_ENABLED_KEY,
@@ -26,8 +27,6 @@ export interface MuteDeafenContext {
 
   // 传输模式与应用模式 interplay：module 只读，不写
   transmissionMode: () => VoiceTransmissionMode
-  appliedTransmissionMode: () => VoiceTransmissionMode | null
-  microphoneCurrentlyEnabled: () => boolean
 
   // 偏好持久化 adapter
   saveMicrophonePreference: (enabled: boolean) => void
@@ -43,10 +42,8 @@ export interface MuteDeafenContext {
   applicationAudioIsPlaying: () => boolean
   applicationAudioIsAutoPaused: () => boolean
 
-  // 麦克风发布 adapter（idempotent，内部按当前状态决定是否实际切换）
-  enableMicrophone: (enabled: boolean) => Promise<void>
-  republishMicrophone: () => Promise<void>
-  attachMicrophonePipeline: () => Promise<void>
+  // 麦克风发布入口（幂等：编排器按目标与当前状态决定实际切换序列）
+  applyMicrophoneState: (state: MicrophonePublishState) => Promise<void>
 
   // 音频路由/上下文
   startAudio: () => Promise<void>
@@ -279,7 +276,8 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
       const shouldEnableMicrophone = microphoneEnabledPreference.value && !nextDeafened && !guildMuted.value
 
       if (nextDeafened) {
-        await ctx.enableMicrophone(false)
+        // 编排器幂等：仅翻转静音（无重发布，模式变化留到解除静音时生效）。
+        await ctx.applyMicrophoneState({ enabled: false })
         if (session !== ctx.voiceSession() || ctx.room() !== target) return
         if (ctx.applicationAudioIsPlaying()) await ctx.pauseApplicationAudio(true)
         deafened.value = true
@@ -289,15 +287,10 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
         await ctx.startAudio()
         if (session !== ctx.voiceSession() || ctx.room() !== target) return
         ctx.resumeAudioContext()
-        if (ctx.microphoneCurrentlyEnabled() !== shouldEnableMicrophone) {
-          await ctx.enableMicrophone(shouldEnableMicrophone)
-          if (session !== ctx.voiceSession() || ctx.room() !== target) return
-        }
-        if (shouldEnableMicrophone && ctx.appliedTransmissionMode() !== ctx.transmissionMode()) {
-          await ctx.republishMicrophone()
-          if (session !== ctx.voiceSession() || ctx.room() !== target) return
-        }
-        if (shouldEnableMicrophone) await ctx.attachMicrophonePipeline()
+        // 单入口声明目标：编排器自行决定 静音翻转 → 模式重发布 → 处理器挂载
+        // 的最小序列（含 appliedTransmissionMode 的 diff）。
+        await ctx.applyMicrophoneState({ enabled: shouldEnableMicrophone, transmissionMode: ctx.transmissionMode() })
+        if (session !== ctx.voiceSession() || ctx.room() !== target) return
         deafened.value = false
         muted.value = !shouldEnableMicrophone
         ctx.syncApplicationSoundPlayback()

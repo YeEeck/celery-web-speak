@@ -11,8 +11,7 @@ import {
   type RoomOptions,
 } from 'livekit-client'
 import { MicrophoneActivityMonitor } from '../audio/MicrophoneActivityMonitor.ts'
-import { MicrophonePipelineProcessor } from '../audio/MicrophonePipelineProcessor.ts'
-import { buildMicrophoneCaptureOptions } from '../audio/microphoneCaptureOptions.ts'
+import { MicrophonePublishOrchestrator } from '../audio/MicrophonePublishOrchestrator.ts'
 import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor.ts'
 import type { SpeechDetectionEngine, SpeechDetectionEngineCallbacks } from '../audio/SpeechDetectionEngine.ts'
 import { VoiceAudioContextController } from '../audio/VoiceAudioContextController.ts'
@@ -131,34 +130,21 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   const transmissionMode = ref<VoiceTransmissionMode>(getSavedTransmissionMode())
   const transmissionModeChanging = ref(false)
   const transmissionModeError = ref('')
-  const microphonePipelineProcessor = new MicrophonePipelineProcessor({
+  // 麦克风发布链编排器：启用/重发布/降噪切换/回退的单一入口，会话守卫与
+  // 竞态防护内化（见 MicrophonePublishOrchestrator）。join/leave 经
+  // invalidate/beginSession/endSession 声明会话边界。
+  const microphoneOrchestrator = new MicrophonePublishOrchestrator({
     gain: ctx.microphoneGainInitial(),
-    noiseSuppression: ctx.noiseSuppressionOption(),
+    noiseSuppressionOption: () => ctx.noiseSuppressionOption(),
+    webRtcNoiseSuppression: () => ctx.noiseSuppression(),
+    resolvedPreferredInputDeviceId: () => ctx.resolvedPreferredInputDeviceId(),
+    echoCancellation: () => ctx.echoCancellation(),
+    publishSettings: () => connectedPublishSettings.value,
+    isAudioContextAvailable: () => voiceAudioContextController !== null && voiceAudioContextController.context.state !== 'closed',
+    transmissionMode: () => transmissionMode.value,
+    isSessionLive: () => status.value === 'connected' || status.value === 'connecting',
     loadRnnoiseBinary: () => ctx.loadRnnoiseBinary(),
-    onRnnoiseUnavailable: (isGenerationCurrent) => new Promise<void>((resolve) => {
-      // AudioWorklet initialization can finish before LocalAudioTrack.setProcessor
-      // releases its track-change lock. Defer reacquisition until that lock is free,
-      // while retaining the processor generation to reject stale callbacks.
-      const target = room
-      const session = voiceSession
-      setTimeout(() => {
-        if (!isGenerationCurrent() || !target || room !== target || voiceSession !== session) {
-          resolve()
-          return
-        }
-        void fallbackToSystemNoiseSuppression(target, session)
-          .catch((error) => {
-            if (room === target && voiceSession === session) {
-              errorMessage.value = error instanceof Error
-                ? `无法回退到系统降噪：${error.message}`
-                : '无法回退到系统降噪'
-            }
-            console.warn('RNNoise 回退到系统降噪失败', error)
-          })
-          .finally(resolve)
-      }, 0)
-    }),
-    rnnoiseCaptureAllowed: !ctx.noiseSuppression(),
+    onError: (message) => { errorMessage.value = message },
   })
   const microphoneActivity = new MicrophoneActivityMonitor((identity, speaking) => {
     const participant = participantStates.value.find((item) => item.identity === identity)
@@ -168,10 +154,6 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   let voiceAudioContextController: VoiceAudioContextController | null = null
   let participantSoundsReady = false
   let voiceSession = 0
-  let appliedTransmissionMode: VoiceTransmissionMode | null = null
-  let rnnoiseFallback = false
-  let noiseSuppressionChangeRevision = 0
-  let noiseSuppressionChangePromise = Promise.resolve()
   let mutedSpeakingReminderTimer: number | null = null
   let recentEndedSession: EndedVoiceSession | null = null
 
@@ -257,15 +239,14 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     if (room) await leave({ intent: 'active' })
     await destroyVoiceAudioContext()
     voiceSession += 1
+    microphoneOrchestrator.invalidate()
     clearMutedSpeakingReminder()
     const session = voiceSession
     recentEndedSession = null
-    rnnoiseFallback = false
     status.value = 'connecting'
     errorMessage.value = ''
     transmissionModeError.value = ''
     ctx.connectionReset()
-    appliedTransmissionMode = null
     syncApplicationSoundPlayback()
     try {
       const channel = ctx.findChannel(channelId)
@@ -289,7 +270,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
         adaptiveStream: true,
         dynacast: true,
         webAudioMix: audioContext ? { audioContext } : true,
-        audioCaptureDefaults: microphoneCaptureOptions(),
+        audioCaptureDefaults: microphoneOrchestrator.buildCaptureOptions(),
         publishDefaults: {
           audioPreset: { maxBitrate: (channel.audioBitrateKbps ?? DEFAULT_AUDIO_BITRATE_KBPS) * 1000 },
           dtx: dtxEnabled.value,
@@ -301,6 +282,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
           : undefined,
       }))
       room = nextRoom
+      microphoneOrchestrator.beginSession(nextRoom)
       if (audioContext) {
         voiceAudioContextController = new VoiceAudioContextController(audioContext, {
           startAudio: () => nextRoom.startAudio(),
@@ -326,6 +308,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     } catch (error) {
       if (session !== voiceSession) return
       participantSoundsReady = false
+      microphoneOrchestrator.endSession()
       room?.disconnect()
       room = null
       await destroyVoiceAudioContext()
@@ -346,7 +329,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     await ctx.stopApplicationAudio()
     const wasJoined = targetRoom !== null && room === targetRoom
     voiceSession += 1
-    rnnoiseFallback = false
+    microphoneOrchestrator.endSession()
     participantSoundsReady = false
     if (wasJoined) {
       targetRoom.disconnect()
@@ -358,7 +341,6 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     participantStates.value = []
     status.value = 'idle'
     ctx.connectionReset()
-    appliedTransmissionMode = null
     transmissionModeError.value = ''
     microphoneActivity.destroy()
     if (wasJoined && options.intent === 'active') ctx.signal('voice-self-left')
@@ -370,36 +352,13 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   }
 
   function applyMicrophoneGain(volume: number) {
-    microphonePipelineProcessor.setGain(volume)
+    microphoneOrchestrator.setGain(volume)
   }
 
+  // 降噪选项切换的薄包装：编排器内做方向性序列（先拆后建 + 重发布），
+  // 失败在这里落到错误消息。未接入会话时编排器只更新处理器级选项。
   function applyNoiseSuppressionOption(option: NoiseSuppressionOption) {
-    const revision = ++noiseSuppressionChangeRevision
-    const apply = noiseSuppressionChangePromise.then(async () => {
-      if (revision !== noiseSuppressionChangeRevision) return
-      // 切回增强降噪即重新尝试 RNNoise：解除会话内回退粘滞，让本次采集约束
-      // 重新按增强降噪合成（noiseSuppression: false），处理器随之重建降噪节点。
-      // 若再次失败，回退链仍会逐次收敛到系统降噪。
-      if (option === 'rnnoise') rnnoiseFallback = false
-      const target = room
-      const microphoneEnabled = target?.localParticipant.isMicrophoneEnabled === true
-      if (!target || !microphoneEnabled) {
-        await microphonePipelineProcessor.setNoiseSuppression(option)
-        return
-      }
-
-      const session = voiceSession
-      // Remove RNNoise before rebuilding a WebRTC/off capture. For the reverse
-      // direction, the processor is switched after the new constraint is live,
-      // so the two suppressors never overlap.
-      if (option !== 'rnnoise') await microphonePipelineProcessor.setNoiseSuppression(option)
-      if (revision !== noiseSuppressionChangeRevision || session !== voiceSession || room !== target) return
-      await republishMicrophone()
-      if (revision !== noiseSuppressionChangeRevision || session !== voiceSession || room !== target) return
-      await microphonePipelineProcessor.setNoiseSuppression(option)
-    })
-    noiseSuppressionChangePromise = apply.catch((error) => {
-      if (revision !== noiseSuppressionChangeRevision) return
+    void microphoneOrchestrator.applyMicrophoneState({ noiseSuppression: option }).catch((error) => {
       errorMessage.value = error instanceof Error
         ? `无法应用降噪选项：${error.message}`
         : '无法应用降噪选项'
@@ -420,7 +379,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     const session = voiceSession
     transmissionModeChanging.value = true
     try {
-      await republishMicrophone()
+      await microphoneOrchestrator.applyMicrophoneState({ transmissionMode: next })
       if (session !== voiceSession || room !== target) return
       syncParticipants()
     } catch (error) {
@@ -429,7 +388,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
       saveTransmissionMode(previous)
       ctx.notifyPreferenceChange()
       try {
-        await republishMicrophone()
+        await microphoneOrchestrator.applyMicrophoneState({ transmissionMode: previous })
       } catch {
         ctx.setMuted(!target.localParticipant.isMicrophoneEnabled)
       }
@@ -443,7 +402,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   async function applyPublishSettingsChange(microphoneChanged: boolean, backgroundAudioChanged: boolean) {
     if (!room) return
     if (microphoneChanged && !ctx.muted() && !ctx.guildMuted()) {
-      await republishMicrophone()
+      await microphoneOrchestrator.applyMicrophoneState({ forceRepublish: true })
     }
     if (backgroundAudioChanged && ctx.applicationAudioHasActiveTrack()) {
       await ctx.republishBackgroundAudio()
@@ -510,6 +469,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
         if (room === target) {
           void ctx.stopApplicationAudio()
           voiceSession += 1
+          microphoneOrchestrator.endSession()
           participantSoundsReady = false
           rememberEndedSession()
           room = null
@@ -517,7 +477,6 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
           status.value = 'idle'
           participantStates.value = []
           ctx.connectionReset()
-          appliedTransmissionMode = null
           microphoneActivity.destroy()
           void destroyVoiceAudioContext()
           syncApplicationSoundPlayback()
@@ -635,163 +594,6 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     return true
   }
 
-  function publishOptions(mode: VoiceTransmissionMode = transmissionMode.value) {
-    const settings = connectedPublishSettings.value
-    return {
-      audioPreset: { maxBitrate: settings.audioBitrateKbps * 1000 },
-      dtx: mode === 'voice-activity',
-      red: settings.audioRedEnabled,
-      forceStereo: false,
-    }
-  }
-
-  function microphoneCaptureOptions(noiseSuppressionOverride?: boolean) {
-    const selectedOption = ctx.noiseSuppressionOption()
-    return buildMicrophoneCaptureOptions({
-      deviceId: ctx.resolvedPreferredInputDeviceId(),
-      echoCancellation: ctx.echoCancellation(),
-      noiseSuppression: noiseSuppressionOverride
-        ?? (selectedOption === 'rnnoise' && rnnoiseFallback ? true : ctx.noiseSuppression()),
-    })
-  }
-
-  async function enableMicrophone(enabled: boolean) {
-    const target = room
-    if (!target) return
-    if (target.localParticipant.isMicrophoneEnabled === enabled) return
-    const mode = transmissionMode.value
-    const session = voiceSession
-    const captureOptions = enabled ? microphoneCaptureOptions() : undefined
-    const existingMicrophoneTrack = enabled
-      ? target.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack
-      : undefined
-    if (existingMicrophoneTrack && captureOptions) {
-      await detachPipelineForUnavailableAudioContext(existingMicrophoneTrack)
-      if (session !== voiceSession || room !== target) return
-      if (existingMicrophoneTrack.constraints.noiseSuppression !== captureOptions.noiseSuppression) {
-        await existingMicrophoneTrack.restartTrack(captureOptions)
-        if (session !== voiceSession || room !== target) return
-      }
-    }
-    if (captureOptions) microphonePipelineProcessor.setCaptureNoiseSuppression(captureOptions.noiseSuppression)
-    await target.localParticipant.setMicrophoneEnabled(
-      enabled,
-      captureOptions,
-      enabled ? publishOptions(mode) : undefined,
-    )
-    if (session !== voiceSession || room !== target) return
-    // LiveKit ignores publishOptions when unmuting an existing publication;
-    // the mute/deafen reconciler will republish it if the mode changed while muted.
-    if (enabled && !existingMicrophoneTrack) appliedTransmissionMode = mode
-  }
-
-  async function attachMicrophonePipeline(expectedTarget?: Room, expectedSession?: number) {
-    const target = expectedTarget ?? room
-    if (!target || (expectedTarget && expectedSession !== undefined && (room !== target || voiceSession !== expectedSession))) return
-    const track = target.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack
-    // Without a usable AudioContext the published track must stay on the
-    // WebRTC path. Reacquire an active RNNoise track with the resolved fallback
-    // constraint before skipping the optional Web Audio processor.
-    if (!voiceAudioContextController || voiceAudioContextController.context.state === 'closed') {
-      if (track && target.localParticipant.isMicrophoneEnabled) {
-        await detachPipelineForUnavailableAudioContext(track)
-        if (expectedTarget && expectedSession !== undefined && (room !== target || voiceSession !== expectedSession)) return
-        const captureOptions = microphoneCaptureOptions()
-        if (track.constraints.noiseSuppression !== captureOptions.noiseSuppression) {
-          await track.restartTrack(captureOptions)
-          if (expectedTarget && expectedSession !== undefined && (room !== target || voiceSession !== expectedSession)) return
-        }
-      }
-      return
-    }
-    if (track && track.getProcessor() !== microphonePipelineProcessor) {
-      microphonePipelineProcessor.setCaptureNoiseSuppression(microphoneCaptureOptions().noiseSuppression)
-      if (expectedTarget && expectedSession !== undefined && (room !== target || voiceSession !== expectedSession)) return
-      await track.setProcessor(microphonePipelineProcessor)
-    }
-  }
-
-  async function republishMicrophone(noiseSuppressionOverride?: boolean) {
-    const target = room
-    if (!target) return
-    const nextTransmissionMode = transmissionMode.value
-    const session = voiceSession
-    const captureOptions = microphoneCaptureOptions(noiseSuppressionOverride)
-    const microphonePublication = target.localParticipant.getTrackPublication(Track.Source.Microphone)
-    const microphoneTrack = microphonePublication?.audioTrack
-    const previousPublishOptions = microphonePublication?.options
-    let microphoneUnpublished = false
-    try {
-      if (microphoneTrack) {
-        await detachPipelineForUnavailableAudioContext(microphoneTrack)
-        if (session !== voiceSession || room !== target) return
-      }
-      microphonePipelineProcessor.setCaptureNoiseSuppression(captureOptions.noiseSuppression)
-      if (microphoneTrack && target.localParticipant.isMicrophoneEnabled) {
-        // setMicrophoneEnabled(false/true) only mutes an existing publication and
-        // ignores publishOptions. Reacquire the source first, then explicitly
-        // republish the same track so DTX/bitrate/RED changes reach LiveKit.
-        await microphoneTrack.restartTrack(captureOptions)
-        if (session !== voiceSession || room !== target) return
-        await attachMicrophonePipeline(target, session)
-        if (session !== voiceSession || room !== target) return
-        microphoneUnpublished = true
-        await target.localParticipant.unpublishTrack(microphoneTrack, false)
-        if (session !== voiceSession || room !== target) return
-        await target.localParticipant.publishTrack(microphoneTrack, publishOptions(nextTransmissionMode))
-        if (session !== voiceSession || room !== target) return
-        appliedTransmissionMode = nextTransmissionMode
-        return
-      }
-      await target.localParticipant.setMicrophoneEnabled(false)
-      if (session !== voiceSession || room !== target) return
-      await target.localParticipant.setMicrophoneEnabled(true, captureOptions, publishOptions(nextTransmissionMode))
-      if (session !== voiceSession || room !== target) return
-      appliedTransmissionMode = nextTransmissionMode
-      await attachMicrophonePipeline(target, session)
-    } catch (error) {
-      // Re-publishing can fail after the old track has been disabled. Restore a
-      // live microphone before propagating the original error to the caller.
-      if (session === voiceSession && room === target && !target.localParticipant.isMicrophoneEnabled) {
-        try {
-          if (microphoneUnpublished && microphoneTrack) {
-            if (!target.localParticipant.getTrackPublication(Track.Source.Microphone)?.audioTrack) {
-              await target.localParticipant.publishTrack(microphoneTrack, previousPublishOptions)
-            }
-          } else {
-            await target.localParticipant.setMicrophoneEnabled(true, captureOptions, publishOptions(nextTransmissionMode))
-          }
-          if (session === voiceSession && room === target) await attachMicrophonePipeline(target, session)
-        } catch {
-          // Preserve the original failure; the caller can surface or retry it.
-        }
-      }
-      throw error
-    }
-  }
-
-  async function detachPipelineForUnavailableAudioContext(track: {
-    getProcessor(): unknown
-    stopProcessor(): Promise<void>
-  }) {
-    const contextUnavailable = !voiceAudioContextController || voiceAudioContextController.context.state === 'closed'
-    if (contextUnavailable && track.getProcessor() === microphonePipelineProcessor) {
-      await track.stopProcessor()
-    }
-  }
-
-  async function fallbackToSystemNoiseSuppression(expectedTarget: Room, expectedSession: number) {
-    const target = room
-    if (ctx.noiseSuppressionOption() !== 'rnnoise'
-      || !target
-      || target !== expectedTarget
-      || voiceSession !== expectedSession
-      || !target.localParticipant.isMicrophoneEnabled
-      || (status.value !== 'connected' && status.value !== 'connecting')) return
-    rnnoiseFallback = true
-    await republishMicrophone(true)
-  }
-
   function resumeVoiceAudioContext() {
     return voiceAudioContextController?.resumeIfNeeded()
   }
@@ -827,10 +629,8 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     handleModeratorDisconnect,
     applyMicrophoneGain,
     applyNoiseSuppressionOption,
+    applyMicrophoneState: microphoneOrchestrator.applyMicrophoneState,
     syncApplicationSoundPlayback,
-    enableMicrophone,
-    republishMicrophone,
-    attachMicrophonePipeline,
     syncParticipants,
     resumeVoiceAudioContext,
     applyPreferredDevicesToCurrentRoom,
@@ -841,6 +641,5 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     connectedChannelIdValue: () => connectedChannelId.value,
     connectedGuildIdValue: () => connectedGuildId.value,
     transmissionModeValue: () => transmissionMode.value,
-    appliedTransmissionModeValue: () => appliedTransmissionMode,
   }
 }
