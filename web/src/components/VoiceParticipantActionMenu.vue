@@ -85,6 +85,7 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="voice-participant-audio-controls">
+        <p v-if="voice.autoVoiceBalance" class="voice-participant-balance-hint">自动音量平衡已开启，音量滑杆作为相对偏置</p>
         <div class="voice-participant-audio-row">
           <button
             type="button"
