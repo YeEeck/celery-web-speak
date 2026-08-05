@@ -69,8 +69,9 @@ test('自动音量平衡：开关持久化、菜单提示行与逐参与者增�
     await expect(listenerPage.locator('.voice-member').filter({ hasText: accounts[0].displayName })).toBeVisible()
     await expect(listenerPage.locator('.voice-member').filter({ hasText: accounts[1].displayName })).toBeVisible()
 
-    // 1. 开关默认关闭 → 打开并持久化
+    // 1. 开关默认关闭 → 打开并持久化（位于"音频 → 输出"页签）
     let settingsDialog = await openAudioSettings(listenerPage)
+    await switchToOutputTab(settingsDialog)
     await expect(settingsDialog.getByLabel('自动音量平衡')).not.toBeChecked()
     await settingsDialog.getByLabel('自动音量平衡').check()
     await expect(settingsDialog.getByLabel('自动音量平衡')).toBeChecked()
@@ -108,6 +109,7 @@ test('自动音量平衡：开关持久化、菜单提示行与逐参与者增�
 
     // 4. 关闭开关：标记移除、提示行消失（合成回纯手动）
     settingsDialog = await openAudioSettings(listenerPage)
+    await switchToOutputTab(settingsDialog)
     await settingsDialog.getByLabel('自动音量平衡').uncheck()
     await settingsDialog.getByTitle('关闭').click()
     await expect(settingsDialog).toHaveCount(0)
@@ -140,13 +142,18 @@ async function loginVoicePage(page: Page, account: { username: string; password:
   if (await changelog.isVisible()) await changelog.getByTitle('关闭').click()
 }
 
-// 打开设置面板"音频"页，返回设置弹窗。
+// 打开设置面板"音频"页（默认"输入"子页签），返回设置弹窗。
 async function openAudioSettings(page: Page) {
   await page.getByTitle('用户账户').click()
   await page.getByRole('menu', { name: '用户账户操作' }).getByRole('menuitem', { name: '用户设置', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: '用户设置' })
   await dialog.getByRole('button', { name: '音频', exact: true }).click()
   return dialog
+}
+
+// 切到"输出"子页签（自动音量平衡为播放端偏好，位于扬声器音量之下）。
+async function switchToOutputTab(dialog: ReturnType<typeof openAudioSettings>) {
+  await dialog.getByRole('button', { name: '输出', exact: true }).click()
 }
 
 // 在设置面板"音频"页设置麦克风增益（加入语音前）。

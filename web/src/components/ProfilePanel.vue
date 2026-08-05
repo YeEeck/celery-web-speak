@@ -290,12 +290,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
                     <option value="rnnoise">增强降噪（RNNoise）</option>
                   </select>
                 </label>
-                <label>
-                  <span>自动音量平衡</span>
-                  <input type="checkbox" :checked="voice.autoVoiceBalance" aria-label="自动音量平衡" @change="voice.setAutoVoiceBalance(($event.target as HTMLInputElement).checked)" />
-                </label>
               </div>
-              <p class="profile-hint">自动音量平衡开启后，各说话人的音量将自动均衡到相近水平；按参与者播放控制的手动调节仍作为相对偏置生效。</p>
               <p v-if="voice.joined" class="profile-hint">回声抑制更改将在下次加入语音时生效。</p>
               <label class="setting-toggle">
                 <span>静音时说话提醒</span>
@@ -319,6 +314,11 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
                 <span><span>扬声器音量</span><strong>{{ Math.round(voice.outputVolume * 100) }}%</strong></span>
                 <input type="range" min="0" max="3" step="0.05" :value="voice.outputVolume" :style="rangeProgressStyle(voice.outputVolume, 0, 3)" aria-label="扬声器音量" @input="voice.setOutputVolume(Number(($event.target as HTMLInputElement).value))" />
               </label>
+              <label class="setting-toggle">
+                <span>自动音量平衡</span>
+                <input type="checkbox" :checked="voice.autoVoiceBalance" aria-label="自动音量平衡" @change="voice.setAutoVoiceBalance(($event.target as HTMLInputElement).checked)" />
+              </label>
+              <p class="profile-hint">自动音量平衡开启后，各说话人的音量将自动均衡到相近水平；按参与者播放控制的手动调节仍作为相对偏置生效。</p>
             </section>
           </div>
         </section>
