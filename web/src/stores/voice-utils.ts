@@ -1,5 +1,5 @@
 import type { Participant } from 'livekit-client'
-import { Track } from 'livekit-client'
+import { ConnectionQuality, Track } from 'livekit-client'
 import type { GuildRole, User } from '../types'
 import type { ApplicationAudioError, ApplicationAudioSnapshot } from '../audio/applicationAudioBridge'
 
@@ -106,6 +106,31 @@ export interface VoiceParticipant {
   backgroundAudioMuted: boolean
   role: GuildRole
   joinedAt: number | null
+}
+
+// 参与者行右侧连接质量图标的显示映射。质量由 LiveKit 服务端打分并推送，
+// unknown 表示尚未收到质量推送（如服务器禁言成员无发布轨道），渲染为中性
+// 灰点占位；lost 仍是测得的质量（0 格）。见 ADR-0027。
+export interface VoiceQualityDisplay {
+  bars: number
+  title: string
+  unknown: boolean
+}
+
+export function voiceQualityDisplay(quality: ConnectionQuality): VoiceQualityDisplay {
+  switch (quality) {
+    case ConnectionQuality.Excellent:
+      return { bars: 3, title: '连接质量：极佳', unknown: false }
+    case ConnectionQuality.Good:
+      return { bars: 2, title: '连接质量：良好', unknown: false }
+    case ConnectionQuality.Poor:
+      return { bars: 1, title: '连接质量：较差', unknown: false }
+    case ConnectionQuality.Lost:
+      return { bars: 0, title: '连接质量：连接丢失', unknown: false }
+    case ConnectionQuality.Unknown:
+    default:
+      return { bars: 0, title: '连接质量未知', unknown: true }
+  }
 }
 
 export function defaultConnectedPublishSettings() {

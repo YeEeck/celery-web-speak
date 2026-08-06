@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ChevronRight, MicOff, Music2, Signal, Volume2, VolumeX } from '@lucide/vue'
-import { ConnectionQuality } from 'livekit-client'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
+import { voiceQualityDisplay } from '../stores/voice-utils'
 import type { Channel, PresenceStatus } from '../types'
 
 const props = defineProps<{ channel: Channel; actionMenuUserId?: number | null }>()
@@ -28,13 +28,6 @@ const statusLabel = computed(() => {
   if (voice.connectedChannelId === props.channel.id && voice.status === 'error') return '连接失败'
   return '点击加入'
 })
-
-function qualityBars(quality: ConnectionQuality) {
-  if (quality === ConnectionQuality.Excellent) return 3
-  if (quality === ConnectionQuality.Good) return 2
-  if (quality === ConnectionQuality.Poor) return 1
-  return 0
-}
 
 function userFor(participant: VoiceParticipant | { userId: number }) {
   return app.users.find((user) => user.id === participant.userId)
@@ -125,8 +118,21 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
               <Music2 :size="15" />
             </span>
           </span>
-          <span class="quality-bars" :title="`网络质量：${participant.quality}`">
-            <i v-for="bar in 3" :key="bar" :class="{ lit: bar <= qualityBars(participant.quality) }" />
+          <span
+            v-if="voiceQualityDisplay(participant.quality).unknown"
+            class="quality-dot"
+            role="img"
+            :aria-label="voiceQualityDisplay(participant.quality).title"
+            :title="voiceQualityDisplay(participant.quality).title"
+          ></span>
+          <span
+            v-else
+            class="quality-bars"
+            role="img"
+            :aria-label="voiceQualityDisplay(participant.quality).title"
+            :title="voiceQualityDisplay(participant.quality).title"
+          >
+            <i v-for="bar in 3" :key="bar" :class="{ lit: bar <= voiceQualityDisplay(participant.quality).bars }" />
           </span>
         </button>
         <span v-if="userFor(participant)?.voiceMuted" class="guild-muted">已禁言</span>

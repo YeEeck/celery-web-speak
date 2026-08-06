@@ -17,6 +17,7 @@
 .quality-bars i { width: 3px; background: var(--faint-icon); border-radius: 1px; }
 .quality-bars i:nth-child(1) { height: 5px; }.quality-bars i:nth-child(2) { height: 9px; }.quality-bars i:nth-child(3) { height: 13px; }
 .quality-bars i.lit { background: var(--green); }
+.quality-dot { flex: 0 0 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--faint-icon); margin: 4px 5px; }
 .guild-muted { position: absolute; left: 46px; bottom: -3px; font-size: 9px; color: var(--danger-fg); }
 .voice-notice, .voice-error { margin: 5px 8px; color: var(--yellow); font-size: 11px; display: flex; align-items: center; gap: 5px; }
 .voice-error { color: var(--danger-fg); }
