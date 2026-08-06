@@ -1,5 +1,6 @@
 .voice-members { padding: 3px 0 8px 22px; }
 .voice-member { position: relative; }
+.voice-member + .voice-member { margin-top: 2px; }
 .voice-member-main { width: 100%; min-height: 38px; border: 0; border-radius: 4px; padding: 4px 6px; display: flex; gap: 8px; align-items: center; background: transparent; color: var(--muted); cursor: pointer; transition: var(--t-colors); }
 .voice-member-main:hover { background: var(--hover); color: var(--text); }
 .voice-member-main.active { background: var(--hover); color: var(--text); }

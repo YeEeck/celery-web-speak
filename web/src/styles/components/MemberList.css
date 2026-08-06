@@ -2,6 +2,7 @@
 .member-list section + section { margin-top: 22px; }
 .member-list h3 { padding: 0 8px 6px; color: var(--faint); font-size: 10px; text-transform: uppercase; }
 .member-row { min-height: 44px; border-radius: 4px; padding: 5px 8px; display: flex; align-items: center; gap: 9px; color: var(--muted); transition: var(--t-colors); cursor: pointer; }
+.member-row + .member-row { margin-top: 2px; }
 .member-row:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--brand); }
 .member-row:hover { background: var(--hover); color: var(--text); }
 .member-row.active { background: var(--hover); color: var(--text); }
