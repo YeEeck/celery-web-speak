@@ -8,6 +8,8 @@ export type PresenceStatus = AutoPresenceStatus
 export interface VoicePresenceContext {
   createSpeechDetectionEngine(): SpeechDetectionEngine
   devicePermissionState(): 'idle' | 'requesting' | 'granted' | 'denied'
+  /** 有效静音（主动麦克风静音或耳机静音连带）；静音期间说话活动不作为在场证据。 */
+  microphoneMuted(): boolean
   socketStatus(): string
   currentUserID(): number | null
   fixedAwayFromAccount(): boolean
@@ -61,6 +63,12 @@ export function useVoicePresence(ctx: VoicePresenceContext) {
   watch(() => ctx.devicePermissionState(), (state) => {
     if (state === 'granted') tracker.start()
     else tracker.stop()
+  })
+
+  // 静音门控（ADR-0023 修订）：静音期间说话帧不采信、离开计时照常进行，
+  // 状态机内部的边界清空由 setSpeechIgnored 处理。
+  watch(() => ctx.microphoneMuted(), (muted) => {
+    tracker.setSpeechIgnored(muted)
   })
 
   watch(() => ctx.currentUserID(), (userID) => {

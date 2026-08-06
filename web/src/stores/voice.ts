@@ -291,6 +291,7 @@ export const useVoiceStore = defineStore('voice', () => {
   const presence = useVoicePresence({
     createSpeechDetectionEngine: () => speechDetection,
     devicePermissionState: () => devicesRef.current?.devicePermissionState.value ?? 'idle',
+    microphoneMuted: () => muteDeafenRef.current?.muted.value ?? false,
     socketStatus: () => useAppStore().socketStatus,
     currentUserID: () => useAppStore().user?.id ?? null,
     fixedAwayFromAccount: () => useAppStore().user?.fixedAway === true,
