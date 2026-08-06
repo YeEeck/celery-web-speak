@@ -6,7 +6,7 @@ import (
 )
 
 func (s *Server) handleUploadGuildIcon(w http.ResponseWriter, r *http.Request) {
-	mime, buf, ok := readImageUpload(w, r)
+	mime, buf, ok := readImageUpload(w, r, guildIconImagePolicy)
 	if !ok {
 		return
 	}
@@ -58,7 +58,7 @@ func (s *Server) handlePlatformUploadGuildIcon(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
-	mime, buf, ok := readImageUpload(w, r)
+	mime, buf, ok := readImageUpload(w, r, guildIconImagePolicy)
 	if !ok {
 		return
 	}

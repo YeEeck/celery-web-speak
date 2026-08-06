@@ -55,8 +55,8 @@ function onIconFileChosen(event: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (file.size > 4 * 1024 * 1024) {
-    iconError.value = '图片大小不能超过 4 MB'
+  if (file.size > 8 * 1024 * 1024) {
+    iconError.value = '图片大小不能超过 8 MB'
     return
   }
   if (!allowedIconTypes.includes(file.type)) {

@@ -6,7 +6,7 @@ import (
 )
 
 func (s *Server) handleUploadMyAvatar(w http.ResponseWriter, r *http.Request) {
-	mime, buf, ok := readImageUpload(w, r)
+	mime, buf, ok := readImageUpload(w, r, avatarImagePolicy)
 	if !ok {
 		return
 	}

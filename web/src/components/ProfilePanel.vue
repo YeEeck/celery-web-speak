@@ -64,7 +64,7 @@ const avatarSaving = ref(false)
 const avatarError = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 
-const allowedAvatarTypes = ['image/png', 'image/jpeg', 'image/webp']
+const allowedAvatarTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
 
 function openAvatarPicker() {
   avatarError.value = ''
@@ -76,20 +76,24 @@ function onAvatarFileChosen(event: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (file.size > 4 * 1024 * 1024) {
-    avatarError.value = '图片大小不能超过 4 MB'
+  if (file.size > 8 * 1024 * 1024) {
+    avatarError.value = '图片大小不能超过 8 MB'
     return
   }
   if (!allowedAvatarTypes.includes(file.type)) {
-    avatarError.value = '请选择 PNG、JPEG 或 WebP 图片'
+    avatarError.value = '请选择 PNG、JPEG、WebP 或 GIF 图片'
     return
   }
   avatarFile.value = file
-  cropperOpen.value = true
+  // GIF 动图跳过裁剪器(canvas 会拍平动画),原字节直传。
+  if (file.type === 'image/gif') {
+    void saveAvatar(file)
+  } else {
+    cropperOpen.value = true
+  }
 }
 
-async function onAvatarCropped(blob: Blob) {
-  cropperOpen.value = false
+async function saveAvatar(blob: Blob) {
   avatarError.value = ''
   avatarSaving.value = true
   try {
@@ -100,6 +104,11 @@ async function onAvatarCropped(blob: Blob) {
     avatarSaving.value = false
     avatarFile.value = null
   }
+}
+
+async function onAvatarCropped(blob: Blob) {
+  cropperOpen.value = false
+  await saveAvatar(blob)
 }
 
 async function removeAvatar() {
@@ -215,7 +224,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
         <section v-if="tab === 'account'" class="settings-section motion-content-in">
           <h3><UserRound :size="18" />头像</h3>
           <div class="avatar-editor-row">
-            <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="onAvatarFileChosen" />
+            <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden @change="onAvatarFileChosen" />
             <button class="avatar-trigger" type="button" :disabled="avatarSaving" :aria-label="`更换${app.user!.displayName}的头像`" @click="openAvatarPicker">
               <UserAvatar :name="app.user!.displayName" :size="80" :user="app.user ?? undefined" />
               <span class="avatar-overlay" aria-hidden="true">更换头像</span>

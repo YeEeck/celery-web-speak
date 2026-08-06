@@ -1412,6 +1412,43 @@ test('紧凑视口下用户设置页签与内容不重叠', async ({ page, isMob
   expect(layout.contentBottom).toBeLessThanOrEqual(layout.panelBottom + 1)
 })
 
+test('GIF 头像原样上传、跳过裁剪器且以动图存储', async ({ page, request }) => {
+  const gifPath = new URL('./fixtures/gif-avatar.gif', import.meta.url).pathname
+  const loginResponse = await request.post('/api/auth/login', { data: { username, password } })
+  expect(loginResponse.ok()).toBeTruthy()
+  const bootstrap = await (await request.get('/api/bootstrap')).json() as { user: { id: number } }
+  const avatarURL = `/api/users/${bootstrap.user.id}/avatar`
+
+  await openUserSettings(page)
+  const chooserPromise = page.waitForEvent('filechooser')
+  await page.getByRole('button', { name: /更换.*的头像/ }).click()
+  const chooser = await chooserPromise
+  await chooser.setFiles(gifPath)
+
+  // GIF 旁路裁剪器:不弹裁剪对话框,上传后直接回显。
+  await expect(page.getByRole('dialog', { name: '调整头像' })).toHaveCount(0)
+  await expect(page.getByRole('status').filter({ hasText: '头像已更新' })).toBeVisible()
+  await expect(page.locator('.avatar-trigger img.profile-avatar')).toHaveAttribute('src', new RegExp(`^${avatarURL}\\?v=\\d+$`))
+  // 浏览器真实解码该 GIF(而非仅 URL 生效)。
+  await expect.poll(() => page.locator('.avatar-trigger img.profile-avatar').evaluate((img) => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0)
+
+  // 后端按 image/gif 原字节存储,可读回动图(2 帧 GCE 标记)。
+  const avatar = await request.get(avatarURL)
+  expect(avatar.headers()['content-type']).toBe('image/gif')
+  const body = await avatar.body()
+  expect(body.subarray(0, 6).toString('latin1')).toBe('GIF89a')
+  let graphicControlBlocks = 0
+  for (let i = 0; i < body.length - 1; i++) {
+    if (body[i] === 0x21 && body[i + 1] === 0xf9) graphicControlBlocks++
+  }
+  expect(graphicControlBlocks).toBe(2)
+
+  // 清理:移除头像,避免污染共享测试账号。
+  await page.getByRole('button', { name: '移除头像' }).click()
+  await expect(page.getByRole('status').filter({ hasText: '头像已移除' })).toBeVisible()
+  await expect(page.locator('.avatar-trigger img.profile-avatar')).toHaveCount(0)
+})
+
 test('操作提示音默认开启并持久化到浏览器', async ({ page, isMobile }) => {
   await openUserSettings(page)
   await page.getByRole('button', { name: '音效', exact: true }).click()

@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"image"
-	"image/color"
-	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -35,17 +32,7 @@ func buildMultipartFile(fieldName string, content []byte, contentType string) (b
 // server-side validation (≤1024×1024, 1:1).
 func validSquarePNG(t *testing.T, dim int) []byte {
 	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, dim, dim))
-	for y := 0; y < dim; y++ {
-		for x := 0; x < dim; x++ {
-			img.SetRGBA(x, y, color.RGBA{R: uint8(x * 255 / dim), G: uint8(y * 255 / dim), B: 64, A: 255})
-		}
-	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		t.Fatalf("encode png: %v", err)
-	}
-	return buf.Bytes()
+	return rectPNG(t, dim, dim)
 }
 
 func serveGuildIconUpload(server *Server, token, path string, content []byte) *httptest.ResponseRecorder {

@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { defineConfig, devices } from '@playwright/test'
+import { buildGifAvatarFixture } from './e2e/gif-fixture'
 import { framesToWav, generateFixtureFrames } from './e2e/noise-fixture'
 
 // 降噪测量 fixture：确定性生成并落盘，供 --use-file-for-fake-audio-capture 使用。
@@ -7,6 +8,10 @@ import { framesToWav, generateFixtureFrames } from './e2e/noise-fixture'
 const noiseFixturePath = new URL('./e2e/fixtures/noise-fixture.wav', import.meta.url).pathname
 mkdirSync(new URL('./e2e/fixtures/', import.meta.url).pathname, { recursive: true })
 writeFileSync(noiseFixturePath, framesToWav(generateFixtureFrames()))
+
+// GIF 头像上传 fixture：确定性生成 2 帧动画 GIF，供头像上传用例旁路裁剪器直传。
+const gifFixturePath = new URL('./e2e/fixtures/gif-avatar.gif', import.meta.url).pathname
+writeFileSync(gifFixturePath, buildGifAvatarFixture())
 
 export default defineConfig({
   testDir: './e2e',
