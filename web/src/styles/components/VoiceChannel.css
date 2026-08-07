@@ -13,6 +13,7 @@
 .voice-status-icons { display: inline-flex; flex: 0 0 auto; gap: 4px; }
 .voice-status-icon { display: inline-flex; }
 .background-audio-status { color: var(--success-fg); }
+.background-audio-status.inactive { color: var(--muted); }
 .quality-bars { width: 16px; height: 14px; display: flex; flex: 0 0 16px; gap: 2px; align-items: flex-end; }
 .quality-bars i { width: 3px; background: var(--faint-icon); border-radius: 1px; }
 .quality-bars i:nth-child(1) { height: 5px; }.quality-bars i:nth-child(2) { height: 9px; }.quality-bars i:nth-child(3) { height: 13px; }

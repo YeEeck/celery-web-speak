@@ -107,14 +107,20 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
           <span class="voice-member-name" :class="{ speaking: participant.isSpeaking }">
             {{ participant.name }}<small v-if="participant.isLocal">你</small>
           </span>
-          <span v-if="!participant.microphoneEnabled || participant.deafened || participant.backgroundAudioPlaying" class="voice-status-icons">
+          <span v-if="!participant.microphoneEnabled || participant.deafened || participant.backgroundAudioAvailable" class="voice-status-icons">
             <span v-if="!participant.microphoneEnabled" class="voice-status-icon" role="img" aria-label="麦克风已静音" title="麦克风已静音">
               <MicOff :size="15" class="muted-icon" />
             </span>
             <span v-if="participant.deafened" class="voice-status-icon" role="img" aria-label="耳机已静音" title="耳机已静音">
               <VolumeX :size="15" class="muted-icon" />
             </span>
-            <span v-if="participant.backgroundAudioPlaying" class="voice-status-icon background-audio-status" role="img" aria-label="正在共享背景音" title="正在共享背景音">
+            <span
+              v-if="participant.backgroundAudioAvailable"
+              :class="['voice-status-icon', 'background-audio-status', { inactive: !participant.backgroundAudioActive }]"
+              role="img"
+              :aria-label="participant.backgroundAudioActive ? '正在共享背景音' : '共享背景音（当前无声音）'"
+              :title="participant.backgroundAudioActive ? '正在共享背景音' : '共享背景音（当前无声音）'"
+            >
               <Music2 :size="15" />
             </span>
           </span>
