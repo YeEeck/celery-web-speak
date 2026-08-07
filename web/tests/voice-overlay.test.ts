@@ -101,7 +101,7 @@ function participant(identity: string, name: string, overrides: Partial<VoicePar
     isSpeaking: false,
     microphoneEnabled: true,
     backgroundAudioAvailable: false,
-    backgroundAudioPlaying: false,
+    backgroundAudioActive: false,
     deafened: false,
     quality: 3,
     microphoneVolume: 1,

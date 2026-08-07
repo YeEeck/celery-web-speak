@@ -97,7 +97,7 @@ export interface VoiceParticipant {
   isSpeaking: boolean
   microphoneEnabled: boolean
   backgroundAudioAvailable: boolean
-  backgroundAudioPlaying: boolean
+  backgroundAudioActive: boolean
   deafened: boolean
   quality: import('livekit-client').ConnectionQuality
   microphoneVolume: number
@@ -240,11 +240,6 @@ export function getSavedApplicationAudioVolume() {
 
 export function clampApplicationAudioVolume(value: number) {
   return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : APPLICATION_AUDIO_DEFAULT_VOLUME
-}
-
-export function isBackgroundAudioPlaying(participant: Participant) {
-  const publication = participant.getTrackPublication(Track.Source.ScreenShareAudio)
-  return Boolean(publication && !publication.isMuted)
 }
 
 export function hasBackgroundAudio(participant: Participant) {

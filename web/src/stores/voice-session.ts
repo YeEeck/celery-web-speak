@@ -10,7 +10,7 @@ import {
   type RemoteTrackPublication,
   type RoomOptions,
 } from 'livekit-client'
-import { MicrophoneActivityMonitor } from '../audio/MicrophoneActivityMonitor.ts'
+import { TrackActivityMonitor } from '../audio/TrackActivityMonitor.ts'
 import { MicrophonePublishOrchestrator } from '../audio/MicrophonePublishOrchestrator.ts'
 import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMonitor.ts'
 import type { SpeechDetectionEngine, SpeechDetectionEngineCallbacks } from '../audio/SpeechDetectionEngine.ts'
@@ -30,7 +30,6 @@ import {
   getSavedTransmissionMode,
   getSavedVolume,
   hasBackgroundAudio,
-  isBackgroundAudioPlaying,
   participantJoinedAt,
   participantRole,
   participantUserId,
@@ -56,6 +55,10 @@ interface EndedVoiceSession {
 }
 
 const MODERATOR_DISCONNECT_MATCH_WINDOW_MS = 5_000
+
+// 背景音活动指示的熄灭保持时长（ADR-0029）：音符检测到真实声音立即亮起，
+// 持续约 5 秒无声音后熄灭变灰，覆盖曲间停顿与对白换气。
+const BACKGROUND_AUDIO_ACTIVITY_HOLD_MS = 5_000
 
 export interface VoiceSessionContext {
   findChannel(channelId: number): Channel | undefined
@@ -152,10 +155,16 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     loadRnnoiseBinary: () => ctx.loadRnnoiseBinary(),
     onError: (message) => { errorMessage.value = message },
   })
-  const microphoneActivity = new MicrophoneActivityMonitor((identity, speaking) => {
+  const microphoneActivity = new TrackActivityMonitor((identity, active) => {
     const participant = participantStates.value.find((item) => item.identity === identity)
-    if (participant) participant.isSpeaking = speaking
+    if (participant) participant.isSpeaking = active
   })
+  // 背景音活动指示（ADR-0029）：对背景音轨道做同样的能量分析，但熄灭由真实
+  // 静默驱动（muted 恒 false，不把发送端静音动作直接映射为灰色），保持 5 秒。
+  const backgroundAudioActivity = new TrackActivityMonitor((identity, active) => {
+    const participant = participantStates.value.find((item) => item.identity === identity)
+    if (participant) participant.backgroundAudioActive = active
+  }, { holdMs: BACKGROUND_AUDIO_ACTIVITY_HOLD_MS })
   // 自动音量平衡：逐参与者播放端 AGC（ADR-0026）。analyser 经 SDK 实验扩展点
   // 插在手动增益之前，修正系数变化时经 applyVolume 合成（voiceBalanceGain）。
   const voiceBalance = new VoiceBalanceController({
@@ -495,6 +504,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
           participantStates.value = []
           ctx.connectionReset()
           microphoneActivity.destroy()
+          backgroundAudioActivity.destroy()
           voiceBalance.destroy()
           void destroyVoiceAudioContext()
           syncApplicationSoundPlayback()
@@ -548,6 +558,15 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
         muted: publication.isMuted,
       }] : []
     }))
+    backgroundAudioActivity.sync([room.localParticipant, ...room.remoteParticipants.values()].flatMap((participant) => {
+      const publication = participant.getTrackPublication(Track.Source.ScreenShareAudio)
+      const track = publication?.audioTrack
+      return track ? [{
+        identity: participant.identity,
+        mediaTrack: track.mediaStreamTrack,
+        muted: false,
+      }] : []
+    }))
     voiceBalance.sync([...room.remoteParticipants.values()].flatMap((participant) => {
       const publication = participant.getTrackPublication(Track.Source.Microphone)
       const track = publication?.audioTrack
@@ -565,10 +584,10 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
       userId,
       name: participant.name || participant.identity,
       isLocal,
-      isSpeaking: microphoneActivity.isSpeaking(participant.identity),
+      isSpeaking: microphoneActivity.isActive(participant.identity),
       microphoneEnabled: participant.isMicrophoneEnabled,
       backgroundAudioAvailable: hasBackgroundAudio(participant),
-      backgroundAudioPlaying: isBackgroundAudioPlaying(participant),
+      backgroundAudioActive: backgroundAudioActivity.isActive(participant.identity),
       deafened: isLocal ? ctx.deafened() : participant.attributes[DEAFENED_ATTRIBUTE] === 'true',
       quality: participant.connectionQuality,
       microphoneVolume: getSavedVolume(userId),
