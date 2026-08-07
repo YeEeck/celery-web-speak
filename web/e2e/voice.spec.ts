@@ -389,7 +389,8 @@ test('远端麦克风与暂停的背景音可独立调节并持久化', async ({
     await expect.poll(() => listenerPage.evaluate((userId) => localStorage.getItem(`cws.volume.${userId}`), senderId)).toBe('2.5')
 
     await setRemoteBackgroundAudioAvailable(listenerPage, senderId, true)
-    await expect(remoteMember.getByTitle('正在共享背景音', { exact: true })).toHaveCount(0)
+    // e2e 无真实音频：音符出现但处于「无声音」灰色态（ADR-0029）。
+    await expect(remoteMember.getByTitle('共享背景音（当前无声音）', { exact: true })).toHaveCount(1)
     const backgroundAudioVolume = participantPanel.getByLabel('背景音音量')
     await expect(backgroundAudioVolume).toHaveValue('1')
     await expect(backgroundAudioVolume).toHaveAttribute('max', '3')
