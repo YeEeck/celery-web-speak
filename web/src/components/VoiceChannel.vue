@@ -40,6 +40,10 @@ function statusFor(participant: VoiceParticipant | { userId: number }): Presence
   return app.presenceStatuses[user.id]
 }
 
+function backgroundAudioStatusLabel(participant: VoiceParticipant) {
+  return participant.backgroundAudioActive ? '正在共享背景音' : '共享背景音（当前无声音）'
+}
+
 function openContextMenu(event: MouseEvent) {
   emit('channelMenu', props.channel, event.currentTarget as HTMLElement, event.clientX, event.clientY)
 }
@@ -118,8 +122,8 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
               v-if="participant.backgroundAudioAvailable"
               :class="['voice-status-icon', 'background-audio-status', { inactive: !participant.backgroundAudioActive }]"
               role="img"
-              :aria-label="participant.backgroundAudioActive ? '正在共享背景音' : '共享背景音（当前无声音）'"
-              :title="participant.backgroundAudioActive ? '正在共享背景音' : '共享背景音（当前无声音）'"
+              :aria-label="backgroundAudioStatusLabel(participant)"
+              :title="backgroundAudioStatusLabel(participant)"
             >
               <Music2 :size="15" />
             </span>

@@ -155,16 +155,14 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     loadRnnoiseBinary: () => ctx.loadRnnoiseBinary(),
     onError: (message) => { errorMessage.value = message },
   })
-  const microphoneActivity = new TrackActivityMonitor((identity, active) => {
+  const bindParticipantActivity = (field: 'isSpeaking' | 'backgroundAudioActive') => (identity: string, active: boolean) => {
     const participant = participantStates.value.find((item) => item.identity === identity)
-    if (participant) participant.isSpeaking = active
-  })
+    if (participant) participant[field] = active
+  }
+  const microphoneActivity = new TrackActivityMonitor(bindParticipantActivity('isSpeaking'))
   // 背景音活动指示（ADR-0029）：对背景音轨道做同样的能量分析，但熄灭由真实
   // 静默驱动（muted 恒 false，不把发送端静音动作直接映射为灰色），保持 5 秒。
-  const backgroundAudioActivity = new TrackActivityMonitor((identity, active) => {
-    const participant = participantStates.value.find((item) => item.identity === identity)
-    if (participant) participant.backgroundAudioActive = active
-  }, { holdMs: BACKGROUND_AUDIO_ACTIVITY_HOLD_MS })
+  const backgroundAudioActivity = new TrackActivityMonitor(bindParticipantActivity('backgroundAudioActive'), BACKGROUND_AUDIO_ACTIVITY_HOLD_MS)
   // 自动音量平衡：逐参与者播放端 AGC（ADR-0026）。analyser 经 SDK 实验扩展点
   // 插在手动增益之前，修正系数变化时经 applyVolume 合成（voiceBalanceGain）。
   const voiceBalance = new VoiceBalanceController({
@@ -368,6 +366,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     ctx.connectionReset()
     transmissionModeError.value = ''
     microphoneActivity.destroy()
+    backgroundAudioActivity.destroy()
     voiceBalance.destroy()
     if (wasJoined && options.intent === 'active') ctx.signal('voice-self-left')
     syncApplicationSoundPlayback()

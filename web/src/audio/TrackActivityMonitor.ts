@@ -2,12 +2,6 @@ const DEFAULT_ACTIVITY_THRESHOLD = 0.015
 const DEFAULT_ACTIVE_HOLD_MS = 250
 const DEFAULT_POLL_INTERVAL_MS = 100
 
-export interface TrackActivityOptions {
-  threshold?: number
-  holdMs?: number
-  pollIntervalMs?: number
-}
-
 interface MonitoredTrack {
   mediaTrack: MediaStreamTrack
   source: MediaStreamAudioSourceNode
@@ -19,9 +13,7 @@ interface MonitoredTrack {
 }
 
 export class TrackActivityMonitor {
-  private readonly threshold: number
   private readonly holdMs: number
-  private readonly pollIntervalMs: number
   private context: AudioContext | null = null
   private silence: GainNode | null = null
   private tracks = new Map<string, MonitoredTrack>()
@@ -29,11 +21,9 @@ export class TrackActivityMonitor {
 
   private onChange: (identity: string, active: boolean) => void
 
-  constructor(onChange: (identity: string, active: boolean) => void, options: TrackActivityOptions = {}) {
+  constructor(onChange: (identity: string, active: boolean) => void, holdMs = DEFAULT_ACTIVE_HOLD_MS) {
     this.onChange = onChange
-    this.threshold = options.threshold ?? DEFAULT_ACTIVITY_THRESHOLD
-    this.holdMs = options.holdMs ?? DEFAULT_ACTIVE_HOLD_MS
-    this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS
+    this.holdMs = holdMs
   }
 
   sync(sources: Array<{ identity: string; mediaTrack: MediaStreamTrack; muted: boolean }>) {
@@ -52,7 +42,7 @@ export class TrackActivityMonitor {
       this.add(source.identity, source.mediaTrack, source.muted)
     }
     if (this.tracks.size && this.timer === null) {
-      this.timer = window.setInterval(() => this.poll(), this.pollIntervalMs)
+      this.timer = window.setInterval(() => this.poll(), DEFAULT_POLL_INTERVAL_MS)
     } else if (!this.tracks.size && this.timer !== null) {
       window.clearInterval(this.timer)
       this.timer = null
@@ -89,7 +79,9 @@ export class TrackActivityMonitor {
         samples: new Float32Array(analyser.fftSize),
         muted,
         active: false,
-        lastActiveAt: 0,
+        // 无活动哨兵：保持时长只在首次检测到声音后生效，避免长保持下
+        // 新加入的静默轨道在头几秒被误判为有声音。
+        lastActiveAt: Number.NEGATIVE_INFINITY,
       })
     } catch {
       this.onChange(identity, false)
@@ -125,7 +117,7 @@ export class TrackActivityMonitor {
         track.analyser.getFloatTimeDomainData(track.samples)
         let energy = 0
         for (const sample of track.samples) energy += sample * sample
-        active = Math.sqrt(energy / track.samples.length) >= this.threshold
+        active = Math.sqrt(energy / track.samples.length) >= DEFAULT_ACTIVITY_THRESHOLD
       }
       if (active) track.lastActiveAt = now
       this.updateActive(identity, track, active || now - track.lastActiveAt < this.holdMs)
