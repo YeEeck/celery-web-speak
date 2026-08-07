@@ -1822,8 +1822,10 @@ test('消息历史分页使用虚拟列表并保持阅读位置', async ({ page 
   let newestID = 0
   let channelID = 0
   let currentUser = { id: 0, username: '', displayName: '', role: 'member' }
-  const messageBaseTime = new Date()
-  messageBaseTime.setHours(12, 0, 0, 0)
+  // mock 消息时间固定在久远的过去(而非"今天中午")——消息列表按 createdAt
+  // 排序,真实发送的消息时间=运行时刻,凌晨运行时早于"今天中午"会被排到
+  // 列表顶部,滚动到底部断言失败;固定过去时间保证真实消息永远排最末。
+  const messageBaseTime = new Date('2026-01-01T00:00:00')
   const makeMessage = (id: number, content: string) => ({
     id,
     channelId: channelID,
