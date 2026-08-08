@@ -4,7 +4,7 @@ import { ChevronRight, MicOff, Music2, Signal, Volume2, VolumeX } from '@lucide/
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
-import { voiceQualityDisplay } from '../stores/voice-utils'
+import { backgroundAudioStatusLabel, microphoneStatusLabel, voiceQualityDisplay } from '../stores/voice-utils'
 import type { Channel, PresenceStatus } from '../types'
 
 const props = defineProps<{ channel: Channel; actionMenuUserId?: number | null }>()
@@ -38,10 +38,6 @@ function statusFor(participant: VoiceParticipant | { userId: number }): Presence
   if (!user) return undefined
   if (user.id === app.user?.id) return voice.ownPresenceStatus
   return app.presenceStatuses[user.id]
-}
-
-function backgroundAudioStatusLabel(participant: VoiceParticipant) {
-  return participant.backgroundAudioActive ? '正在共享背景音' : '共享背景音（当前无声音）'
 }
 
 function openContextMenu(event: MouseEvent) {
@@ -111,16 +107,22 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
           <span class="voice-member-name" :class="{ speaking: participant.isSpeaking }">
             {{ participant.name }}<small v-if="participant.isLocal">你</small>
           </span>
-          <span v-if="!participant.microphoneEnabled || participant.deafened || participant.backgroundAudioAvailable" class="voice-status-icons">
-            <span v-if="!participant.microphoneEnabled" class="voice-status-icon" role="img" aria-label="麦克风已静音" title="麦克风已静音">
-              <MicOff :size="15" class="muted-icon" />
+          <span v-if="microphoneStatusLabel(participant) || participant.deafened || participant.backgroundAudioAvailable" class="voice-status-icons">
+            <span
+              v-if="microphoneStatusLabel(participant)"
+              :class="['voice-status-icon', { 'local-muted': microphoneStatusLabel(participant)!.localMuted }]"
+              role="img"
+              :aria-label="microphoneStatusLabel(participant)!.title"
+              :title="microphoneStatusLabel(participant)!.title"
+            >
+              <MicOff :size="15" :class="{ 'muted-icon': !microphoneStatusLabel(participant)!.localMuted }" />
             </span>
             <span v-if="participant.deafened" class="voice-status-icon" role="img" aria-label="耳机已静音" title="耳机已静音">
               <VolumeX :size="15" class="muted-icon" />
             </span>
             <span
               v-if="participant.backgroundAudioAvailable"
-              :class="['voice-status-icon', 'background-audio-status', { inactive: !participant.backgroundAudioActive }]"
+              :class="['voice-status-icon', 'background-audio-status', { inactive: !participant.backgroundAudioActive, 'local-muted': participant.backgroundAudioMuted }]"
               role="img"
               :aria-label="backgroundAudioStatusLabel(participant)"
               :title="backgroundAudioStatusLabel(participant)"

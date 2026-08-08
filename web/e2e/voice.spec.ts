@@ -94,6 +94,11 @@ test('两个独立账号可建立并接收语音轨道', async ({ browser, reque
     await remoteMicrophoneVolume.fill('3')
     await expect(participantPanel.getByText('300%', { exact: true })).toBeVisible()
     await expect.poll(() => contexts[0].page.evaluate((userId) => localStorage.getItem(`cws.volume.${userId}`), secondAccountId)).toBe('3')
+    // 本地静音 → 参与者行黄色图标；恢复后消失（ADR-0030）。
+    await participantPanel.getByTitle('关闭麦克风声音', { exact: true }).click()
+    await expect(remoteMember.getByTitle('你已关闭此人的麦克风声音', { exact: true })).toBeVisible()
+    await participantPanel.getByTitle('恢复麦克风声音', { exact: true }).click()
+    await expect(remoteMember.getByTitle('你已关闭此人的麦克风声音', { exact: true })).toHaveCount(0)
 
     const beforeRemoteLeave = await toneCount(contexts[0].page)
     const beforeOwnLeave = await toneCount(contexts[1].page)
@@ -390,6 +395,12 @@ test('远端麦克风与暂停的背景音可独立调节并持久化', async ({
 
     await setRemoteBackgroundAudioAvailable(listenerPage, senderId, true)
     // e2e 无真实音频：音符出现但处于「无声音」灰色态（ADR-0029）。
+    await expect(remoteMember.getByTitle('共享背景音（当前无声音）', { exact: true })).toHaveCount(1)
+    // 本地静音背景音 → 音符变黄；恢复后回到灰色无声音态（ADR-0030）。
+    await participantPanel.getByTitle('关闭背景音', { exact: true }).click()
+    await expect(remoteMember.getByTitle('你已关闭此人的背景音', { exact: true })).toBeVisible()
+    await participantPanel.getByTitle('恢复背景音', { exact: true }).click()
+    await expect(remoteMember.getByTitle('你已关闭此人的背景音', { exact: true })).toHaveCount(0)
     await expect(remoteMember.getByTitle('共享背景音（当前无声音）', { exact: true })).toHaveCount(1)
     const backgroundAudioVolume = participantPanel.getByLabel('背景音音量')
     await expect(backgroundAudioVolume).toHaveValue('1')
