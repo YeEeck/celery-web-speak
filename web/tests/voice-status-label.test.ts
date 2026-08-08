@@ -31,24 +31,15 @@ function participant(overrides: Partial<VoiceParticipant>): VoiceParticipant {
 
 // ADR-0030：本地静音以黄色图标替代对方自身状态色，每轨道最多一个状态图标。
 test('microphoneStatusLabel 本地静音返回黄色文案（你已关闭此人的麦克风声音）', () => {
-  assert.deepEqual(microphoneStatusLabel(participant({ microphoneMuted: true })), {
-    title: '你已关闭此人的麦克风声音',
-    localMuted: true,
-  })
+  assert.equal(microphoneStatusLabel(participant({ microphoneMuted: true })), '你已关闭此人的麦克风声音')
 })
 
 test('microphoneStatusLabel 对方自静音返回灰色文案（麦克风已静音）', () => {
-  assert.deepEqual(microphoneStatusLabel(participant({ microphoneEnabled: false })), {
-    title: '麦克风已静音',
-    localMuted: false,
-  })
+  assert.equal(microphoneStatusLabel(participant({ microphoneEnabled: false })), '麦克风已静音')
 })
 
 test('microphoneStatusLabel 本地静音与对方自静音并存时本地静音优先', () => {
-  assert.deepEqual(microphoneStatusLabel(participant({ microphoneEnabled: false, microphoneMuted: true })), {
-    title: '你已关闭此人的麦克风声音',
-    localMuted: true,
-  })
+  assert.equal(microphoneStatusLabel(participant({ microphoneEnabled: false, microphoneMuted: true })), '你已关闭此人的麦克风声音')
 })
 
 test('microphoneStatusLabel 两者皆非返回 null（不显示图标）', () => {

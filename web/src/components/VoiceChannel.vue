@@ -110,12 +110,12 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
           <span v-if="microphoneStatusLabel(participant) || participant.deafened || participant.backgroundAudioAvailable" class="voice-status-icons">
             <span
               v-if="microphoneStatusLabel(participant)"
-              :class="['voice-status-icon', { 'local-muted': microphoneStatusLabel(participant)!.localMuted }]"
+              :class="['voice-status-icon', { 'local-muted': participant.microphoneMuted }]"
               role="img"
-              :aria-label="microphoneStatusLabel(participant)!.title"
-              :title="microphoneStatusLabel(participant)!.title"
+              :aria-label="microphoneStatusLabel(participant)!"
+              :title="microphoneStatusLabel(participant)!"
             >
-              <MicOff :size="15" :class="{ 'muted-icon': !microphoneStatusLabel(participant)!.localMuted }" />
+              <MicOff :size="15" :class="{ 'muted-icon': !participant.microphoneMuted }" />
             </span>
             <span v-if="participant.deafened" class="voice-status-icon" role="img" aria-label="耳机已静音" title="耳机已静音">
               <VolumeX :size="15" class="muted-icon" />

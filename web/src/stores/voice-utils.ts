@@ -133,16 +133,11 @@ export function voiceQualityDisplay(quality: ConnectionQuality): VoiceQualityDis
   }
 }
 
-// 参与者行麦克风状态图标的显示映射（ADR-0030）：本地静音为黄色并替代
+// 参与者行麦克风状态图标的显示文案（ADR-0030）：本地静音为黄色并替代
 // 对方自身状态色，每轨道最多一个图标；两者皆非时不显示。
-export interface VoiceMicrophoneStatusLabel {
-  title: string
-  localMuted: boolean
-}
-
-export function microphoneStatusLabel(participant: VoiceParticipant): VoiceMicrophoneStatusLabel | null {
-  if (participant.microphoneMuted) return { title: '你已关闭此人的麦克风声音', localMuted: true }
-  if (!participant.microphoneEnabled) return { title: '麦克风已静音', localMuted: false }
+export function microphoneStatusLabel(participant: VoiceParticipant): string | null {
+  if (participant.microphoneMuted) return '你已关闭此人的麦克风声音'
+  if (!participant.microphoneEnabled) return '麦克风已静音'
   return null
 }
 
