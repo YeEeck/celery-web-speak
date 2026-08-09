@@ -161,3 +161,18 @@ test('ensureRunning stays inert after destroy', async () => {
   await controller.ensureRunning()
   assert.equal(resumeCalls, 1, 'destroy 后 ensureRunning 惰性')
 })
+
+test('ensureRunning propagates startAudio rejection while suspended (ADR-0031 error contract)', async () => {
+  const context = new FakeAudioContext()
+  const boom = new Error('startAudio boom')
+  const controller = new VoiceAudioContextController(asAudioContext(context), {
+    shouldResume: () => true,
+    startAudio: async () => { throw boom },
+  })
+
+  context.setState('suspended')
+  await flushPromises()
+  await assert.rejects(controller.ensureRunning(), boom,
+    'suspended 下 startAudio 失败必须上抛——调用方（userToggledMute 等）依赖拒绝来回滚偏好并提示用户')
+  await controller.destroy()
+})
