@@ -644,8 +644,8 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
 
   // 门控式 startAudio（ADR-0031）：自定义音频上下文存在时按上下文状态决定
   // 是否调用 SDK room.startAudio——running 跳过（避免远端轨道路由重建导致
-  // 本地静音短暂可闻），未运行才调用恢复播放；控制器缺失（SDK 自建上下文）
-  // 时回退原行为。
+  // 按参与者播放控制的静音短暂失效），未运行才调用恢复播放；控制器缺失
+  // （SDK 自建上下文）时回退原行为。错误不吞：与无控制器分支一致上抛。
   async function startAudioIfNeeded() {
     const controller = voiceAudioContextController
     if (controller) {
