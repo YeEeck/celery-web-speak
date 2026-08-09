@@ -32,6 +32,17 @@ export class VoiceAudioContextController {
     this.resumePromise = attempt
   }
 
+  // 门控式 startAudio（ADR-0031）：上下文 running 时直接跳过，避免 SDK
+  // room.startAudio 的 acquireAudioContext 对全部远端轨道重建 WebAudio 路由
+  // （connectWebAudio 以 falsy 检查重放音量，0 被跳过 → 本地静音短暂可闻）。
+  // 仅上下文未运行（suspended 等）时才调用 startAudio 恢复播放——此时无
+  // 声音可言，重路由无感知。与 resumeIfNeeded 的区别：无 shouldResume 门控。
+  ensureRunning() {
+    if (this.destroyed || this.context.state === 'running') return Promise.resolve()
+    return this.options.startAudio()
+      .catch((error) => this.options.onError?.(error))
+  }
+
   async destroy() {
     if (this.destroyed) return
     this.destroyed = true

@@ -111,3 +111,53 @@ test('destroy removes recovery listeners and closes the owned context', async ()
   context.setState('suspended')
   assert.equal(resumeCalls, 1)
 })
+
+test('ensureRunning skips startAudio while the context is running (ADR-0031)', async () => {
+  const context = new FakeAudioContext()
+  let resumeCalls = 0
+  const controller = new VoiceAudioContextController(asAudioContext(context), {
+    shouldResume: () => true,
+    startAudio: async () => { resumeCalls += 1 },
+  })
+
+  await controller.ensureRunning()
+  assert.equal(resumeCalls, 0, 'running 时跳过 SDK startAudio（不重建远端路由）')
+  await controller.ensureRunning()
+  assert.equal(resumeCalls, 0)
+  await controller.destroy()
+})
+
+test('ensureRunning calls startAudio while the context is suspended', async () => {
+  const context = new FakeAudioContext()
+  let resumeCalls = 0
+  const controller = new VoiceAudioContextController(asAudioContext(context), {
+    shouldResume: () => true,
+    startAudio: async () => {
+      resumeCalls += 1
+      context.setState('running')
+    },
+  })
+
+  context.setState('suspended')
+  await controller.ensureRunning()
+  assert.equal(resumeCalls, 1, 'suspended 时恢复播放（重路由无感知）')
+  await controller.ensureRunning()
+  assert.equal(resumeCalls, 1, '恢复 running 后再次跳过')
+  await controller.destroy()
+})
+
+test('ensureRunning stays inert after destroy', async () => {
+  const context = new FakeAudioContext()
+  let resumeCalls = 0
+  const controller = new VoiceAudioContextController(asAudioContext(context), {
+    shouldResume: () => true,
+    startAudio: async () => { resumeCalls += 1 },
+  })
+
+  context.setState('suspended')
+  await flushPromises()
+  assert.equal(resumeCalls, 1, 'suspended 触发一次自动恢复尝试')
+  await controller.destroy()
+  await controller.ensureRunning()
+  assert.equal(resumeCalls, 1, 'destroy 后 ensureRunning 惰性')
+})

@@ -199,7 +199,7 @@ export const useVoiceStore = defineStore('voice', () => {
     applicationAudioIsPlaying: () => { const state = appAudioRef.current?.applicationAudioState.value; return state === 'playing' },
     applicationAudioIsAutoPaused: () => { const state = appAudioRef.current?.applicationAudioState.value; return (appAudioRef.current?.isAutoPaused() ?? false) && state === 'paused' },
     applyMicrophoneState: session.applyMicrophoneState,
-    startAudio: () => session.room()?.startAudio() ?? Promise.resolve(),
+    startAudio: session.startAudioIfNeeded,
     resumeAudioContext: session.resumeVoiceAudioContext,
     syncParticipants: session.syncParticipants,
     applyAllVolumes: () => participantVolumeRef.current?.applyAllVolumes(),

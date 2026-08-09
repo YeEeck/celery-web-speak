@@ -654,3 +654,32 @@ test('pagehide stays silent when not joined', async () => {
   h.pageHideCallbacks[0]()
   assert.equal(h.beacons.length, 0)
 })
+
+test('startAudioIfNeeded skips SDK startAudio while the custom context is running (ADR-0031)', async () => {
+  const h = makeHarness()
+  await h.session.join(7)
+  assert.equal(h.audioContexts.length, 1)
+  assert.equal(h.audioContexts[0].state, 'running')
+  await h.session.startAudioIfNeeded()
+  await h.session.startAudioIfNeeded()
+  assert.equal(h.room.startAudioCalls, 0, 'running 时跳过（不重建远端音频路由）')
+})
+
+test('startAudioIfNeeded calls SDK startAudio while the custom context is suspended', async () => {
+  const h = makeHarness()
+  await h.session.join(7)
+  h.audioContexts[0].setState('suspended')
+  await flushPromises()
+  const before = h.room.startAudioCalls
+  await h.session.startAudioIfNeeded()
+  assert.ok(h.room.startAudioCalls > before, 'suspended 时恢复播放（重路由无感知）')
+})
+
+test('startAudioIfNeeded falls back to SDK startAudio without a custom context', async () => {
+  const h = makeHarness()
+  h.ctx.createAudioContext = () => null
+  await h.session.join(7)
+  assert.equal(h.audioContexts.length, 0)
+  await h.session.startAudioIfNeeded()
+  assert.equal(h.room.startAudioCalls, 1, '无控制器时回退原行为')
+})
