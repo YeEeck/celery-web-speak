@@ -292,6 +292,9 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
       const nextRoom = markRaw(ctx.createRoom({
         adaptiveStream: true,
         dynacast: true,
+        // 安卓壳(Android shell)后台保活:页面在 WebView 里被隐藏/重载时不应触发
+        // pagehide 断连,会话由壳的前台服务保活,断连交给 LiveKit 自身的重连逻辑。
+        disconnectOnPageLeave: false,
         webAudioMix: audioContext ? { audioContext } : true,
         audioCaptureDefaults: microphoneOrchestrator.buildCaptureOptions(),
         publishDefaults: {
