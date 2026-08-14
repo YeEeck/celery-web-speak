@@ -17,6 +17,8 @@ import { useVoicePresence } from './voice-presence.ts'
 import { useVoiceSession } from './voice-session.ts'
 import { useVoiceCall } from './voice-call.ts'
 import { useVoiceOverlay } from './voice-overlay.ts'
+import { callTerminalMessage, callTerminalSide } from './call-message.ts'
+import { useToastStore } from './toast.ts'
 import {
   DEAFENED_PREFERENCE_KEY,
   ECHO_CANCELLATION_KEY,
@@ -65,6 +67,7 @@ export const useVoiceStore = defineStore('voice', () => {
   const participantVolumeRef: { current: ReturnType<typeof useParticipantVolume> | null } = { current: null }
 
   const sounds = useApplicationSoundStore()
+  const toast = useToastStore()
 
   // 共享说话检测引擎：静音说话提醒与在线状态检测共用一条采集流与一个 VAD
   // worker（ADR-0024）。引擎生命周期由应用级驱动（登录 + 麦克风授权），
@@ -313,7 +316,14 @@ export const useVoiceStore = defineStore('voice', () => {
   // 通话提示音接线（ticket 05 / spec 09）：呼出中循环回铃、来电循环振铃；进入
   // active（接听/接通）停止循环并播放接通音；离开 active 或任何回到 idle 的终态
   // 停止循环并播放结束音（busy/unreachable 等即时终态虽也回到 idle，会先经
-  // outgoing → idle 触发结束音；终态文案属 tick 06，不在本区间做）。
+  // outgoing → idle 触发结束音）。
+  //
+  // 终态文案接线（ticket 06 / spec 04 转移表）：任何回到 idle 的终态读一次
+  // endedReason，按侧别映射文案并提示一次。侧别由前一状态判定（outgoing=主叫、
+  // ringing=被叫）；active→idle 的掉线 reason=disconnected 文案不分侧别。
+  // 自己主动取消（canceled，主叫）与主动挂断（ended）无提示——callTerminalMessage
+  // 返回 null 即静默跳过。endedReason 在下一通发起时清空，且 Vue watch 仅在值
+  // 实际变化时触发，一次终态转移恰好触发一次，无重复提示。
   watch(() => call.status.value, (status, previous) => {
     void muteDeafen.setCallChannelDeafen(status === 'outgoing' || status === 'active')
     if (status === 'outgoing') {
@@ -326,6 +336,12 @@ export const useVoiceStore = defineStore('voice', () => {
     } else {
       sounds.stopLoop()
       if (previous === 'active') sounds.signal('call-ended')
+      const reason = call.endedReason.value
+      if (reason) {
+        const side = callTerminalSide(previous) ?? 'caller'
+        const terminal = callTerminalMessage(reason, side)
+        if (terminal) toast.show(terminal.message, terminal.type)
+      }
     }
   })
 
