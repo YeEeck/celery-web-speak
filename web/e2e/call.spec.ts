@@ -39,8 +39,20 @@ test('两个独立账号可互拨、接听、通话并挂断', async ({ browser,
     const calleePage = contexts[1].page
     const calleeName = accounts[1].displayName
 
+    // 移动端：登录后频道抽屉已打开且成员名单在抽屉内，先关抽屉再开成员列表
+    // （与 online-status.spec 的移动端成员名单交互保持一致）。
+    if (testInfo.project.name.startsWith('android')) {
+      await callerPage.getByTitle('关闭', { exact: true }).click()
+      await callerPage.getByTitle('显示成员列表').click()
+    }
+
     // 主叫从成员名单打开被叫的个人信息卡片，点击「语音通话」发起。
-    await callerPage.locator('.member-row', { hasText: calleeName }).click()
+    // 移动端成员名单在抽屉实例（.member-list.drawer）里，inline 实例被 CSS 隐藏
+    // 但仍在 DOM 中，需按实例分派避免 strict mode 双命中。
+    const memberRow = testInfo.project.name.startsWith('android')
+      ? callerPage.locator('.member-list.drawer .member-row', { hasText: calleeName })
+      : callerPage.locator('.member-row', { hasText: calleeName })
+    await memberRow.click()
     const profileCard = callerPage.getByRole('dialog', { name: `${calleeName}的个人信息卡片` })
     await expect(profileCard).toBeVisible()
     await expect(profileCard.getByRole('button', { name: '语音通话' })).toBeVisible()
