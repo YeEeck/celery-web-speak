@@ -25,8 +25,11 @@ export type ApplicationSoundOccurrence =
   | 'call-connected'
   | 'call-ended'
 
+// deafened 是全局耳机静音偏好（会静音通话提示音与通话音频）；
+// channelDeafened 是通话期间只施加在频道上的叠加态，只静频道类声音，不静通话提示音。
 export interface ApplicationSoundPlaybackContext {
   deafened: boolean
+  channelDeafened: boolean
   outputDeviceId: string
 }
 
@@ -192,8 +195,14 @@ const OPERATION_SOUNDS: readonly { event: OperationSoundEvent; label: string }[]
   { event: 'call-end', label: '结束' },
 ]
 
+// 通话提示音只受全局耳机静音约束；频道作用域耳机静音（通话叠加）只静频道，
+// 不静通话提示音（ADR-0032 / spec 09）。
+function isCallOperationEvent(event: OperationSoundEvent) {
+  return event === 'call-ringing' || event === 'call-ringback' || event === 'call-connect' || event === 'call-end'
+}
+
 export function createApplicationSounds(dependencies: ApplicationSoundDependencies): ApplicationSoundsRuntime {
-  const playback = reactive<ApplicationSoundPlaybackContext>({ deafened: false, outputDeviceId: '' })
+  const playback = reactive<ApplicationSoundPlaybackContext>({ deafened: false, channelDeafened: false, outputDeviceId: '' })
   const master = createMasterControl(dependencies)
   const slots = new Map<OperationSoundEvent, InternalSlot>()
 
@@ -202,7 +211,9 @@ export function createApplicationSounds(dependencies: ApplicationSoundDependenci
     const slot = createSlot(definition.event, definition.label, dependencies, () => ({
       enabled: master.enabled,
       volume: master.volume,
-      deafened: playback.deafened,
+      deafened: isCallOperationEvent(definition.event)
+        ? playback.deafened
+        : playback.deafened || playback.channelDeafened,
     }))
     slots.set(definition.event, slot)
   }
@@ -213,7 +224,7 @@ export function createApplicationSounds(dependencies: ApplicationSoundDependenci
     customAccept: CUSTOM_SOUND_ACCEPT,
   })
   const mutedSpeakingReminderAudible = computed(() => (
-    master.enabled && master.volume > 0 && !playback.deafened
+    master.enabled && master.volume > 0 && !playback.deafened && !playback.channelDeafened
   ))
 
   // 循环播放状态（spec 09）：同时最多一个循环，用 generation 保证 stop / 重新
@@ -261,19 +272,21 @@ export function createApplicationSounds(dependencies: ApplicationSoundDependenci
 
     const target = operationForOccurrence(occurrence)
     const slot = slots.get(target.event)!
-    if (!master.enabled || master.volume === 0 || playback.deafened || !slot.enabled) return
+    const policy = slot.playbackPolicy()
+    if (!policy.enabled || policy.volume === 0 || policy.deafened || !slot.enabled) return
 
     const now = dependencies.monotonicNow()
     if (!target.bypassRateLimit && now - slot.lastPlayedAt < MIN_INTERVAL_MS) return
     slot.lastPlayedAt = now
 
-    void playSelected(slot, master.volume, dependencies.audio).catch((error) => {
+    void playSelected(slot, policy.volume, dependencies.audio).catch((error) => {
       dependencies.diagnose(`${slot.control.label}提示音播放失败`, error)
     })
   }
 
   function followPlayback(context: ApplicationSoundPlaybackContext) {
     playback.deafened = context.deafened
+    playback.channelDeafened = context.channelDeafened
     playback.outputDeviceId = context.outputDeviceId
     dependencies.audio.followOutput(context.outputDeviceId)
   }

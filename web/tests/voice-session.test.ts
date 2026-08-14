@@ -263,6 +263,7 @@ interface HarnessState {
   guildMuted: Ref<boolean>
   microphoneEnabledPreference: Ref<boolean>
   deafenedPreference: Ref<boolean>
+  channelDeafened: Ref<boolean>
   muteChanging: Ref<boolean>
   deafenChanging: Ref<boolean>
   inputDeviceId: string
@@ -293,7 +294,7 @@ interface Harness {
   monitor: FakeSpeechDetectionEngine
   signals: string[]
   beacons: string[]
-  followPlaybackCalls: Array<{ deafened: boolean; outputDeviceId: string }>
+  followPlaybackCalls: Array<{ deafened: boolean; channelDeafened: boolean; outputDeviceId: string }>
   pageHideCallbacks: Array<() => void>
   appendedElements: Array<{ userId: string }>
   removeAllCalls: number
@@ -316,6 +317,7 @@ function makeHarness(): Harness {
     guildMuted: ref(false),
     microphoneEnabledPreference: ref(true),
     deafenedPreference: ref(false),
+    channelDeafened: ref(false),
     muteChanging: ref(false),
     deafenChanging: ref(false),
     inputDeviceId: 'default',
@@ -376,6 +378,7 @@ function makeHarness(): Harness {
     guildMuted: () => state.guildMuted.value,
     microphoneEnabledPreference: () => state.microphoneEnabledPreference.value,
     deafenedPreference: () => state.deafenedPreference.value,
+    channelDeafened: () => state.channelDeafened.value,
     muteChanging: () => state.muteChanging.value,
     deafenChanging: () => state.deafenChanging.value,
     refreshGuildMuted: () => { state.guildMuted.value = state.user?.voiceMuted ?? false },

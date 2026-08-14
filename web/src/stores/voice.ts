@@ -101,6 +101,7 @@ export const useVoiceStore = defineStore('voice', () => {
     guildMuted: () => muteDeafenRef.current?.guildMuted.value ?? false,
     microphoneEnabledPreference: () => muteDeafenRef.current?.microphoneEnabledPreference.value ?? false,
     deafenedPreference: () => muteDeafenRef.current?.deafenedPreference.value ?? false,
+    channelDeafened: () => muteDeafenRef.current?.channelDeafened.value ?? false,
     muteChanging: () => muteDeafenRef.current?.muteChanging.value ?? false,
     deafenChanging: () => muteDeafenRef.current?.deafenChanging.value ?? false,
     refreshGuildMuted: () => {

@@ -235,7 +235,7 @@ test('applies operation gates and independent accepted-event rate limits', async
   await Promise.resolve()
   assert.deepEqual(harness.audio.plays.slice(-3), ['preset:rise-duo', 'preset:fall-duo', 'preset:fall-duo'])
 
-  harness.sounds.followPlayback({ deafened: true, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: 'headphones' })
   harness.advance(301)
   harness.sounds.signal('text-message-received')
   await Promise.resolve()
@@ -256,7 +256,7 @@ test('preview ignores the slot switch but obeys master playback policy', async (
   assert.equal(harness.audio.plays.length, 1)
 
   await harness.sounds.settings.master.setEnabled(true)
-  harness.sounds.followPlayback({ deafened: true, outputDeviceId: '' })
+  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: '' })
   assert.equal((await join.preview()).ok, true)
   assert.equal(harness.audio.plays.length, 1)
 })
@@ -271,7 +271,7 @@ test('projects muted-speaking audibility and keeps reminder outside operation li
   await Promise.resolve()
   assert.deepEqual(harness.audio.plays, ['muted-speaking-reminder', 'muted-speaking-reminder'])
 
-  harness.sounds.followPlayback({ deafened: true, outputDeviceId: 'device-1' })
+  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: 'device-1' })
   assert.equal(harness.sounds.mutedSpeakingReminderAudible.value, false)
   assert.deepEqual(harness.audio.outputs, ['device-1'])
 
@@ -391,15 +391,43 @@ test('loop stays silent while deafened and resumes after unmute', async (t) => {
   await Promise.resolve()
   assert.deepEqual(harness.audio.plays, ['preset:rise-duo'])
 
-  harness.sounds.followPlayback({ deafened: true, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: 'headphones' })
   t.mock.timers.tick(1_000)
   await Promise.resolve()
   assert.equal(harness.audio.plays.length, 1)
 
-  harness.sounds.followPlayback({ deafened: false, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback({ deafened: false, channelDeafened: false, outputDeviceId: 'headphones' })
   t.mock.timers.tick(1_000)
   await Promise.resolve()
   assert.equal(harness.audio.plays.length, 2)
+
+  harness.sounds.stopLoop()
+  t.mock.timers.reset()
+})
+
+test('channel deafen silences channel sounds but not call loops', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const harness = createHarness()
+  await harness.sounds.whenReady()
+
+  harness.sounds.followPlayback({ deafened: false, channelDeafened: true, outputDeviceId: 'headphones' })
+  harness.sounds.loop('call-incoming')
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 1, '频道作用域耳机静音不应静音来电振铃')
+
+  harness.sounds.signal('voice-participant-joined')
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 1, '频道作用域耳机静音应静音频道类提示音')
+
+  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: 'headphones' })
+  t.mock.timers.tick(1_000)
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 1, '全局耳机静音应静音来电振铃')
+
+  harness.sounds.followPlayback({ deafened: false, channelDeafened: false, outputDeviceId: 'headphones' })
+  t.mock.timers.tick(1_000)
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 2, '解除全局耳机静音后循环应恢复')
 
   harness.sounds.stopLoop()
   t.mock.timers.reset()

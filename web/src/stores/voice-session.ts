@@ -72,6 +72,7 @@ export interface VoiceSessionContext {
   guildMuted(): boolean
   microphoneEnabledPreference(): boolean
   deafenedPreference(): boolean
+  channelDeafened(): boolean
   muteChanging(): boolean
   deafenChanging(): boolean
   refreshGuildMuted(): void
@@ -103,7 +104,7 @@ export interface VoiceSessionContext {
   updateVoiceBalanceMarker(userId: number, gainDb: number | null): void
 
   signal(occurrence: ApplicationSoundOccurrence): void
-  followPlayback(options: { deafened: boolean; outputDeviceId: string }): void
+  followPlayback(options: { deafened: boolean; channelDeafened: boolean; outputDeviceId: string }): void
   mutedSpeakingReminderAudible(): boolean
 
   microphoneGainInitial(): number
@@ -456,7 +457,9 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
 
   function syncApplicationSoundPlayback() {
     ctx.followPlayback({
-      deafened: ctx.deafened(),
+      // 全局耳机静音偏好单独传递：通话提示音只受它约束，不受频道作用域叠加约束。
+      deafened: ctx.deafenedPreference(),
+      channelDeafened: ctx.channelDeafened(),
       outputDeviceId: room !== null && status.value !== 'connecting'
         ? (ctx.activeOutputDeviceId() ?? '')
         : ctx.resolvedPreferredOutputDeviceId(),
