@@ -114,18 +114,18 @@ func TestReplaceSnapshotDetectsChangesAndRejectsStaleRefresh(t *testing.T) {
 	rooms := map[int64]map[int64]VoiceParticipant{7: {12: participant}}
 	targets := map[int64]voiceTarget{12: {GuildID: 3, ChannelID: 7, RoomName: GuildRoomName(3, 7), ExpiresAt: time.Now().Add(time.Minute)}}
 
-	revision, _ := service.snapshotState()
-	changed, applied := service.replaceSnapshot(revision, rooms, targets)
+	revision, _, _, _ := service.snapshotState()
+	changed, applied := service.replaceSnapshot(revision, rooms, targets, map[int64]callTarget{}, map[int64]*call{})
 	if !changed || !applied {
 		t.Fatalf("initial replace = changed %t, applied %t", changed, applied)
 	}
-	revision, _ = service.snapshotState()
-	changed, applied = service.replaceSnapshot(revision, rooms, targets)
+	revision, _, _, _ = service.snapshotState()
+	changed, applied = service.replaceSnapshot(revision, rooms, targets, map[int64]callTarget{}, map[int64]*call{})
 	if changed || !applied {
 		t.Fatalf("identical replace = changed %t, applied %t", changed, applied)
 	}
 
-	staleRevision, _ := service.snapshotState()
+	staleRevision, _, _, _ := service.snapshotState()
 	service.ApplyWebhook(context.Background(), &livekit.WebhookEvent{
 		Event: webhook.EventParticipantLeft,
 		Room:  &livekit.Room{Name: GuildRoomName(3, 7)},
@@ -133,7 +133,7 @@ func TestReplaceSnapshotDetectsChangesAndRejectsStaleRefresh(t *testing.T) {
 			Identity: Identity(12), Attributes: map[string]string{"user_id": "12"},
 		},
 	})
-	changed, applied = service.replaceSnapshot(staleRevision, rooms, targets)
+	changed, applied = service.replaceSnapshot(staleRevision, rooms, targets, map[int64]callTarget{}, map[int64]*call{})
 	if changed || applied {
 		t.Fatalf("stale replace = changed %t, applied %t", changed, applied)
 	}

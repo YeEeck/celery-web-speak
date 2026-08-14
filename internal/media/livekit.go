@@ -51,8 +51,11 @@ type Service struct {
 	mu             sync.RWMutex
 	rooms          map[int64]map[int64]VoiceParticipant
 	targets        map[int64]voiceTarget
+	callTargets    map[int64]callTarget
+	calls          map[int64]*call
 	revision       uint64
 	generation     uint64
+	callGeneration int64
 	now            func() time.Time
 	voiceTime      VoiceTimeAccumulator
 	voiceTimeMu    sync.Mutex
@@ -89,6 +92,8 @@ func New(url, publicURL, apiKey, apiSecret string) *Service {
 		keyProvider: auth.NewSimpleKeyProvider(apiKey, apiSecret),
 		rooms:       make(map[int64]map[int64]VoiceParticipant),
 		targets:     make(map[int64]voiceTarget),
+		callTargets: make(map[int64]callTarget),
+		calls:       make(map[int64]*call),
 		now:         time.Now,
 	}
 }
@@ -359,7 +364,7 @@ func (s *Service) DeleteGuildRoom(ctx context.Context, guildID, channelID int64)
 }
 
 func (s *Service) Refresh(ctx context.Context) (bool, error) {
-	revision, issuedTargets := s.snapshotState()
+	revision, issuedTargets, issuedCallTargets, issuedCalls := s.snapshotState()
 	now := s.now()
 	response, err := s.room.ListRooms(ctx, &livekit.ListRoomsRequest{})
 	if err != nil {
@@ -372,8 +377,51 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 			targets[userID] = target
 		}
 	}
+	// Call coordination is preserved across a refresh: a call room may not
+	// exist in LiveKit yet (nobody has joined), so its participants are only
+	// reconciled from live rooms below. Expiry is handled by room_finished and
+	// RemoveCallParticipant rather than here.
+	callTargets := make(map[int64]callTarget)
+	for userID, target := range issuedCallTargets {
+		if target.valid(now) {
+			callTargets[userID] = target
+		}
+	}
+	calls := make(map[int64]*call, len(issuedCalls))
+	for callID, c := range issuedCalls {
+		clone := cloneCall(c)
+		clone.Participants = make(map[int64]VoiceParticipant)
+		calls[callID] = clone
+	}
 	removals := make([]livekit.RoomParticipantIdentity, 0)
 	for _, roomInfo := range response.Rooms {
+		if callID, isCall := ParseCallRoomName(roomInfo.Name); isCall {
+			participants, listErr := s.room.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomInfo.Name})
+			if listErr != nil {
+				return false, listErr
+			}
+			for _, info := range participants.Participants {
+				participant, ok := voiceParticipant(info)
+				if !ok {
+					continue
+				}
+				if participant.Generation == 0 {
+					removals = append(removals, livekit.RoomParticipantIdentity{Room: roomInfo.Name, Identity: participant.Identity})
+					continue
+				}
+				if target, exists := issuedCallTargets[participant.UserID]; exists && target.valid(now) && !target.accepts(roomInfo.Name, callID, participant.Generation) {
+					removals = append(removals, livekit.RoomParticipantIdentity{Room: roomInfo.Name, Identity: participant.Identity})
+					continue
+				}
+				if c, ok := calls[callID]; ok {
+					if c.Participants == nil {
+						c.Participants = make(map[int64]VoiceParticipant)
+					}
+					c.Participants[participant.UserID] = participant
+				}
+			}
+			continue
+		}
 		guildID, channelID, ok := ParseGuildRoomName(roomInfo.Name)
 		if !ok {
 			if _, legacy := parseLegacyRoomName(roomInfo.Name); legacy {
@@ -427,7 +475,7 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 			}
 		}
 	}
-	changed, applied := s.replaceSnapshot(revision, rooms, targets)
+	changed, applied := s.replaceSnapshot(revision, rooms, targets, callTargets, calls)
 	if !applied {
 		return false, nil
 	}
@@ -444,6 +492,9 @@ func (s *Service) ReceiveWebhook(r *http.Request) (*livekit.WebhookEvent, error)
 func (s *Service) ApplyWebhook(ctx context.Context, event *livekit.WebhookEvent) bool {
 	roomInfo := event.GetRoom()
 	roomName := roomInfo.GetName()
+	if callID, isCall := ParseCallRoomName(roomName); isCall {
+		return s.applyCallWebhook(ctx, event, callID, roomName)
+	}
 	guildID, channelID, ok := ParseGuildRoomName(roomName)
 	if !ok {
 		if _, legacy := parseLegacyRoomName(roomName); legacy && event.GetEvent() == webhook.EventParticipantJoined {
@@ -582,27 +633,42 @@ func voiceParticipant(info *livekit.ParticipantInfo) (VoiceParticipant, bool) {
 	return VoiceParticipant{UserID: userID, Identity: info.Identity, Name: info.Name, JoinedAt: joinedAt, Generation: generation}, true
 }
 
-func (s *Service) snapshotState() (uint64, map[int64]voiceTarget) {
+func (s *Service) snapshotState() (uint64, map[int64]voiceTarget, map[int64]callTarget, map[int64]*call) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	targets := make(map[int64]voiceTarget, len(s.targets))
 	for userID, target := range s.targets {
 		targets[userID] = target
 	}
-	return s.revision, targets
+	callTargets := make(map[int64]callTarget, len(s.callTargets))
+	for userID, target := range s.callTargets {
+		callTargets[userID] = target
+	}
+	calls := make(map[int64]*call, len(s.calls))
+	for callID, c := range s.calls {
+		calls[callID] = cloneCall(c)
+	}
+	return s.revision, targets, callTargets, calls
 }
 
-func (s *Service) replaceSnapshot(revision uint64, rooms map[int64]map[int64]VoiceParticipant, targets map[int64]voiceTarget) (bool, bool) {
+func (s *Service) replaceSnapshot(revision uint64, rooms map[int64]map[int64]VoiceParticipant, targets map[int64]voiceTarget, callTargets map[int64]callTarget, calls map[int64]*call) (bool, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.revision != revision {
 		return false, false
 	}
 	changed := !voiceRoomMapsEqual(s.rooms, rooms)
-	if changed || !targetMapsEqual(s.targets, targets) {
+	if changed || !targetMapsEqual(s.targets, targets) || !callTargetMapsEqual(s.callTargets, callTargets) || !callMapsEqual(s.calls, calls) {
 		s.rooms = rooms
 		s.targets = targets
+		s.callTargets = callTargets
+		s.calls = calls
 		for _, target := range targets {
+			if target.Generation > s.generation {
+				s.generation = target.Generation
+			}
+		}
+		for _, target := range callTargets {
 			if target.Generation > s.generation {
 				s.generation = target.Generation
 			}
