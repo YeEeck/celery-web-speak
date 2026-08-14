@@ -19,6 +19,9 @@ var (
 	ErrCallWrongParty = errors.New("user is not a party to this call")
 	ErrCallNotRinging = errors.New("call is not ringing")
 	ErrCallNotActive  = errors.New("call is not active")
+	// ErrCallBusy reports an initiation refused because the initiator is
+	// already a party to a ringing or active call (spec 04: 忙碌 = 已有任一通话).
+	ErrCallBusy = errors.New("caller is already in a call")
 )
 
 // CallState is the lifecycle phase of a 1:1 call, per spec 04. The terminal
@@ -122,26 +125,6 @@ func ParseCallRoomName(name string) (int64, bool) {
 	return callID, strings.HasPrefix(name, "call-") && err == nil && callID > 0
 }
 
-// NewCall allocates the next monotonic callID and creates the call room
-// coordination state, returning the callID. It performs no signalling and
-// issues no tokens; the call starts in the ringing phase.
-func (s *Service) NewCall(callerID, calleeID int64) int64 {
-	now := s.now()
-	s.mu.Lock()
-	callID := s.nextCallIDLocked(now)
-	s.calls[callID] = &call{
-		CallID:       callID,
-		CallerID:     callerID,
-		CalleeID:     calleeID,
-		State:        CallRinging,
-		ExpiresAt:    now.Add(voiceTokenTTL),
-		Participants: make(map[int64]VoiceParticipant),
-	}
-	s.revision++
-	s.mu.Unlock()
-	return callID
-}
-
 // StartCallResult describes the outcome of initiating a call: the allocated
 // callID and its resulting phase. A terminated initiation (busy/unreachable)
 // carries the terminal reason.
@@ -158,9 +141,19 @@ type StartCallResult struct {
 // registered CallSignaler. reachable is decided by the caller (httpapi) from
 // shared-guild membership and online presence; busy is decided here from the
 // in-memory call coordination.
-func (s *Service) StartCall(caller, callee store.User, reachable bool) StartCallResult {
+//
+// The initiation is refused with ErrCallBusy when the initiator is already a
+// party to a ringing or active call with someone other than the intended
+// callee (spec 04: 忙碌 = 已有任一通话). The mutual-dial case (the initiator's
+// existing call involves the callee) is excluded: it is judged on the callee
+// side by the busy branch below, per "双方互拨：后到判忙".
+func (s *Service) StartCall(caller, callee store.User, reachable bool) (StartCallResult, error) {
 	now := s.now()
 	s.mu.Lock()
+	if s.callerBusyElsewhereLocked(caller.ID, callee.ID) {
+		s.mu.Unlock()
+		return StartCallResult{}, ErrCallBusy
+	}
 	callID := s.nextCallIDLocked(now)
 	state := CallRinging
 	var reason CallEndReason
@@ -199,7 +192,7 @@ func (s *Service) StartCall(caller, callee store.User, reachable bool) StartCall
 		s.schedule(callRingTimeout, func() { s.timeoutCall(callID) })
 		s.emit(callee.ID, callID, CallRinging, "")
 	}
-	return StartCallResult{CallID: callID, State: state, Reason: reason}
+	return StartCallResult{CallID: callID, State: state, Reason: reason}, nil
 }
 
 // AcceptCall advances a ringing call whose callee is userID to active.
@@ -378,6 +371,25 @@ func (s *Service) evictTerminalCallLocked(callID int64) bool {
 func (s *Service) busyLocked(userID int64) bool {
 	for _, c := range s.calls {
 		if (c.CallerID == userID || c.CalleeID == userID) && c.State != CallEnded {
+			return true
+		}
+	}
+	return false
+}
+
+// callerBusyElsewhereLocked reports whether the user is already a party to a
+// ringing or active call with someone other than peerID. A call with peerID
+// itself is excluded so mutual dial (A calls B while B calls A) keeps being
+// judged on the callee side as busy (spec 04: 双方互拨：后到判忙).
+func (s *Service) callerBusyElsewhereLocked(userID, peerID int64) bool {
+	for _, c := range s.calls {
+		if c.State == CallEnded {
+			continue
+		}
+		if c.CallerID == userID && c.CalleeID != peerID {
+			return true
+		}
+		if c.CalleeID == userID && c.CallerID != peerID {
 			return true
 		}
 	}

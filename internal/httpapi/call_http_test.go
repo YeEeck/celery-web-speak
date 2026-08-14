@@ -220,6 +220,41 @@ func TestCallBusyWhenCalleeAlreadyRinging(t *testing.T) {
 	_ = busy
 }
 
+func TestCallCreateRefusedWhenCallerAlreadyInCall(t *testing.T) {
+	db, admin, server := newGuildHTTPTestServer(t)
+	callee := newCallPeer(t, db, "call_caller_busy_callee", "被叫")
+	other := newCallPeer(t, db, "call_caller_busy_other", "另一位")
+	addToDefaultGuild(t, db, admin.ID, callee.Username)
+	addToDefaultGuild(t, db, admin.ID, other.Username)
+	calleeClient := registerCallClient(t, server, callee.ID)
+	registerCallClient(t, server, other.ID)
+
+	token := callSessionToken(t, db, admin.ID)
+
+	// First initiation rings.
+	recorder := serveGuildHTTPRequest(server, token, http.MethodPost, "/api/calls", callBody(callee.ID))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("first create = %d %s", recorder.Code, recorder.Body.String())
+	}
+	readCallEvent(t, calleeClient, "call_invite")
+
+	// Same caller initiates toward a second party while the first call is
+	// ringing: refused with 409 (spec 04 忙碌 = 已有任一通话).
+	recorder = serveGuildHTTPRequest(server, token, http.MethodPost, "/api/calls", callBody(other.ID))
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("caller-busy create = %d %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Error != "call_in_progress" {
+		t.Fatalf("caller-busy error code = %q, want call_in_progress", payload.Error)
+	}
+}
+
 func TestCallUnreachableWhenCalleeOffline(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	callee := newCallPeer(t, db, "call_offline_callee", "被叫")

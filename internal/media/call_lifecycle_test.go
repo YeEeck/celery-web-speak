@@ -32,12 +32,22 @@ func newLifecycleService() *Service {
 	return service
 }
 
+// mustStart runs StartCall and fails the test on an unexpected refusal.
+func mustStart(t *testing.T, service *Service, caller, callee store.User, reachable bool) StartCallResult {
+	t.Helper()
+	result, err := service.StartCall(caller, callee, reachable)
+	if err != nil {
+		t.Fatalf("start call: %v", err)
+	}
+	return result
+}
+
 func TestStartCallRingingEmitsInviteToCallee(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
 
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	if result.State != CallRinging || result.Reason != "" {
 		t.Fatalf("start result = %+v, want ringing", result)
 	}
@@ -68,7 +78,7 @@ func TestStartCallUnreachableEndsImmediately(t *testing.T) {
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
 
-	result := service.StartCall(caller(), callee(), false)
+	result := mustStart(t, service, caller(), callee(), false)
 	if result.State != CallEnded || result.Reason != CallEndUnreachable {
 		t.Fatalf("start result = %+v, want ended(unreachable)", result)
 	}
@@ -90,11 +100,11 @@ func TestStartCallBusyWhenCalleeAlreadyRinging(t *testing.T) {
 	service.SetCallSignaler(signaler)
 
 	// First call leaves 200 as callee (ringing) -> busy.
-	service.StartCall(caller(), callee(), true)
+	mustStart(t, service, caller(), callee(), true)
 	signaler.signals = nil
 
 	third := store.User{ID: 300, Username: "third", DisplayName: "第三者"}
-	result := service.StartCall(third, callee(), true)
+	result := mustStart(t, service, third, callee(), true)
 	if result.State != CallEnded || result.Reason != CallEndBusy {
 		t.Fatalf("start result = %+v, want ended(busy)", result)
 	}
@@ -113,11 +123,11 @@ func TestMutualDialLaterArrivalIsBusy(t *testing.T) {
 	service.SetCallSignaler(signaler)
 
 	// A calls B (ringing).
-	service.StartCall(caller(), callee(), true)
+	mustStart(t, service, caller(), callee(), true)
 	signaler.signals = nil
 
 	// B dials back A; A is already in a ringing call -> busy to B.
-	result := service.StartCall(callee(), caller(), true)
+	result := mustStart(t, service, callee(), caller(), true)
 	if result.State != CallEnded || result.Reason != CallEndBusy {
 		t.Fatalf("mutual dial result = %+v, want ended(busy)", result)
 	}
@@ -130,9 +140,49 @@ func TestMutualDialLaterArrivalIsBusy(t *testing.T) {
 	}
 }
 
+func TestStartCallRefusedWhenCallerBusyElsewhere(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+
+	// A calls B (ringing): A is now a party to a call with B.
+	mustStart(t, service, caller(), callee(), true)
+	signaler.signals = nil
+
+	// A dials a third party C while still in the call with B: refused (spec 04
+	// 忙碌 = 已有任一通话). No call is created and nothing is signalled.
+	third := store.User{ID: 300, Username: "third", DisplayName: "第三者"}
+	if _, err := service.StartCall(caller(), third, true); !errors.Is(err, ErrCallBusy) {
+		t.Fatalf("caller-busy start error = %v, want ErrCallBusy", err)
+	}
+	if len(service.calls) != 1 {
+		t.Fatalf("calls tracked = %d, want 1 (refused initiation must not create a call)", len(service.calls))
+	}
+	if len(signaler.signals) != 0 {
+		t.Fatalf("signals = %+v, want none (refused initiation must not signal)", signaler.signals)
+	}
+}
+
+func TestStartCallAllowsMutualDialToCallee(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+
+	// A calls B (ringing). B then dials A: the caller-busy guard must not fire
+	// for a call toward the very party the existing call involves (spec 04
+	// 双方互拨：后到判忙——由被叫侧 busy 分支判定).
+	mustStart(t, service, caller(), callee(), true)
+	signaler.signals = nil
+
+	result := mustStart(t, service, callee(), caller(), true)
+	if result.State != CallEnded || result.Reason != CallEndBusy {
+		t.Fatalf("mutual dial result = %+v, want ended(busy)", result)
+	}
+}
+
 func TestJoinCallCredentialsRequiresActive(t *testing.T) {
 	service := newLifecycleService()
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 
 	// Ringing: credential issuance must be refused.
 	if _, err := service.JoinCallCredentials(context.Background(), caller(), result.CallID, 200); !errors.Is(err, ErrCallNotActive) {
@@ -157,7 +207,7 @@ func TestAcceptAdvancesToActiveAndSignalsCaller(t *testing.T) {
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
 
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	signaler.signals = nil
 
 	if err := service.AcceptCall(result.CallID, 200); err != nil {
@@ -183,7 +233,7 @@ func TestRejectEndsRejectedAndSignalsCaller(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	signaler.signals = nil
 
 	if err := service.RejectCall(result.CallID, 200); err != nil {
@@ -205,7 +255,7 @@ func TestCancelEndsCanceledAndSignalsCallee(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	signaler.signals = nil
 
 	if err := service.CancelCall(result.CallID, 100); err != nil {
@@ -227,7 +277,7 @@ func TestHangUpEndsAndSignalsOtherParty(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	if err := service.AcceptCall(result.CallID, 200); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -259,7 +309,7 @@ func TestHangUpByCalleeSignalsCaller(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	if err := service.AcceptCall(result.CallID, 200); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -286,7 +336,7 @@ func TestRingTimeoutEndsAndSignalsBoth(t *testing.T) {
 		scheduled <- fn
 	}
 
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	signaler.signals = nil
 
 	// Fire the scheduled timeout callback.
@@ -322,7 +372,7 @@ func TestTimeoutAfterAcceptIsNoOp(t *testing.T) {
 	scheduled := make(chan func(), 1)
 	service.schedule = func(_ time.Duration, fn func()) { scheduled <- fn }
 
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	if err := service.AcceptCall(result.CallID, 200); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -354,7 +404,7 @@ func TestTerminalCallEvictedWhenNoParticipants(t *testing.T) {
 		service := newLifecycleService()
 		signaler := &recordingSignaler{}
 		service.SetCallSignaler(signaler)
-		result := service.StartCall(caller(), callee(), true)
+		result := mustStart(t, service, caller(), callee(), true)
 		signaler.signals = nil
 		if err := service.RejectCall(result.CallID, 200); err != nil {
 			t.Fatalf("reject: %v", err)
@@ -374,7 +424,7 @@ func TestTerminalCallEvictedWhenNoParticipants(t *testing.T) {
 		service := newLifecycleService()
 		signaler := &recordingSignaler{}
 		service.SetCallSignaler(signaler)
-		result := service.StartCall(caller(), callee(), true)
+		result := mustStart(t, service, caller(), callee(), true)
 		signaler.signals = nil
 		if err := service.CancelCall(result.CallID, 100); err != nil {
 			t.Fatalf("cancel: %v", err)
@@ -395,7 +445,7 @@ func TestTerminalCallEvictedWhenNoParticipants(t *testing.T) {
 		service.SetCallSignaler(signaler)
 		scheduled := make(chan func(), 1)
 		service.schedule = func(_ time.Duration, fn func()) { scheduled <- fn }
-		result := service.StartCall(caller(), callee(), true)
+		result := mustStart(t, service, caller(), callee(), true)
 		signaler.signals = nil
 		var fn func()
 		select {
@@ -415,7 +465,7 @@ func TestTerminalCallEvictedWhenNoParticipants(t *testing.T) {
 		service := newLifecycleService()
 		signaler := &recordingSignaler{}
 		service.SetCallSignaler(signaler)
-		result := service.StartCall(caller(), callee(), false)
+		result := mustStart(t, service, caller(), callee(), false)
 		if _, exists := service.calls[result.CallID]; exists {
 			t.Fatalf("unreachable call remained in calls")
 		}
@@ -431,10 +481,10 @@ func TestTerminalCallEvictedWhenNoParticipants(t *testing.T) {
 		signaler := &recordingSignaler{}
 		service.SetCallSignaler(signaler)
 		// Occupy the callee with a ringing call so the second start is busy.
-		service.StartCall(caller(), callee(), true)
+		mustStart(t, service, caller(), callee(), true)
 		signaler.signals = nil
 		third := store.User{ID: 300, Username: "third", DisplayName: "第三者"}
-		result := service.StartCall(third, callee(), true)
+		result := mustStart(t, service, third, callee(), true)
 		if _, exists := service.calls[result.CallID]; exists {
 			t.Fatalf("busy call remained in calls")
 		}
@@ -451,7 +501,7 @@ func TestHangUpRetainsCallUntilParticipantsLeave(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	if err := service.AcceptCall(result.CallID, 200); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -480,7 +530,7 @@ func TestDisconnectedRetainedUntilOtherLeaves(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	if err := service.AcceptCall(result.CallID, 200); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -508,7 +558,7 @@ func TestTransitionErrors(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 
 	if err := service.AcceptCall(result.CallID, 100); !errors.Is(err, ErrCallWrongParty) {
 		t.Fatalf("accept by caller error = %v, want ErrCallWrongParty", err)
@@ -533,7 +583,7 @@ func TestActiveParticipantLeftEndsDisconnected(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
-	result := service.StartCall(caller(), callee(), true)
+	result := mustStart(t, service, caller(), callee(), true)
 	if err := service.AcceptCall(result.CallID, 200); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
@@ -566,18 +616,18 @@ func TestRefreshEvictsEndedExpiredCallsOnly(t *testing.T) {
 	service.room = &listingRoomService{}
 
 	// ended + expired -> evicted by Refresh.
-	expiredEnded := service.NewCall(100, 200)
+	expiredEnded := newRingingCall(t, service, 100, 200)
 	service.calls[expiredEnded].State = CallEnded
 	service.calls[expiredEnded].EndReason = CallEndRejected
 	service.calls[expiredEnded].ExpiresAt = now.Add(-time.Minute)
 
 	// active + expired -> retained (calls may outlive the creation TTL).
-	expiredActive := service.NewCall(300, 400)
+	expiredActive := newRingingCall(t, service, 300, 400)
 	service.calls[expiredActive].State = CallActive
 	service.calls[expiredActive].ExpiresAt = now.Add(-time.Minute)
 
 	// ringing (not expired) -> retained.
-	ringing := service.NewCall(500, 600)
+	ringing := newRingingCall(t, service, 500, 600)
 
 	if _, err := service.Refresh(context.Background()); err != nil {
 		t.Fatalf("refresh: %v", err)

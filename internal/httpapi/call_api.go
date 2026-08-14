@@ -41,7 +41,12 @@ func (s *Server) handleCallCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reachable := shared && s.hub.IsOnline(callee.ID)
-	writeJSON(w, http.StatusOK, s.media.StartCall(caller, callee, reachable))
+	result, err := s.media.StartCall(caller, callee, reachable)
+	if err != nil {
+		s.writeCallError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleCallAction(action func(callID, userID int64) error) http.HandlerFunc {
@@ -111,6 +116,8 @@ func (s *Server) writeCallError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "call_not_ringing", "通话已不在振铃状态")
 	case errors.Is(err, media.ErrCallNotActive):
 		writeError(w, http.StatusConflict, "call_not_active", "通话已不在通话中状态")
+	case errors.Is(err, media.ErrCallBusy):
+		writeError(w, http.StatusConflict, "call_in_progress", "已有通话在进行中")
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 	}

@@ -31,26 +31,38 @@ func TestParseCallRoomNameRejectsNonCall(t *testing.T) {
 	}
 }
 
-func TestNewCallAllocatesMonotonicCallIDs(t *testing.T) {
+func TestStartCallAllocatesMonotonicCallIDs(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
 	service.now = func() time.Time { return time.Date(2026, time.July, 21, 3, 0, 0, 0, time.UTC) }
 
-	first := service.NewCall(100, 200)
-	second := service.NewCall(100, 300)
-	if first <= 0 || second <= first {
-		t.Fatalf("call ids = %d, %d; want positive and increasing", first, second)
+	// Two independent initiations (different callers, since one caller can only
+	// hold one call) still allocate increasing call IDs.
+	first := mustStart(t, service, store.User{ID: 100, Username: "a", DisplayName: "甲"}, store.User{ID: 200, Username: "b", DisplayName: "乙"}, true)
+	second := mustStart(t, service, store.User{ID: 300, Username: "c", DisplayName: "丙"}, store.User{ID: 400, Username: "d", DisplayName: "丁"}, true)
+	if first.CallID <= 0 || second.CallID <= first.CallID {
+		t.Fatalf("call ids = %d, %d; want positive and increasing", first.CallID, second.CallID)
 	}
 	if len(service.calls) != 2 {
 		t.Fatalf("calls tracked = %d, want 2", len(service.calls))
 	}
-	if c := service.calls[first]; c == nil || c.CallerID != 100 || c.CalleeID != 200 || len(c.Participants) != 0 {
-		t.Fatalf("call %d = %+v", first, c)
+	if c := service.calls[first.CallID]; c == nil || c.CallerID != 100 || c.CalleeID != 200 || len(c.Participants) != 0 {
+		t.Fatalf("call %d = %+v", first.CallID, c)
 	}
+}
+
+// newRingingCall starts a call via the production StartCall path and returns
+// the callID, for tests that need an existing ringing call without caring
+// about the signalling side.
+func newRingingCall(t *testing.T, service *Service, callerID, calleeID int64) int64 {
+	t.Helper()
+	caller := store.User{ID: callerID, Username: "caller", DisplayName: "主叫"}
+	callee := store.User{ID: calleeID, Username: "callee", DisplayName: "被叫"}
+	return mustStart(t, service, caller, callee, true).CallID
 }
 
 func TestCallTokenAllowsFullPublishSubscribe(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
-	callID := service.NewCall(100, 200)
+	callID := newRingingCall(t, service, 100, 200)
 	// Credentials are only issued once the call is active (spec 05).
 	if err := service.AcceptCall(callID, 200); err != nil {
 		t.Fatalf("accept: %v", err)
@@ -91,7 +103,7 @@ func TestCallTokenAllowsFullPublishSubscribe(t *testing.T) {
 
 func TestCallWebhookParticipantJoinedAndLeft(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
-	callID := service.NewCall(100, 200)
+	callID := newRingingCall(t, service, 100, 200)
 	generation := uint64(time.Now().UnixNano())
 	joined := callParticipantEvent(webhook.EventParticipantJoined, callID, 100, generation)
 	if !service.ApplyWebhook(context.Background(), joined) {
@@ -114,7 +126,7 @@ func TestCallWebhookParticipantJoinedAndLeft(t *testing.T) {
 
 func TestCallWebhookRoomFinishedRemovesCall(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
-	callID := service.NewCall(100, 200)
+	callID := newRingingCall(t, service, 100, 200)
 	if !service.ApplyWebhook(context.Background(), &livekit.WebhookEvent{
 		Event: webhook.EventRoomFinished,
 		Room:  &livekit.Room{Name: CallRoomName(callID)},
@@ -128,7 +140,7 @@ func TestCallWebhookRoomFinishedRemovesCall(t *testing.T) {
 
 func TestChannelWebhookDoesNotTouchCall(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
-	callID := service.NewCall(100, 200)
+	callID := newRingingCall(t, service, 100, 200)
 	generation := uint64(time.Now().UnixNano())
 	if !service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantJoined, callID, 100, generation)) {
 		t.Fatal("call join did not change snapshot")
@@ -149,7 +161,7 @@ func TestRemoveCallParticipantIsolatesFromChannel(t *testing.T) {
 	generation := uint64(time.Now().UnixNano())
 	service.targets[100] = voiceTarget{GuildID: 3, ChannelID: 7, RoomName: GuildRoomName(3, 7), Generation: generation, ExpiresAt: time.Now().Add(time.Minute)}
 	service.rooms[7] = map[int64]VoiceParticipant{100: {UserID: 100, Generation: generation}}
-	callID := service.NewCall(100, 200)
+	callID := newRingingCall(t, service, 100, 200)
 	service.callTargets[100] = callTarget{CallID: callID, PeerID: 200, RoomName: CallRoomName(callID), Generation: generation, ExpiresAt: time.Now().Add(time.Minute)}
 	service.calls[callID].Participants[100] = VoiceParticipant{UserID: 100, Generation: generation}
 
@@ -179,7 +191,7 @@ func TestRemoveParticipantLeavesCallConnectionIntact(t *testing.T) {
 	generation := uint64(time.Now().UnixNano())
 	service.targets[100] = voiceTarget{GuildID: 3, ChannelID: 7, RoomName: GuildRoomName(3, 7), Generation: generation, ExpiresAt: time.Now().Add(time.Minute)}
 	service.rooms[7] = map[int64]VoiceParticipant{100: {UserID: 100, Generation: generation}}
-	callID := service.NewCall(100, 200)
+	callID := newRingingCall(t, service, 100, 200)
 	service.callTargets[100] = callTarget{CallID: callID, PeerID: 200, RoomName: CallRoomName(callID), Generation: generation, ExpiresAt: time.Now().Add(time.Minute)}
 	service.calls[callID].Participants[100] = VoiceParticipant{UserID: 100, Generation: generation}
 
@@ -203,7 +215,7 @@ func TestRemoveParticipantLeavesCallConnectionIntact(t *testing.T) {
 func TestDeleteRoomsExceptDoesNotTouchCallRooms(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
 	service.room = &recordingRoomService{}
-	callID := service.NewCall(100, 200)
+	callID := newRingingCall(t, service, 100, 200)
 	generation := uint64(time.Now().UnixNano())
 	service.callTargets[100] = callTarget{CallID: callID, PeerID: 200, RoomName: CallRoomName(callID), Generation: generation, ExpiresAt: time.Now().Add(time.Minute)}
 	service.calls[callID].Participants[100] = VoiceParticipant{UserID: 100, Generation: generation}
@@ -223,7 +235,7 @@ func TestDeleteRoomsExceptDoesNotTouchCallRooms(t *testing.T) {
 func TestDeleteGuildRoomDoesNotTouchCallRooms(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
 	service.room = &recordingRoomService{}
-	callID := service.NewCall(100, 200)
+	callID := newRingingCall(t, service, 100, 200)
 	generation := uint64(time.Now().UnixNano())
 	service.callTargets[100] = callTarget{CallID: callID, PeerID: 200, RoomName: CallRoomName(callID), Generation: generation, ExpiresAt: time.Now().Add(time.Minute)}
 	service.calls[callID].Participants[100] = VoiceParticipant{UserID: 100, Generation: generation}
@@ -239,7 +251,7 @@ func TestDeleteGuildRoomDoesNotTouchCallRooms(t *testing.T) {
 
 func TestRefreshReconcilesCallRoomSeparately(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
-	callID := service.NewCall(100, 200)
+	callID := newRingingCall(t, service, 100, 200)
 	generation := uint64(time.Now().UnixNano())
 	service.callTargets[100] = callTarget{CallID: callID, PeerID: 200, RoomName: CallRoomName(callID), Generation: generation, ExpiresAt: time.Now().Add(time.Minute)}
 	service.room = &listingRoomService{
