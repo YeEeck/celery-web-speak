@@ -40,7 +40,13 @@ func (s *Server) handleCallCreate(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "check shared guild for call", err)
 		return
 	}
-	reachable := shared && s.hub.IsOnline(callee.ID)
+	// 被叫资格与在线判定分开仲裁（spec 02/14）：不同服是资格拒绝，离线才是
+	// unreachable，避免把「不能呼叫」误报成「对方不在线」。
+	if !shared {
+		writeError(w, http.StatusForbidden, "not_in_shared_guild", "只能呼叫与你有共同服务器的成员")
+		return
+	}
+	reachable := s.hub.IsOnline(callee.ID)
 	result, err := s.media.StartCall(caller, callee, reachable)
 	if err != nil {
 		s.writeCallError(w, err)

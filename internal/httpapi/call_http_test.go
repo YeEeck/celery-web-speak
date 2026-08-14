@@ -53,6 +53,15 @@ func callBody(calleeID int64) string {
 	return fmt.Sprintf(`{"calleeUserId":%d}`, calleeID)
 }
 
+func assertNoCallEvent(t *testing.T, c *client) {
+	t.Helper()
+	select {
+	case payload := <-c.send:
+		t.Fatalf("unexpected call event: %s", payload)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func readCallEvent(t *testing.T, c *client, wantType string) callEvent {
 	t.Helper()
 	select {
@@ -284,19 +293,21 @@ func TestCallRejectsNonSharedGuild(t *testing.T) {
 
 	token := callSessionToken(t, db, admin.ID)
 	recorder := serveGuildHTTPRequest(server, token, http.MethodPost, "/api/calls", callBody(outsider.ID))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("non-shared create = %d %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("non-shared create = %d %s, want 403", recorder.Code, recorder.Body.String())
 	}
-	var result media.StartCallResult
-	if err := json.NewDecoder(recorder.Body).Decode(&result); err != nil {
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
 		t.Fatal(err)
 	}
-	if result.State != media.CallEnded || result.Reason != media.CallEndUnreachable {
-		t.Fatalf("non-shared result = %+v, want ended(unreachable)", result)
+	if payload.Error != "not_in_shared_guild" {
+		t.Fatalf("non-shared error code = %q, want not_in_shared_guild", payload.Error)
 	}
-	readCallEvent(t, callerClient, "call_unreachable")
+	// 资格拒绝不进入状态机：不产生任何 call_* 信令。
+	assertNoCallEvent(t, callerClient)
 }
-
 
 func TestCallTokenRequiresActive(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
