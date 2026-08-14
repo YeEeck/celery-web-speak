@@ -305,10 +305,15 @@ export const useVoiceStore = defineStore('voice', () => {
       )
     },
     microphoneEnabledPreference: () => muteDeafenRef.current?.microphoneEnabledPreference.value ?? false,
+    toggleMicrophonePreference: () => muteDeafenRef.current ? muteDeafenRef.current.userToggledMute() : Promise.resolve(),
+    deafenedPreference: () => muteDeafenRef.current?.deafenedPreference.value ?? false,
     // 通话远端音频挂载到独立的 #call-audio-root，而不是频道语音的
     // #voice-audio-root；这样频道 leave/join 清理频道音频元素时不会误删通话音频。
     appendAudioElement: (element) => void document.querySelector('#call-audio-root')?.appendChild(element),
     removeAudioElements: () => void document.querySelectorAll('#call-audio-root audio').forEach((element) => element.remove()),
+    setRemoteAudioMuted: (muted) => void document.querySelectorAll<HTMLAudioElement>('#call-audio-root audio').forEach((element) => {
+      element.muted = muted
+    }),
     applyAudioSink: (element, deviceId) => void setAudioSink(element, deviceId),
   })
 

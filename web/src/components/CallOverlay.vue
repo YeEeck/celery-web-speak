@@ -11,11 +11,23 @@ const displayName = computed(() => voice.callPeer?.displayName ?? '用户')
 // 通话时长（mm:ss）：以 accepted 时刻为起点，每秒刷新。
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
+
+// 通话中 Ctrl+Shift+M 复用全局麦克风静音（prototype 08：同一偏好）。全局快捷键
+// 在 aria-modal 内不拦截，由浮层自己接管；浮层打开但未进入通话中时不响应。
+function handleKeyDown(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || !event.shiftKey || event.altKey || event.repeat) return
+  if (event.code !== 'KeyM' || voice.callStatus !== 'active') return
+  event.preventDefault()
+  void voice.toggleMute()
+}
+
 onMounted(() => {
   timer = setInterval(() => { now.value = Date.now() }, 1000)
+  document.addEventListener('keydown', handleKeyDown)
 })
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer)
+  document.removeEventListener('keydown', handleKeyDown)
 })
 
 const elapsedSeconds = computed(() => {

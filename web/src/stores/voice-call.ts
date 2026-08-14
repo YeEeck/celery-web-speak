@@ -1,4 +1,4 @@
-import { computed, markRaw, ref } from 'vue'
+import { computed, markRaw, ref, watch } from 'vue'
 import {
   Room,
   RoomEvent,
@@ -60,6 +60,11 @@ export interface VoiceCallContext {
   echoCancellation(): boolean
   noiseSuppression(): boolean
   microphoneEnabledPreference(): boolean
+  // 切换全局麦克风静音偏好（通话中麦克风静音与快捷键共用同一偏好，spec 07/08）。
+  toggleMicrophonePreference(): Promise<void>
+  // 全局耳机静音会静音通话远端音频（spec 07）；false 时恢复。
+  deafenedPreference(): boolean
+  setRemoteAudioMuted(muted: boolean): void
 
   // 远端音频挂载（独立于频道语音的 #call-audio-root；避免频道 leave/join 误删）。
   appendAudioElement(element: HTMLAudioElement): void
@@ -78,9 +83,40 @@ export function useVoiceCall(ctx: VoiceCallContext) {
 
   let room: Room | null = null
   let callSession = 0
+  // 发起 HTTP 请求尚未返回期间，WS 信令（对方秒接/秒拒等）可能先到；先缓存，
+  // 拿到 callId 后再按序回放（HTTP 与 WS 是两条连接，无到达顺序保证）。
+  let startCallInFlight = false
+  const pendingSignals: CallSignal[] = []
 
   // 浮层三形态：outgoing=呼出中、ringing=来电、active=通话中；idle 表示浮层关闭。
   const overlayOpen = computed(() => status.value !== 'idle')
+
+  // 全局耳机静音联动通话远端音频（spec 07：通话中主动耳机静音会静音通话）。
+  watch(() => ctx.deafenedPreference(), (deafened) => {
+    ctx.setRemoteAudioMuted(deafened)
+  })
+
+  // 全局麦克风静音偏好联动通话麦克风：入口按偏好发布，通话中切换（按钮或
+  // Ctrl+Shift+M 快捷键）同步到通话房间（spec 07/08 同一偏好）。
+  watch(() => ctx.microphoneEnabledPreference(), (enabled) => {
+    void applyMicrophonePreference(enabled)
+  })
+
+  async function applyMicrophonePreference(enabled: boolean) {
+    const target = room
+    if (!target || status.value !== 'active') return
+    const session = callSession
+    try {
+      if (enabled) {
+        await target.localParticipant.setMicrophoneEnabled(true, buildCaptureOptions())
+      } else {
+        await target.localParticipant.setMicrophoneEnabled(false)
+      }
+      if (session === callSession && room === target) microphoneMuted.value = !enabled
+    } catch {
+      // 静音切换失败保留当前状态；下一次偏好变化会重试。
+    }
+  }
 
   function resetLocalState() {
     status.value = 'idle'
@@ -108,6 +144,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     const user = ctx.currentUser()
     if (!user) return
     if (status.value !== 'idle') return
+    startCallInFlight = true
     status.value = 'outgoing'
     callId.value = null
     peer.value = target
@@ -115,15 +152,23 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     try {
       const result = await ctx.startCallRequest(target.userId)
       if (result.state === 'ended') {
+        // 即时终态以 HTTP 响应为准；期间早到的终态信令不再回放（避免覆盖 reason）。
+        pendingSignals.length = 0
         endedReason.value = normalizeEndReason(result.reason)
         resetLocalState()
         return
       }
       callId.value = String(result.callId)
+      // 回放发起期间早到的 WS 信令（如对方秒接的 call_accept / 秒拒的 call_reject）。
+      const signals = pendingSignals.splice(0)
+      for (const signal of signals) handleSignal(signal)
     } catch (error) {
+      pendingSignals.length = 0
       endedReason.value = null
       resetLocalState()
       throw error
+    } finally {
+      startCallInFlight = false
     }
   }
 
@@ -157,24 +202,11 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     endSession('ended')
   }
 
-  // 通话中麦克风静音（复用全局静音偏好语义；spec 07 / UI 08）。
+  // 通话中麦克风静音：切换全局麦克风静音偏好（与 Ctrl+Shift+M 同一偏好，spec
+  // 07/08）。watch 会把偏好同步到通话房间，本函数不直接操作 LiveKit 轨道。
   async function toggleMicrophoneMute(): Promise<void> {
-    const target = room
-    if (!target || status.value !== 'active') return
-    const next = !microphoneMuted.value
-    if (next) {
-      await target.localParticipant.setMicrophoneEnabled(false)
-      microphoneMuted.value = true
-    } else {
-      const captureOptions = buildCaptureOptions()
-      if (!ctx.microphoneEnabledPreference()) {
-        // 全局静音偏好仍在时，通话内解除静音不开启麦克风。
-        microphoneMuted.value = false
-        return
-      }
-      await target.localParticipant.setMicrophoneEnabled(true, captureOptions)
-      microphoneMuted.value = false
-    }
+    if (status.value !== 'active') return
+    await ctx.toggleMicrophonePreference()
   }
 
   function buildCaptureOptions() {
@@ -218,10 +250,16 @@ export function useVoiceCall(ctx: VoiceCallContext) {
       } else {
         microphoneMuted.value = true
       }
-    } catch (error) {
+    } catch {
+      if (session !== callSession) return
+      // 取 token / 建房失败时先向后端挂断，让对端收到终态信令而不是被留在
+      // 只有自己的 active 通话里；挂断请求的失败本身不影响本地清理。
+      const id = callId.value
+      if (id !== null) {
+        await ctx.hangupRequest(id).catch(() => undefined)
+      }
       if (session !== callSession) return
       endSession('disconnected')
-      throw error
     }
   }
 
@@ -250,6 +288,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     const element = track.attach()
     element.dataset.userId = String(participantUserId(participant))
     element.autoplay = true
+    element.muted = ctx.deafenedPreference()
     element.style.display = 'none'
     ctx.appendAudioElement(element)
     ctx.applyAudioSink(element, ctx.resolvedPreferredOutputDeviceId())
@@ -262,6 +301,11 @@ export function useVoiceCall(ctx: VoiceCallContext) {
   // WS 点到点信令（app.ts handleEvent 路由到这里）。
   function handleSignal(signal: CallSignal): void {
     if (signal.callId === '') return
+    // 发起请求尚未返回、callId 未知时，信令可能早于 HTTP 响应到达；缓存待回放。
+    if (startCallInFlight && status.value === 'outgoing' && callId.value === null) {
+      pendingSignals.push(signal)
+      return
+    }
     if (signal.callId !== callId.value && status.value !== 'idle') return
     switch (signal.type) {
       case 'call_invite': {

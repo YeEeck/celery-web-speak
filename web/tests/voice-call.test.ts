@@ -89,6 +89,7 @@ interface Harness {
   state: {
     user: { id: number } | null
     microphoneEnabledPreference: Ref<boolean>
+    deafenedPreference: Ref<boolean>
     inputDeviceId: string
     outputDeviceId: string
     echoCancellation: boolean
@@ -99,6 +100,7 @@ interface Harness {
   room: FakeRoom
   startRequests: Array<{ calleeUserId: number }>
   startResult: { callId: string; state: string; reason?: string }
+  pendingStart: { resolve: (value: Harness['startResult']) => void } | null
   acceptCalls: number
   rejectCalls: number
   cancelCalls: number
@@ -107,6 +109,7 @@ interface Harness {
   appendedElements: number
   removeAllCalls: number
   audioSinks: string[]
+  remoteMutedCalls: boolean[]
   pendingToken: { resolve: (value: VoiceCredentials) => void } | null
 }
 
@@ -115,6 +118,7 @@ function makeHarness(): Harness {
   const state: Harness['state'] = {
     user: { id: 1 },
     microphoneEnabledPreference: ref(true),
+    deafenedPreference: ref(false),
     inputDeviceId: 'default',
     outputDeviceId: 'default',
     echoCancellation: true,
@@ -126,6 +130,7 @@ function makeHarness(): Harness {
     room,
     startRequests: [],
     startResult: { callId: '100', state: 'ringing' },
+    pendingStart: null,
     acceptCalls: 0,
     rejectCalls: 0,
     cancelCalls: 0,
@@ -134,6 +139,7 @@ function makeHarness(): Harness {
     appendedElements: 0,
     removeAllCalls: 0,
     audioSinks: [],
+    remoteMutedCalls: [],
     pendingToken: null,
     ctx: {} as VoiceCallContext,
     call: null as unknown as ReturnType<typeof useVoiceCall>,
@@ -152,6 +158,9 @@ function makeHarness(): Harness {
     },
     startCallRequest: async (calleeUserId) => {
       harness.startRequests.push({ calleeUserId })
+      if (harness.pendingStart) {
+        return new Promise((resolve) => { harness.pendingStart!.resolve = resolve })
+      }
       return harness.startResult
     },
     acceptRequest: async () => { harness.acceptCalls += 1 },
@@ -163,6 +172,11 @@ function makeHarness(): Harness {
     echoCancellation: () => state.echoCancellation,
     noiseSuppression: () => state.noiseSuppression,
     microphoneEnabledPreference: () => state.microphoneEnabledPreference.value,
+    toggleMicrophonePreference: async () => {
+      state.microphoneEnabledPreference.value = !state.microphoneEnabledPreference.value
+    },
+    deafenedPreference: () => state.deafenedPreference.value,
+    setRemoteAudioMuted: (muted) => { harness.remoteMutedCalls.push(muted) },
     appendAudioElement: () => { harness.appendedElements += 1 },
     removeAudioElements: () => { harness.removeAllCalls += 1 },
     applyAudioSink: (_element, deviceId) => { harness.audioSinks.push(deviceId) },
@@ -307,15 +321,86 @@ test('microphone publishing honors the global mute preference', async () => {
   assert.equal(h.room.localParticipant.setMicrophoneCalls.includes(true), false, '全局静音时不应开启麦克风')
 })
 
-test('toggleMicrophoneMute flips the local microphone without leaving the call', async () => {
+test('toggleMicrophoneMute flips the shared microphone preference', async () => {
   const h = makeHarness()
   await h.call.startCall(PEER)
   await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, state: 'active' })
   await flushPromises()
   h.room.localParticipant.setMicrophoneCalls = []
   await h.call.toggleMicrophoneMute()
+  await flushPromises()
+  assert.equal(h.state.microphoneEnabledPreference.value, false, '应翻转全局麦克风静音偏好')
   assert.equal(h.room.localParticipant.setMicrophoneCalls.length, 1)
   assert.equal(h.room.localParticipant.setMicrophoneCalls[0], false)
   assert.equal(h.call.microphoneMuted.value, true)
   assert.equal(h.call.status.value, 'active')
+})
+
+test('call_accept arriving before the start response is replayed once the call id arrives', async () => {
+  const h = makeHarness()
+  h.pendingStart = { resolve: () => undefined }
+  const start = h.call.startCall(PEER)
+  await flushPromises()
+  assert.equal(h.call.status.value, 'outgoing')
+
+  h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, state: 'active' })
+  assert.equal(h.call.status.value, 'outgoing', 'callId 未返回前应缓存而不是丢弃')
+  assert.equal(h.room.connectCalls, 0)
+
+  h.pendingStart.resolve(h.startResult)
+  await start
+  await flushPromises()
+  assert.equal(h.call.status.value, 'active')
+  assert.equal(h.room.connectCalls, 1)
+})
+
+test('terminal signal arriving before the start response is replayed', async () => {
+  const h = makeHarness()
+  h.pendingStart = { resolve: () => undefined }
+  const start = h.call.startCall(PEER)
+  await flushPromises()
+
+  h.call.handleSignal({ type: 'call_reject', callId: '100', peer: PEER, state: 'ended', reason: 'rejected' })
+  h.pendingStart.resolve(h.startResult)
+  await start
+  await flushPromises()
+  assert.equal(h.call.status.value, 'idle')
+  assert.equal(h.call.endedReason.value, 'rejected')
+  assert.equal(h.room.connectCalls, 0)
+})
+
+test('immediate terminal start result discards signals buffered during the request', async () => {
+  const h = makeHarness()
+  h.pendingStart = { resolve: () => undefined }
+  const start = h.call.startCall(PEER)
+  await flushPromises()
+
+  h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, state: 'active' })
+  h.pendingStart.resolve({ callId: '100', state: 'ended', reason: 'busy' })
+  await start
+  await flushPromises()
+  assert.equal(h.call.status.value, 'idle')
+  assert.equal(h.call.endedReason.value, 'busy')
+  assert.equal(h.room.connectCalls, 0, '即时终态不应回放早到的 call_accept')
+})
+
+test('join failure hangs up the active call and cleans up locally', async () => {
+  const h = makeHarness()
+  await h.call.handleSignal({ type: 'call_invite', callId: '100', peer: PEER, state: 'ringing' })
+  h.room.connectError = new Error('连接失败')
+  await h.call.accept()
+  await flushPromises()
+  assert.equal(h.hangupCalls, 1, '建房失败应向后端挂断，避免对端被留在空通话里')
+  assert.equal(h.call.status.value, 'idle')
+  assert.equal(h.call.endedReason.value, 'disconnected')
+})
+
+test('global deafen preference mutes and unmutes call remote audio', async () => {
+  const h = makeHarness()
+  h.state.deafenedPreference.value = true
+  await flushPromises()
+  assert.deepEqual(h.remoteMutedCalls, [true])
+  h.state.deafenedPreference.value = false
+  await flushPromises()
+  assert.deepEqual(h.remoteMutedCalls, [true, false])
 })
