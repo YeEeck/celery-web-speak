@@ -56,8 +56,8 @@ test('两个独立账号可互拨、接听、通话并挂断', async ({ browser,
     // 被叫接听，双方进入通话中。
     await calleeOverlay.getByRole('button', { name: '接听' }).click()
     const callerOverlay = callerPage.getByRole('dialog', { name: '通话浮层' })
-    await expect(callerOverlay.getByText(/^d{2}:d{2}$/)).toBeVisible({ timeout: 20_000 })
-    await expect(calleeOverlay.getByText(/^d{2}:d{2}$/)).toBeVisible({ timeout: 20_000 })
+    await expect(callerOverlay.getByText(/^\d{2}:\d{2}$/)).toBeVisible({ timeout: 20_000 })
+    await expect(calleeOverlay.getByText(/^\d{2}:\d{2}$/)).toBeVisible({ timeout: 20_000 })
 
     // 通话中：麦克风静音切换，然后主叫挂断。
     const callerMuteButton = callerOverlay.getByRole('button', { name: '麦克风静音' })

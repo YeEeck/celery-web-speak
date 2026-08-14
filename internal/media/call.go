@@ -58,7 +58,7 @@ type CallParty struct {
 // party; httpapi wires delivery to its hub-backed CallSignaler.
 type CallSignal struct {
 	Type   string        `json:"type"`
-	CallID int64         `json:"callId"`
+	CallID int64         `json:"callId,string"`
 	Peer   CallParty     `json:"peer"`
 	State  CallState     `json:"state"`
 	Reason CallEndReason `json:"reason,omitempty"`
@@ -146,7 +146,7 @@ func (s *Service) NewCall(callerID, calleeID int64) int64 {
 // callID and its resulting phase. A terminated initiation (busy/unreachable)
 // carries the terminal reason.
 type StartCallResult struct {
-	CallID int64         `json:"callId"`
+	CallID int64         `json:"callId,string"`
 	State  CallState     `json:"state"`
 	Reason CallEndReason `json:"reason,omitempty"`
 }

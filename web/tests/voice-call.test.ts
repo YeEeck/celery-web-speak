@@ -98,7 +98,7 @@ interface Harness {
   call: ReturnType<typeof useVoiceCall>
   room: FakeRoom
   startRequests: Array<{ calleeUserId: number }>
-  startResult: { callId: number; state: string; reason?: string }
+  startResult: { callId: string; state: string; reason?: string }
   acceptCalls: number
   rejectCalls: number
   cancelCalls: number
@@ -125,7 +125,7 @@ function makeHarness(): Harness {
     state,
     room,
     startRequests: [],
-    startResult: { callId: 100, state: 'ringing' },
+    startResult: { callId: '100', state: 'ringing' },
     acceptCalls: 0,
     rejectCalls: 0,
     cancelCalls: 0,
@@ -183,7 +183,7 @@ test('startCall sets outgoing state and records the call id', async () => {
   const h = makeHarness()
   await h.call.startCall(PEER)
   assert.equal(h.call.status.value, 'outgoing')
-  assert.equal(h.call.callId.value, 100)
+  assert.equal(h.call.callId.value, '100')
   assert.deepEqual(h.call.peer.value, PEER)
   assert.deepEqual(h.startRequests, [{ calleeUserId: 2 }])
   assert.equal(h.room.connectCalls, 0, '呼出中尚未加入房间')
@@ -191,7 +191,7 @@ test('startCall sets outgoing state and records the call id', async () => {
 
 test('startCall reaching a terminal state clears the session immediately', async () => {
   const h = makeHarness()
-  h.startResult = { callId: 100, state: 'ended', reason: 'busy' }
+  h.startResult = { callId: '100', state: 'ended', reason: 'busy' }
   await h.call.startCall(PEER)
   assert.equal(h.call.status.value, 'idle')
   assert.equal(h.call.callId.value, null)
@@ -200,7 +200,7 @@ test('startCall reaching a terminal state clears the session immediately', async
 
 test('accept joins the call room and reaches active', async () => {
   const h = makeHarness()
-  await h.call.handleSignal({ type: 'call_invite', callId: 100, peer: PEER, state: 'ringing' })
+  await h.call.handleSignal({ type: 'call_invite', callId: '100', peer: PEER, state: 'ringing' })
   assert.equal(h.call.status.value, 'ringing')
   await h.call.accept()
   assert.equal(h.acceptCalls, 1)
@@ -213,7 +213,7 @@ test('accept joins the call room and reaches active', async () => {
 test('caller receiving call_accept joins the room and reaches active', async () => {
   const h = makeHarness()
   await h.call.startCall(PEER)
-  await h.call.handleSignal({ type: 'call_accept', callId: 100, peer: PEER, state: 'active' })
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, state: 'active' })
   assert.equal(h.call.status.value, 'active')
   assert.equal(h.tokenCalls, 1)
   assert.equal(h.room.connectCalls, 1)
@@ -221,7 +221,7 @@ test('caller receiving call_accept joins the room and reaches active', async () 
 
 test('reject clears the session and notifies the server', async () => {
   const h = makeHarness()
-  await h.call.handleSignal({ type: 'call_invite', callId: 100, peer: PEER, state: 'ringing' })
+  await h.call.handleSignal({ type: 'call_invite', callId: '100', peer: PEER, state: 'ringing' })
   await h.call.reject()
   assert.equal(h.rejectCalls, 1)
   assert.equal(h.call.status.value, 'idle')
@@ -240,7 +240,7 @@ test('cancel clears the outgoing session', async () => {
 test('hangup disconnects the room and clears the session', async () => {
   const h = makeHarness()
   await h.call.startCall(PEER)
-  await h.call.handleSignal({ type: 'call_accept', callId: 100, peer: PEER, state: 'active' })
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, state: 'active' })
   await h.call.hangup()
   assert.equal(h.hangupCalls, 1)
   assert.equal(h.call.status.value, 'idle')
@@ -259,8 +259,8 @@ test('terminal signals clear the session', async () => {
   ] as const) {
     const [type, reason] = pair
     const h = makeHarness()
-    await h.call.handleSignal({ type: 'call_invite', callId: 100, peer: PEER, state: 'ringing' })
-    await h.call.handleSignal({ type, callId: 100, peer: PEER, state: 'ended', reason })
+    await h.call.handleSignal({ type: 'call_invite', callId: '100', peer: PEER, state: 'ringing' })
+    await h.call.handleSignal({ type, callId: '100', peer: PEER, state: 'ended', reason })
     assert.equal(h.call.status.value, 'idle', type + ' 应清理会话')
     assert.equal(h.call.endedReason.value, reason)
   }
@@ -269,7 +269,7 @@ test('terminal signals clear the session', async () => {
 test('call_timeout clears both the outgoing and ringing session', async () => {
   const outgoing = makeHarness()
   await outgoing.call.startCall(PEER)
-  await outgoing.call.handleSignal({ type: 'call_timeout', callId: 100, peer: PEER, state: 'ended', reason: 'timeout' })
+  await outgoing.call.handleSignal({ type: 'call_timeout', callId: '100', peer: PEER, state: 'ended', reason: 'timeout' })
   assert.equal(outgoing.call.status.value, 'idle')
   assert.equal(outgoing.call.endedReason.value, 'timeout')
 })
@@ -277,7 +277,7 @@ test('call_timeout clears both the outgoing and ringing session', async () => {
 test('Reconnecting keeps the call active with a reconnecting flag', async () => {
   const h = makeHarness()
   await h.call.startCall(PEER)
-  await h.call.handleSignal({ type: 'call_accept', callId: 100, peer: PEER, state: 'active' })
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, state: 'active' })
   h.room.emit(RoomEvent.Reconnecting)
   assert.equal(h.call.status.value, 'active')
   assert.equal(h.call.reconnecting.value, true)
@@ -290,7 +290,7 @@ test('Reconnecting keeps the call active with a reconnecting flag', async () => 
 test('Disconnected ends the session and clears the overlay state', async () => {
   const h = makeHarness()
   await h.call.startCall(PEER)
-  await h.call.handleSignal({ type: 'call_accept', callId: 100, peer: PEER, state: 'active' })
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, state: 'active' })
   h.room.emit(RoomEvent.Disconnected)
   await flushPromises()
   assert.equal(h.call.status.value, 'idle')
@@ -303,14 +303,14 @@ test('microphone publishing honors the global mute preference', async () => {
   const h = makeHarness()
   h.state.microphoneEnabledPreference.value = false
   await h.call.startCall(PEER)
-  await h.call.handleSignal({ type: 'call_accept', callId: 100, peer: PEER, state: 'active' })
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, state: 'active' })
   assert.equal(h.room.localParticipant.setMicrophoneCalls.includes(true), false, '全局静音时不应开启麦克风')
 })
 
 test('toggleMicrophoneMute flips the local microphone without leaving the call', async () => {
   const h = makeHarness()
   await h.call.startCall(PEER)
-  await h.call.handleSignal({ type: 'call_accept', callId: 100, peer: PEER, state: 'active' })
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, state: 'active' })
   await flushPromises()
   h.room.localParticipant.setMicrophoneCalls = []
   await h.call.toggleMicrophoneMute()

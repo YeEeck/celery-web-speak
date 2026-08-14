@@ -281,7 +281,7 @@ export const useVoiceStore = defineStore('voice', () => {
       return user ? { id: user.id } : null
     },
     createRoom: (options) => markRaw(new Room(options)),
-    startCallRequest: (calleeUserId) => request<{ callId: number; state: string; reason?: string }>('/api/calls', {
+    startCallRequest: (calleeUserId) => request<{ callId: string; state: string; reason?: string }>('/api/calls', {
       method: 'POST',
       body: JSON.stringify({ calleeUserId }),
     }),
@@ -348,18 +348,20 @@ export const useVoiceStore = defineStore('voice', () => {
   // 把 WS 点到点 call_* 事件路由给通话会话。app.ts 在 handleEvent 里按
   // call_ 前缀统一转发到这里注册的 handler（模块级，避免 app ↔ voice 循环依赖）。
   setCallSignalHandler((type, data) => {
-    if (data && typeof data === 'object' && typeof (data as { callId?: unknown }).callId === 'number') {
-      const signal = data as { type?: string; callId: number; peer?: { userId: number; username: string; displayName: string }; state?: string; reason?: string }
-      call.handleSignal({
-        type,
-        callId: signal.callId,
-        peer: signal.peer ?? { userId: 0, username: '', displayName: '' },
-        state: signal.state ?? '',
-        reason: signal.reason,
-      })
+    const raw = (data as { callId?: unknown } | null | undefined)?.callId
+    const callId = typeof raw === 'number' ? String(raw) : typeof raw === 'string' ? raw : ''
+    if (callId === '') {
+      call.handleSignal({ type, callId: '', peer: { userId: 0, username: '', displayName: '' }, state: '' })
       return
     }
-    call.handleSignal({ type, callId: 0, peer: { userId: 0, username: '', displayName: '' }, state: '' })
+    const signal = data as { type?: string; peer?: { userId: number; username: string; displayName: string }; state?: string; reason?: string }
+    call.handleSignal({
+      type,
+      callId,
+      peer: signal.peer ?? { userId: 0, username: '', displayName: '' },
+      state: signal.state ?? '',
+      reason: signal.reason,
+    })
   })
 
   // 常开说话检测引擎的应用级生命周期（ADR-0024）：登录且麦克风授权时启动，

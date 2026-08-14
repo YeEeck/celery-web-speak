@@ -29,7 +29,7 @@ export interface CallPeer {
 // 后端 CallSignal 的 shape（hub.SendUser 点到点事件 data）。
 export interface CallSignal {
   type: string
-  callId: number
+  callId: string
   peer: CallPeer
   state: string
   reason?: string
@@ -37,7 +37,7 @@ export interface CallSignal {
 
 // POST /api/calls 的响应。
 export interface StartCallResult {
-  callId: number
+  callId: string
   state: string
   reason?: string
 }
@@ -48,11 +48,11 @@ export interface VoiceCallContext {
 
   // HTTP 信令动作（后端仲裁，见 spec 05）。
   startCallRequest(calleeUserId: number): Promise<StartCallResult>
-  acceptRequest(callId: number): Promise<void>
-  rejectRequest(callId: number): Promise<void>
-  cancelRequest(callId: number): Promise<void>
-  hangupRequest(callId: number): Promise<void>
-  fetchCallToken(callId: number): Promise<VoiceCredentials>
+  acceptRequest(callId: string): Promise<void>
+  rejectRequest(callId: string): Promise<void>
+  cancelRequest(callId: string): Promise<void>
+  hangupRequest(callId: string): Promise<void>
+  fetchCallToken(callId: string): Promise<VoiceCredentials>
 
   // 设备/采集偏好（复用 voice-devices 与既有偏好，不重造降噪链；spec 07）。
   resolvedPreferredInputDeviceId(): string
@@ -70,7 +70,7 @@ export interface VoiceCallContext {
 export function useVoiceCall(ctx: VoiceCallContext) {
   const status = ref<CallStatus>('idle')
   const reconnecting = ref(false)
-  const callId = ref<number | null>(null)
+  const callId = ref<string | null>(null)
   const peer = ref<CallPeer | null>(null)
   const endedReason = ref<CallEndReason | null>(null)
   const microphoneMuted = ref(false)
@@ -120,7 +120,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
         resetLocalState()
         return
       }
-      callId.value = result.callId
+      callId.value = String(result.callId)
     } catch (error) {
       endedReason.value = null
       resetLocalState()
@@ -262,6 +262,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
 
   // WS 点到点信令（app.ts handleEvent 路由到这里）。
   function handleSignal(signal: CallSignal): void {
+    if (signal.callId === '') return
     if (signal.callId !== callId.value && status.value !== 'idle') return
     switch (signal.type) {
       case 'call_invite': {
