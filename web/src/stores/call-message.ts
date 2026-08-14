@@ -16,14 +16,15 @@ export interface CallTerminalMessage {
 // unreachable 只发生主叫侧，canceled 只发生在被叫侧；unknown 组合不在此表即 null，
 // 由调用方静默跳过（防御越界组合，避免误报）。
 // 侧别由「终态前一刻的状态」判定：主叫经 outgoing→idle，被叫经 ringing→idle。
-// active 与 idle 不携带侧别（通话中掉线仅在 reason=disconnected 提示，侧别无关）。
+// active 与 idle 不携带侧别（传 null）：通话中掉线仅在 reason=disconnected 提示，
+// 侧别无关；侧别敏感原因（busy/timeout/canceled 等）在 null 侧别下同样静默跳过。
 export function callTerminalSide(previousStatus: CallStatus | null): CallTerminalSide | null {
   if (previousStatus === 'outgoing') return 'caller'
   if (previousStatus === 'ringing') return 'callee'
   return null
 }
 
-export function callTerminalMessage(reason: CallEndReason, side: CallTerminalSide): CallTerminalMessage | null {
+export function callTerminalMessage(reason: CallEndReason, side: CallTerminalSide | null): CallTerminalMessage | null {
   switch (reason) {
     case 'busy':
       return side === 'caller' ? { message: '对方正忙', type: 'warning' } : null
@@ -32,9 +33,9 @@ export function callTerminalMessage(reason: CallEndReason, side: CallTerminalSid
     case 'rejected':
       return side === 'caller' ? { message: '对方已拒绝', type: 'warning' } : null
     case 'timeout':
-      return side === 'caller'
-        ? { message: '对方未接听', type: 'warning' }
-        : { message: '来电已超时', type: 'warning' }
+      if (side === 'caller') return { message: '对方未接听', type: 'warning' }
+      if (side === 'callee') return { message: '来电已超时', type: 'warning' }
+      return null
     case 'canceled':
       return side === 'callee' ? { message: '对方已取消', type: 'warning' } : null
     case 'disconnected':

@@ -1,7 +1,7 @@
 import { markRaw, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { Room, supportsAudioOutputSelection } from 'livekit-client'
-import { request } from '../api.ts'
+import { ApiError, request } from '../api.ts'
 import type { VoiceCredentials } from '../types.ts'
 import { useAppStore, setCallSignalHandler } from './app.ts'
 import { useApplicationSoundStore } from './application-sounds.ts'
@@ -15,7 +15,7 @@ import { useApplicationAudio } from './voice-application-audio.ts'
 import { useVoiceMuteDeafenModule } from './voice-mute-deafen.ts'
 import { useVoicePresence } from './voice-presence.ts'
 import { useVoiceSession } from './voice-session.ts'
-import { useVoiceCall } from './voice-call.ts'
+import { useVoiceCall, type CallPeer } from './voice-call.ts'
 import { useVoiceOverlay } from './voice-overlay.ts'
 import { callTerminalMessage, callTerminalSide } from './call-message.ts'
 import { useToastStore } from './toast.ts'
@@ -43,6 +43,9 @@ import {
 } from './voice-utils.ts'
 
 export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils.ts'
+
+// 信令缺 peer 时的占位（handleSignal 内以 callId 空串守卫，占位不会进入会话）。
+const emptyCallPeer: CallPeer = { userId: 0, username: '', displayName: '' }
 
 export const useVoiceStore = defineStore('voice', () => {
   // 与连接无关的纯偏好（会话模块经 ctx 单向读取）。
@@ -312,20 +315,15 @@ export const useVoiceStore = defineStore('voice', () => {
   // 接听进入通话（active）时自动静音频道；来电振铃（ringing）期间频道保持原样；
   // 任何方式回到 idle（挂断/拒接/取消/超时等）自动解除并恢复通话前偏好。
   // 语义判定放在接线层，不写进 call 会话（保持 voice-call 对「频道」无感知）。
-  //
+  watch(() => call.status.value, (status) => {
+    void muteDeafen.setCallChannelDeafen(status === 'outgoing' || status === 'active')
+  })
+
   // 通话提示音接线（ticket 05 / spec 09）：呼出中循环回铃、来电循环振铃；进入
   // active（接听/接通）停止循环并播放接通音；离开 active 或任何回到 idle 的终态
   // 停止循环并播放结束音（busy/unreachable 等即时终态虽也回到 idle，会先经
   // outgoing → idle 触发结束音）。
-  //
-  // 终态文案接线（ticket 06 / spec 04 转移表）：任何回到 idle 的终态读一次
-  // endedReason，按侧别映射文案并提示一次。侧别由前一状态判定（outgoing=主叫、
-  // ringing=被叫）；active→idle 的掉线 reason=disconnected 文案不分侧别。
-  // 自己主动取消（canceled，主叫）与主动挂断（ended）无提示——callTerminalMessage
-  // 返回 null 即静默跳过。endedReason 在下一通发起时清空，且 Vue watch 仅在值
-  // 实际变化时触发，一次终态转移恰好触发一次，无重复提示。
   watch(() => call.status.value, (status, previous) => {
-    void muteDeafen.setCallChannelDeafen(status === 'outgoing' || status === 'active')
     if (status === 'outgoing') {
       sounds.loop('call-outgoing')
     } else if (status === 'ringing') {
@@ -336,13 +334,22 @@ export const useVoiceStore = defineStore('voice', () => {
     } else {
       sounds.stopLoop()
       if (previous === 'active') sounds.signal('call-ended')
-      const reason = call.endedReason.value
-      if (reason) {
-        const side = callTerminalSide(previous) ?? 'caller'
-        const terminal = callTerminalMessage(reason, side)
-        if (terminal) toast.show(terminal.message, terminal.type)
-      }
     }
+  })
+
+  // 终态文案接线（ticket 06 / spec 04 转移表）：任何回到 idle 的终态读一次
+  // endedReason，按侧别映射文案并提示一次。侧别由前一状态判定（outgoing=主叫、
+  // ringing=被叫）；active→idle 不携带侧别（null），掉线 reason=disconnected
+  // 文案不分侧别，其余侧别敏感原因在 null 侧别下静默。自己主动取消（canceled，
+  // 主叫）与主动挂断（ended）无提示——callTerminalMessage 返回 null 即静默跳过。
+  // endedReason 在下一通发起时清空，且 Vue watch 仅在值实际变化时触发，一次终态
+  // 转移恰好触发一次，无重复提示。
+  watch(() => call.status.value, (status, previous) => {
+    if (status !== 'idle') return
+    const reason = call.endedReason.value
+    if (!reason) return
+    const terminal = callTerminalMessage(reason, callTerminalSide(previous))
+    if (terminal) toast.show(terminal.message, terminal.type)
   })
 
   // 把 WS 点到点 call_* 事件路由给通话会话。app.ts 在 handleEvent 里按
@@ -351,14 +358,14 @@ export const useVoiceStore = defineStore('voice', () => {
     const raw = (data as { callId?: unknown } | null | undefined)?.callId
     const callId = typeof raw === 'number' ? String(raw) : typeof raw === 'string' ? raw : ''
     if (callId === '') {
-      call.handleSignal({ type, callId: '', peer: { userId: 0, username: '', displayName: '' }, state: '' })
+      call.handleSignal({ type, callId: '', peer: emptyCallPeer, state: '' })
       return
     }
-    const signal = data as { type?: string; peer?: { userId: number; username: string; displayName: string }; state?: string; reason?: string }
+    const signal = data as { type?: string; peer?: CallPeer; state?: string; reason?: string }
     call.handleSignal({
       type,
       callId,
-      peer: signal.peer ?? { userId: 0, username: '', displayName: '' },
+      peer: signal.peer ?? emptyCallPeer,
       state: signal.state ?? '',
       reason: signal.reason,
     })
@@ -541,7 +548,11 @@ export const useVoiceStore = defineStore('voice', () => {
     callMicrophoneMuted: call.microphoneMuted,
     callOverlayOpen: call.overlayOpen,
     callConnectedAt: call.connectedAt,
-    startCall: call.startCall,
+    // 发起通话的接线：后端仲裁拒绝（如主叫已有通话 409 call_in_progress）时
+    // 提示服务端消息；会话内部已自行回退 idle，这里只负责把拒绝呈现给用户。
+    startCall: (target: CallPeer) => call.startCall(target).catch((error) => {
+      if (error instanceof ApiError) toast.showWarning(error.message)
+    }),
     acceptCall: call.accept,
     rejectCall: call.reject,
     cancelCall: call.cancel,

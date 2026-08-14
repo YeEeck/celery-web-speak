@@ -48,3 +48,13 @@ test('侧别由终态前的状态判定：outgoing=主叫，ringing=被叫，act
   assert.equal(callTerminalSide('active'), null)
   assert.equal(callTerminalSide('idle'), null)
 })
+
+test('null 侧别（active/idle）不产生侧别敏感提示', () => {
+  // 侧别敏感原因在无侧别时静默跳过（防御 active 阶段收到 timeout/canceled 的竞态）。
+  assert.equal(callTerminalMessage('busy', null), null)
+  assert.equal(callTerminalMessage('timeout', null), null)
+  assert.equal(callTerminalMessage('canceled', null), null)
+  // disconnected 侧别无关，null 侧别下仍提示。
+  assert.deepEqual(callTerminalMessage('disconnected', null), { message: '通话已断开', type: 'error' })
+  assert.equal(callTerminalMessage('ended', null), null)
+})

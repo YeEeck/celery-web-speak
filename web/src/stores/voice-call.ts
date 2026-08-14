@@ -79,7 +79,6 @@ export function useVoiceCall(ctx: VoiceCallContext) {
   let room: Room | null = null
   let callSession = 0
 
-  const joined = computed(() => room !== null && (status.value === 'active' || status.value === 'ringing'))
   // 浮层三形态：outgoing=呼出中、ringing=来电、active=通话中；idle 表示浮层关闭。
   const overlayOpen = computed(() => status.value !== 'idle')
 
@@ -302,7 +301,6 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     endedReason,
     microphoneMuted,
     connectedAt,
-    joined,
     overlayOpen,
     startCall,
     accept,
@@ -315,20 +313,19 @@ export function useVoiceCall(ctx: VoiceCallContext) {
   }
 }
 
+// 后端原因值白名单（CallEndReason 的合法取值）。两处 normalize 共用同一守卫。
+function isCallEndReason(reason: string | undefined): reason is CallEndReason {
+  return reason === 'busy' || reason === 'unreachable' || reason === 'rejected' || reason === 'canceled'
+    || reason === 'timeout' || reason === 'ended' || reason === 'disconnected'
+}
+
 function normalizeEndReason(reason: string | undefined): CallEndReason {
-  if (reason === 'busy' || reason === 'unreachable' || reason === 'rejected' || reason === 'canceled'
-    || reason === 'timeout' || reason === 'ended' || reason === 'disconnected') {
-    return reason
-  }
-  return 'ended'
+  return isCallEndReason(reason) ? reason : 'ended'
 }
 
 // 终端信令事件名 → 终端原因。
 function normalizeTerminalReason(type: string, reason: string | undefined): CallEndReason {
-  if (reason === 'busy' || reason === 'unreachable' || reason === 'rejected' || reason === 'canceled'
-    || reason === 'timeout' || reason === 'ended' || reason === 'disconnected') {
-    return reason
-  }
+  if (isCallEndReason(reason)) return reason
   switch (type) {
     case 'call_busy': return 'busy'
     case 'call_unreachable': return 'unreachable'
