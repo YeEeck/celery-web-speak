@@ -420,11 +420,8 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 				if !ok {
 					continue
 				}
-				if participant.Generation == 0 {
-					removals = append(removals, livekit.RoomParticipantIdentity{Room: roomInfo.Name, Identity: participant.Identity})
-					continue
-				}
-				if target, exists := issuedCallTargets[participant.UserID]; exists && target.valid(now) && !target.accepts(roomInfo.Name, callID, participant.Generation) {
+				target, hasTarget := issuedCallTargets[participant.UserID]
+				if !callParticipantAllowed(now, target, hasTarget, roomInfo.Name, callID, participant) {
 					removals = append(removals, livekit.RoomParticipantIdentity{Room: roomInfo.Name, Identity: participant.Identity})
 					continue
 				}
@@ -629,6 +626,13 @@ func (s *Service) currentTarget(userID int64) voiceTarget {
 	return voiceTarget{}
 }
 
+// generationAcceptsTarget is the shared token-generation guard used by both
+// channel and call targets: a participant may remain when its generation is at
+// least the issued one, and an equal generation must point at the issued room.
+func generationAcceptsTarget(issuedGeneration, participantGeneration uint64, sameRoom bool) bool {
+	return participantGeneration >= issuedGeneration && (participantGeneration != issuedGeneration || sameRoom)
+}
+
 func voiceParticipant(info *livekit.ParticipantInfo) (VoiceParticipant, bool) {
 	if info == nil {
 		return VoiceParticipant{}, false
@@ -747,8 +751,11 @@ func (target voiceTarget) roomName() string {
 }
 
 func (target voiceTarget) accepts(roomName string, channelID int64, generation uint64) bool {
-	return target.ChannelID > 0 && generation >= target.Generation &&
-		(generation != target.Generation || (channelID == target.ChannelID && roomName == target.roomName()))
+	return target.ChannelID > 0 && generationAcceptsTarget(
+		target.Generation,
+		generation,
+		channelID == target.ChannelID && roomName == target.roomName(),
+	)
 }
 
 func targetFromParticipant(channelID int64, participant VoiceParticipant, now time.Time) voiceTarget {

@@ -554,19 +554,10 @@ func (s *Service) applyCallWebhook(ctx context.Context, event *livekit.WebhookEv
 		if !ok {
 			return false
 		}
-		if participant.Generation == 0 {
-			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: participant.Identity})
-			return false
-		}
 		s.mu.Lock()
-		target := s.callTargets[participant.UserID]
+		target, hasTarget := s.callTargets[participant.UserID]
 		c, exists := s.calls[callID]
-		if !exists {
-			s.mu.Unlock()
-			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: participant.Identity})
-			return false
-		}
-		if target.valid(s.now()) && !target.accepts(roomName, callID, participant.Generation) {
+		if !exists || !callParticipantAllowed(s.now(), target, hasTarget, roomName, callID, participant) {
 			s.mu.Unlock()
 			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: participant.Identity})
 			return false
@@ -645,8 +636,22 @@ func (target callTarget) valid(now time.Time) bool {
 }
 
 func (target callTarget) accepts(roomName string, callID int64, generation uint64) bool {
-	return target.CallID > 0 && generation >= target.Generation &&
-		(generation != target.Generation || (callID == target.CallID && roomName == target.RoomName))
+	return target.CallID > 0 && generationAcceptsTarget(
+		target.Generation,
+		generation,
+		callID == target.CallID && roomName == target.RoomName,
+	)
+}
+
+// callParticipantAllowed is the shared admission guard for a call room
+// participant, used by both the webhook path and the periodic refresh: a
+// participant without a token generation or one carrying a stale generation
+// (valid target issued for a different room/generation) is rejected.
+func callParticipantAllowed(now time.Time, target callTarget, hasTarget bool, roomName string, callID int64, participant VoiceParticipant) bool {
+	if participant.Generation == 0 {
+		return false
+	}
+	return !hasTarget || !target.valid(now) || target.accepts(roomName, callID, participant.Generation)
 }
 
 func cloneCall(c *call) *call {
