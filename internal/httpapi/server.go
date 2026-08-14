@@ -48,6 +48,7 @@ func New(cfg config.Config, db *store.Store, mediaService *media.Service, logger
 		logger: logger,
 		limits: make(map[int64][]time.Time),
 	}
+	mediaService.SetCallSignaler(hubCallSignaler{hub: s.hub})
 	s.upgrader = websocket.Upgrader{
 		HandshakeTimeout: 10 * time.Second,
 		CheckOrigin:      s.checkOrigin,
@@ -145,6 +146,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/messages", s.requireGuildMember(http.HandlerFunc(s.handleGuildCreateMessage)))
 	mux.Handle("GET /api/guilds/{guildID}/channels/{channelID}/stats", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildChannelStats)))
 	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/voice/token", s.requireGuildMember(http.HandlerFunc(s.handleGuildVoiceToken)))
+	mux.Handle("POST /api/calls", s.requireAuth(http.HandlerFunc(s.handleCallCreate)))
+	mux.Handle("POST /api/calls/{callId}/accept", s.requireAuth(http.HandlerFunc(s.handleCallAccept)))
+	mux.Handle("POST /api/calls/{callId}/reject", s.requireAuth(http.HandlerFunc(s.handleCallReject)))
+	mux.Handle("POST /api/calls/{callId}/cancel", s.requireAuth(http.HandlerFunc(s.handleCallCancel)))
+	mux.Handle("POST /api/calls/{callId}/hangup", s.requireAuth(http.HandlerFunc(s.handleCallHangup)))
+	mux.Handle("POST /api/calls/{callId}/token", s.requireAuth(http.HandlerFunc(s.handleCallToken)))
 	mux.Handle("PATCH /api/guilds/{guildID}/channels/{channelID}/voice/state", s.requireGuildMember(http.HandlerFunc(s.handleGuildVoiceState)))
 	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/voice/participants/{userID}/disconnect", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildVoiceParticipantDisconnect)))
 	mux.Handle("POST /api/guilds/{guildID}/voice/leave", s.requireGuildMember(http.HandlerFunc(s.handleGuildVoiceLeave)))

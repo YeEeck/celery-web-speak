@@ -214,6 +214,15 @@ func (h *Hub) expire(c *client) {
 	h.BroadcastPresence()
 }
 
+// IsOnline reports whether the account has any live connection in the hub
+// (including connections still within the lease grace period after a dropped
+// socket). It backs the call initiation online check (spec 02/14).
+func (h *Hub) IsOnline(userID int64) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.counts[userID] > 0
+}
+
 func (h *Hub) OnlineClients() []OnlineClient {
 	h.mu.RLock()
 	defer h.mu.RUnlock()

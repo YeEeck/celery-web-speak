@@ -14,7 +14,70 @@ import (
 	"github.com/yeck/celery-web-speak/internal/store"
 )
 
-var ErrCallNotFound = errors.New("call not found")
+var (
+	ErrCallNotFound   = errors.New("call not found")
+	ErrCallWrongParty = errors.New("user is not a party to this call")
+	ErrCallNotRinging = errors.New("call is not ringing")
+	ErrCallNotActive  = errors.New("call is not active")
+)
+
+// CallState is the lifecycle phase of a 1:1 call, per spec 04. The terminal
+// phase ended carries the reason the call finished via the call's EndReason.
+type CallState string
+
+const (
+	CallRinging CallState = "ringing"
+	CallActive  CallState = "active"
+	CallEnded   CallState = "ended"
+)
+
+// CallEndReason records why a call reached the ended terminal state.
+type CallEndReason string
+
+const (
+	CallEndBusy         CallEndReason = "busy"
+	CallEndUnreachable  CallEndReason = "unreachable"
+	CallEndRejected     CallEndReason = "rejected"
+	CallEndCanceled     CallEndReason = "canceled"
+	CallEndTimeout      CallEndReason = "timeout"
+	CallEndNormal       CallEndReason = "ended"
+	CallEndDisconnected CallEndReason = "disconnected"
+)
+
+// CallParty carries the render fields of one call party needed by the frontend
+// signalling UI. It is captured at initiation so asynchronous terminal events
+// (timeout, disconnect) can still describe the peer without a store read.
+type CallParty struct {
+	UserID      int64  `json:"userId"`
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName"`
+}
+
+// CallSignal is one outbound point-to-point signalling event produced by the
+// call state machine. The state machine computes the peer for the addressed
+// party; httpapi wires delivery to its hub-backed CallSignaler.
+type CallSignal struct {
+	Type   string        `json:"type"`
+	CallID int64         `json:"callId"`
+	Peer   CallParty     `json:"peer"`
+	State  CallState     `json:"state"`
+	Reason CallEndReason `json:"reason,omitempty"`
+}
+
+// CallSignaler receives outbound call signalling events for delivery to a
+// target account's own connections. httpapi registers a hub-backed
+// implementation; a nil signaler makes emission a no-op for in-memory tests.
+type CallSignaler interface {
+	EmitCallSignal(targetUserID int64, signal CallSignal)
+}
+
+// SetCallSignaler wires the sink used to deliver call signalling events. It is
+// intended to be called once during startup.
+func (s *Service) SetCallSignaler(signaler CallSignaler) {
+	s.mu.Lock()
+	s.callSignaler = signaler
+	s.mu.Unlock()
+}
 
 // callTarget is the per-user single-value target of the user's active call
 // connection, mirroring the channel voiceTarget. A user may hold at most one
@@ -29,15 +92,25 @@ type callTarget struct {
 }
 
 // call is the in-memory coordination state for a single call room. It tracks
-// the two parties and the participants currently connected to the room. The
-// signalling lifecycle (ringing/active/ended) deliberately lives outside this
-// shape and belongs to a later ticket.
+// the two parties, the lifecycle phase (ringing/active/ended + terminal
+// reason) and the participants currently connected to the room.
 type call struct {
 	CallID       int64
 	CallerID     int64
 	CalleeID     int64
+	Caller       CallParty
+	Callee       CallParty
+	State        CallState
+	EndReason    CallEndReason
 	ExpiresAt    time.Time
 	Participants map[int64]VoiceParticipant
+}
+
+func (c *call) otherParty(userID int64) int64 {
+	if userID == c.CallerID {
+		return c.CalleeID
+	}
+	return c.CallerID
 }
 
 func CallRoomName(callID int64) string {
@@ -51,7 +124,7 @@ func ParseCallRoomName(name string) (int64, bool) {
 
 // NewCall allocates the next monotonic callID and creates the call room
 // coordination state, returning the callID. It performs no signalling and
-// issues no tokens.
+// issues no tokens; the call starts in the ringing phase.
 func (s *Service) NewCall(callerID, calleeID int64) int64 {
 	now := s.now()
 	s.mu.Lock()
@@ -60,6 +133,7 @@ func (s *Service) NewCall(callerID, calleeID int64) int64 {
 		CallID:       callID,
 		CallerID:     callerID,
 		CalleeID:     calleeID,
+		State:        CallRinging,
 		ExpiresAt:    now.Add(voiceTokenTTL),
 		Participants: make(map[int64]VoiceParticipant),
 	}
@@ -68,7 +142,262 @@ func (s *Service) NewCall(callerID, calleeID int64) int64 {
 	return callID
 }
 
-// JoinCallCredentials issues a token for an existing call room. Tokens use the
+// StartCallResult describes the outcome of initiating a call: the allocated
+// callID and its resulting phase. A terminated initiation (busy/unreachable)
+// carries the terminal reason.
+type StartCallResult struct {
+	CallID int64         `json:"callId"`
+	State  CallState     `json:"state"`
+	Reason CallEndReason `json:"reason,omitempty"`
+}
+
+// StartCall performs the one-shot initiation arbitration (spec 04/05): an
+// unreachable callee ends immediately, a busy callee (already in any ringing
+// or active call) ends as busy, otherwise the call enters ringing and a 30s
+// timeout is armed. The resulting signalling events are delivered to the
+// registered CallSignaler. reachable is decided by the caller (httpapi) from
+// shared-guild membership and online presence; busy is decided here from the
+// in-memory call coordination.
+func (s *Service) StartCall(caller, callee store.User, reachable bool) StartCallResult {
+	now := s.now()
+	s.mu.Lock()
+	callID := s.nextCallIDLocked(now)
+	state := CallRinging
+	var reason CallEndReason
+	switch {
+	case !reachable:
+		state = CallEnded
+		reason = CallEndUnreachable
+	case s.busyLocked(callee.ID):
+		state = CallEnded
+		reason = CallEndBusy
+	}
+	c := &call{
+		CallID:       callID,
+		CallerID:     caller.ID,
+		CalleeID:     callee.ID,
+		Caller:       CallParty{UserID: caller.ID, Username: caller.Username, DisplayName: caller.DisplayName},
+		Callee:       CallParty{UserID: callee.ID, Username: callee.Username, DisplayName: callee.DisplayName},
+		State:        state,
+		EndReason:    reason,
+		ExpiresAt:    now.Add(voiceTokenTTL),
+		Participants: make(map[int64]VoiceParticipant),
+	}
+	s.calls[callID] = c
+	s.revision++
+	s.mu.Unlock()
+
+	switch state {
+	case CallEnded:
+		s.emit(caller.ID, callID, CallEnded, reason)
+	case CallRinging:
+		s.schedule(callRingTimeout, func() { s.timeoutCall(callID) })
+		s.emit(callee.ID, callID, CallRinging, "")
+	}
+	return StartCallResult{CallID: callID, State: state, Reason: reason}
+}
+
+// AcceptCall advances a ringing call whose callee is userID to active.
+func (s *Service) AcceptCall(callID, userID int64) error {
+	s.mu.Lock()
+	c, exists := s.calls[callID]
+	if !exists {
+		s.mu.Unlock()
+		return ErrCallNotFound
+	}
+	if c.State != CallRinging {
+		s.mu.Unlock()
+		return ErrCallNotRinging
+	}
+	if userID != c.CalleeID {
+		s.mu.Unlock()
+		return ErrCallWrongParty
+	}
+	c.State = CallActive
+	s.revision++
+	peerID := c.CallerID
+	s.mu.Unlock()
+
+	s.emit(peerID, callID, CallActive, "")
+	return nil
+}
+
+// RejectCall ends a ringing call whose callee is userID, for reason rejected.
+func (s *Service) RejectCall(callID, userID int64) error {
+	return s.endRinging(callID, userID, true, CallEndRejected)
+}
+
+// CancelCall ends a ringing call whose caller is userID, for reason canceled.
+func (s *Service) CancelCall(callID, userID int64) error {
+	return s.endRinging(callID, userID, false, CallEndCanceled)
+}
+
+// HangUpCall ends an active call for either party, for reason ended. The other
+// party receives the terminal call_end signal.
+func (s *Service) HangUpCall(callID, userID int64) error {
+	s.mu.Lock()
+	c, exists := s.calls[callID]
+	if !exists {
+		s.mu.Unlock()
+		return ErrCallNotFound
+	}
+	if c.State != CallActive {
+		s.mu.Unlock()
+		return ErrCallNotActive
+	}
+	if userID != c.CallerID && userID != c.CalleeID {
+		s.mu.Unlock()
+		return ErrCallWrongParty
+	}
+	c.State = CallEnded
+	c.EndReason = CallEndNormal
+	s.revision++
+	peerID := c.otherParty(userID)
+	s.mu.Unlock()
+
+	s.emit(peerID, callID, CallEnded, CallEndNormal)
+	return nil
+}
+
+// CallPeer returns the other party's user ID when userID is a party to the
+// call. It backs the token endpoint, which must restrict credentials to the
+// two parties only.
+func (s *Service) CallPeer(callID, userID int64) (int64, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, exists := s.calls[callID]
+	if !exists {
+		return 0, false
+	}
+	if userID == c.CallerID {
+		return c.CalleeID, true
+	}
+	if userID == c.CalleeID {
+		return c.CallerID, true
+	}
+	return 0, false
+}
+
+// endRinging terminates a ringing call initiated by a specific party and
+// signals the other party. expectCallee selects the acting party: the callee
+// rejects, the caller cancels.
+func (s *Service) endRinging(callID, userID int64, expectCallee bool, reason CallEndReason) error {
+	s.mu.Lock()
+	c, exists := s.calls[callID]
+	if !exists {
+		s.mu.Unlock()
+		return ErrCallNotFound
+	}
+	if c.State != CallRinging {
+		s.mu.Unlock()
+		return ErrCallNotRinging
+	}
+	actingID := c.CallerID
+	if expectCallee {
+		actingID = c.CalleeID
+	}
+	if userID != actingID {
+		s.mu.Unlock()
+		return ErrCallWrongParty
+	}
+	c.State = CallEnded
+	c.EndReason = reason
+	s.revision++
+	peerID := c.otherParty(userID)
+	s.mu.Unlock()
+
+	s.emit(peerID, callID, CallEnded, reason)
+	return nil
+}
+
+// timeoutCall fires the 30s ring timeout: it ends the call only if it is still
+// ringing. It is safe against a concurrent accept/reject/cancel, which would
+// have already moved the call out of ringing.
+func (s *Service) timeoutCall(callID int64) {
+	s.mu.Lock()
+	c, exists := s.calls[callID]
+	if !exists || c.State != CallRinging {
+		s.mu.Unlock()
+		return
+	}
+	c.State = CallEnded
+	c.EndReason = CallEndTimeout
+	s.revision++
+	s.mu.Unlock()
+
+	s.emit(c.CallerID, callID, CallEnded, CallEndTimeout)
+	s.emit(c.CalleeID, callID, CallEnded, CallEndTimeout)
+}
+
+// busyLocked reports whether the user is a party to any ringing or active call.
+// Being present in a voice channel is not busy, per spec 04. The caller must
+// hold s.mu.
+func (s *Service) busyLocked(userID int64) bool {
+	for _, c := range s.calls {
+		if (c.CallerID == userID || c.CalleeID == userID) && c.State != CallEnded {
+			return true
+		}
+	}
+	return false
+}
+
+// peerParty returns the counterpart of targetUserID's party within the call.
+// It backs the "对方" field each outbound signal carries for frontend
+// rendering. A zero CallParty is returned when targetUserID is not a party.
+func (s *Service) peerParty(callID, targetUserID int64) CallParty {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	c, exists := s.calls[callID]
+	if !exists {
+		return CallParty{}
+	}
+	if targetUserID == c.CallerID {
+		return c.Callee
+	}
+	if targetUserID == c.CalleeID {
+		return c.Caller
+	}
+	return CallParty{}
+}
+
+// emit delivers one signalling event to a target account, computing the peer
+// (the counterpart of targetUserID) from the current call coordination.
+func (s *Service) emit(targetUserID, callID int64, state CallState, reason CallEndReason) {
+	if s.callSignaler == nil {
+		return
+	}
+	s.callSignaler.EmitCallSignal(targetUserID, CallSignal{
+		Type:   callEventType(state, reason),
+		CallID: callID,
+		Peer:   s.peerParty(callID, targetUserID),
+		State:  state,
+		Reason: reason,
+	})
+}
+
+func callEventType(state CallState, reason CallEndReason) string {
+	if state != CallEnded {
+		if state == CallActive {
+			return "call_accept"
+		}
+		return "call_invite"
+	}
+	switch reason {
+	case CallEndBusy:
+		return "call_busy"
+	case CallEndUnreachable:
+		return "call_unreachable"
+	case CallEndRejected:
+		return "call_reject"
+	case CallEndCanceled:
+		return "call_cancel"
+	case CallEndTimeout:
+		return "call_timeout"
+	default:
+		return "call_end"
+	}
+}
+
 // default grant (full publish and subscribe), per ADR 0032, and do not touch
 // the user's channel connection.
 func (s *Service) JoinCallCredentials(ctx context.Context, user store.User, callID, peerID int64) (JoinCredentials, error) {
@@ -206,8 +535,19 @@ func (s *Service) applyCallWebhook(ctx context.Context, event *livekit.WebhookEv
 			return false
 		}
 		delete(c.Participants, participant.UserID)
+		// A party leaving an active call (without a prior hangup) is a terminal
+		// disconnect, per spec 04; signal the other party.
+		var disconnectedTo int64
+		if c.State == CallActive && (participant.UserID == c.CallerID || participant.UserID == c.CalleeID) {
+			c.State = CallEnded
+			c.EndReason = CallEndDisconnected
+			disconnectedTo = c.otherParty(participant.UserID)
+		}
 		s.revision++
 		s.mu.Unlock()
+		if disconnectedTo > 0 {
+			s.emit(disconnectedTo, callID, CallEnded, CallEndDisconnected)
+		}
 		return true
 	case webhook.EventRoomFinished:
 		s.mu.Lock()
@@ -281,7 +621,7 @@ func callsEqual(a, b *call) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	if a.CallID != b.CallID || a.CallerID != b.CallerID || a.CalleeID != b.CalleeID || !a.ExpiresAt.Equal(b.ExpiresAt) {
+	if a.CallID != b.CallID || a.CallerID != b.CallerID || a.CalleeID != b.CalleeID || a.Caller != b.Caller || a.Callee != b.Callee || a.State != b.State || a.EndReason != b.EndReason || !a.ExpiresAt.Equal(b.ExpiresAt) {
 		return false
 	}
 	if len(a.Participants) != len(b.Participants) {

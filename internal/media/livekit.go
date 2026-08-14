@@ -22,6 +22,7 @@ const (
 	DeafenedAttribute        = "deafened"
 	VoiceGenerationAttribute = "voice_generation"
 	voiceTokenTTL            = 15 * time.Minute
+	callRingTimeout          = 30 * time.Second
 )
 
 var ErrParticipantNotInVoiceChannel = errors.New("participant is not connected to voice channel")
@@ -57,6 +58,8 @@ type Service struct {
 	generation     uint64
 	callGeneration int64
 	now            func() time.Time
+	schedule       func(time.Duration, func())
+	callSignaler   CallSignaler
 	voiceTime      VoiceTimeAccumulator
 	voiceTimeMu    sync.Mutex
 	lastVoiceFlush time.Time
@@ -95,6 +98,9 @@ func New(url, publicURL, apiKey, apiSecret string) *Service {
 		callTargets: make(map[int64]callTarget),
 		calls:       make(map[int64]*call),
 		now:         time.Now,
+		schedule: func(delay time.Duration, fn func()) {
+			time.AfterFunc(delay, fn)
+		},
 	}
 }
 
