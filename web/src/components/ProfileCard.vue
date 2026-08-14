@@ -171,9 +171,15 @@ function remainingBan(member: User): string {
         </div>
       </header>
 
-      <button v-if="callable" class="profile-card-call-button" type="button" @click="startCall">
+      <button
+        v-if="callable"
+        class="profile-card-call-button"
+        type="button"
+        title="语音通话"
+        aria-label="语音通话"
+        @click="startCall"
+      >
         <Phone :size="16" />
-        语音通话
       </button>
 
       <div v-if="loading" class="profile-card-status">正在加载…</div>
