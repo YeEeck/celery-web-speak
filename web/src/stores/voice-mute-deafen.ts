@@ -74,6 +74,8 @@ export interface VoiceMuteDeafenModule {
   readonly deafenChanging: Ref<boolean>
   readonly voicePreferenceFeedback: Ref<string>
   readonly deafenedSyncError: Ref<string>
+  // 频道作用域耳机静音（通话叠加）：只静频道、不写全局偏好（ADR-0032）。
+  readonly channelDeafened: Ref<boolean>
 
   // 6 个领域入口
   userToggledMute: () => Promise<void>
@@ -85,6 +87,9 @@ export interface VoiceMuteDeafenModule {
 
   // 外部偏好变化通知（让 module 的 reconcile 循环感知）
   notifyPreferenceChange: () => void
+
+  // 频道作用域耳机静音施加/解除（voice.ts 在通话状态变化时调用；传入是否处于通话）。
+  setCallChannelDeafen: (active: boolean) => Promise<void>
 }
 
 const PREFERENCE_FEEDBACK_DURATION_MS = 2_400
@@ -99,6 +104,9 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
   const guildMuted = ref(false)
   const voicePreferenceFeedback = ref('')
   const deafenedSyncError = ref('')
+  // 频道作用域耳机静音叠加态（通话期间施加）：独立于全局 deafenedPreference，
+  // 只静频道（停发频道麦克风、停播频道回放），不静通话；挂断后解除并恢复通话前偏好。
+  const channelDeafened = ref(false)
 
   let pendingDeafenedSync: boolean | null = null
   let deafenedSyncSession: number | null = null
@@ -141,10 +149,15 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
     }, PREFERENCE_FEEDBACK_DURATION_MS)
   }
 
+  // 有效耳机静音：全局偏好或频道作用域叠加任一命中即静音频道。
+  function effectiveDeafened() {
+    return deafenedPreference.value || channelDeafened.value
+  }
+
   function syncIdlePreferenceState() {
     if (ctx.room()) return
-    deafened.value = deafenedPreference.value
-    muted.value = deafenedPreference.value || !microphoneEnabledPreference.value
+    deafened.value = effectiveDeafened()
+    muted.value = effectiveDeafened() || !microphoneEnabledPreference.value
   }
 
   async function userToggledMute() {
@@ -250,6 +263,31 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
     syncIdlePreferenceState()
   }
 
+  // 频道作用域耳机静音（通话叠加）：active 为 true 时只静频道（停发频道麦克风、
+  // 停播频道回放、后端同步 deafened=true），不写全局 deafenedPreference；false 时
+  // 解除并按通话前偏好回算。无频道（未连接）时仅记录叠加态，无副作用。
+  // 与全局偏好独立：施加/解除都不触碰 deafenedPreference，通话中翻转全局偏好也不
+  // 解除叠加（reconcile 以 effectiveDeafened = 偏好 || 叠加 计算）。
+  async function setCallChannelDeafen(active: boolean): Promise<void> {
+    if (channelDeafened.value === active) return
+    channelDeafened.value = active
+    const target = ctx.room()
+    if (!target || ctx.status() === 'connecting') {
+      syncIdlePreferenceState()
+      return
+    }
+    const session = ctx.voiceSession()
+    ctx.setErrorMessage('')
+    try {
+      await reconcileConnectedPreferences(target, session)
+      if (session === ctx.voiceSession() && ctx.room() === target) ctx.syncParticipants()
+    } catch (error) {
+      if (session === ctx.voiceSession() && ctx.room() === target) {
+        ctx.setErrorMessage(error instanceof Error ? error.message : '无法切换频道静音状态')
+      }
+    }
+  }
+
   async function applyConnectionPreferences() {
     for (let attempt = 0; attempt < 6; attempt += 1) {
       const target = ctx.room()
@@ -261,7 +299,7 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
       if (session !== ctx.voiceSession() || ctx.room() !== target) return
       await reconcileConnectedPreferences(target, session)
       if (session !== ctx.voiceSession() || ctx.room() !== target) return
-      await queueDeafenedSync(deafenedPreference.value)
+      await queueDeafenedSync(effectiveDeafened())
       if (session !== ctx.voiceSession() || ctx.room() !== target) return
       if (revision === preferenceRevision) return
     }
@@ -272,7 +310,7 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
     for (let attempt = 0; attempt < 6; attempt += 1) {
       if (session !== ctx.voiceSession() || ctx.room() !== target) return
       const revision = preferenceRevision
-      const nextDeafened = deafenedPreference.value
+      const nextDeafened = effectiveDeafened()
       const shouldEnableMicrophone = microphoneEnabledPreference.value && !nextDeafened && !guildMuted.value
 
       if (nextDeafened) {
@@ -357,6 +395,7 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
     deafenChanging,
     voicePreferenceFeedback,
     deafenedSyncError,
+    channelDeafened,
     userToggledMute,
     userToggledDeafen,
     guildMuteChanged,
@@ -364,5 +403,6 @@ export function useVoiceMuteDeafenModule(ctx: MuteDeafenContext): VoiceMuteDeafe
     connectionReset,
     applyConnectionPreferences,
     notifyPreferenceChange,
+    setCallChannelDeafen,
   }
 }

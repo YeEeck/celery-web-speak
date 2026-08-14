@@ -381,3 +381,133 @@ test('notifyPreferenceChange 让 applyConnectionPreferences 循环看见偏好�
   assert.equal(m.muted.value, false)
   assert.equal(m.deafened.value, false)
 })
+
+// ===== 频道作用域耳机静音（spec 07 / ADR-0032 / ticket 04）=====
+
+test('setCallChannelDeafen(true) 已连接：停发频道麦克风、停播回放、后端 deafened=true，不写偏好', async () => {
+  const h = makeHarness({
+    status: 'connected',
+    room: { kind: 'room' },
+    voiceSession: 1,
+    connectedChannelId: 5,
+    connectedGuildId: 9,
+    microphoneCurrentlyEnabled: true,
+    applicationAudioPlaying: true,
+    preseeMicrophoneEnabled: true,
+    preseeDeafened: false,
+  })
+  const m = useVoiceMuteDeafenModule(h.ctx)
+  await m.setCallChannelDeafen(true)
+  assert.equal(m.channelDeafened.value, true)
+  // 频道作用域静音不碰全局耳机静音偏好
+  assert.equal(m.deafenedPreference.value, false)
+  // 停发频道麦克风 + 停播回放（deafened 投影为 true）
+  assert.equal(m.deafened.value, true)
+  assert.equal(m.muted.value, true)
+  assert.ok(h.calls.includes('applyMicrophoneState:{"enabled":false}'))
+  assert.ok(h.calls.includes('applyAllVolumes'))
+  assert.ok(h.calls.includes('syncDeafenedToBackend:9,5,true'))
+  // 不写偏好（saveDeafenedPreference 不被调用）
+  assert.ok(!h.calls.includes('saveDeafenedPreference:true'))
+  assert.ok(!h.calls.includes('saveDeafenedPreference:false'))
+})
+
+test('setCallChannelDeafen(false) 恢复通话前偏好：偏好本就未聋 → 解除 deafened', async () => {
+  const h = makeHarness({
+    status: 'connected',
+    room: { kind: 'room' },
+    voiceSession: 1,
+    connectedChannelId: 5,
+    connectedGuildId: 9,
+    microphoneCurrentlyEnabled: true,
+    preseeMicrophoneEnabled: true,
+    preseeDeafened: false,
+  })
+  const m = useVoiceMuteDeafenModule(h.ctx)
+  await m.setCallChannelDeafen(true)
+  assert.equal(m.deafened.value, true)
+  await m.setCallChannelDeafen(false)
+  assert.equal(m.channelDeafened.value, false)
+  assert.equal(m.deafened.value, false)
+  assert.equal(m.muted.value, false)
+  assert.ok(h.calls.includes('applyMicrophoneState:{"enabled":true,"transmissionMode":"voice-activity"}'))
+  assert.ok(h.calls.some(c => c === 'syncDeafenedToBackend:9,5,false'))
+  assert.equal(m.deafenedPreference.value, false)
+})
+
+test('setCallChannelDeafen(false) 恢复回算：通话前本就全局聋 → 恢复后仍聋', async () => {
+  const h = makeHarness({
+    status: 'connected',
+    room: { kind: 'room' },
+    voiceSession: 1,
+    connectedChannelId: 5,
+    connectedGuildId: 9,
+    microphoneCurrentlyEnabled: true,
+    preseeMicrophoneEnabled: true,
+    preseeDeafened: true,
+  })
+  const m = useVoiceMuteDeafenModule(h.ctx)
+  assert.equal(m.deafened.value, true)
+  await m.setCallChannelDeafen(true)
+  assert.equal(m.deafened.value, true)
+  await m.setCallChannelDeafen(false)
+  // 恢复后按偏好回算：仍聋
+  assert.equal(m.deafened.value, true)
+  assert.equal(m.deafenedPreference.value, true)
+})
+
+test('通话中全局耳机静音偏好翻转不解除频道作用域耳机静音（两者独立）', async () => {
+  const h = makeHarness({
+    status: 'connected',
+    room: { kind: 'room' },
+    voiceSession: 1,
+    connectedChannelId: 5,
+    connectedGuildId: 9,
+    microphoneCurrentlyEnabled: true,
+    preseeMicrophoneEnabled: true,
+    preseeDeafened: false,
+  })
+  const m = useVoiceMuteDeafenModule(h.ctx)
+  await m.setCallChannelDeafen(true)
+  assert.equal(m.deafened.value, true)
+  // 通话期间用户把全局耳机静音偏好关掉（它本就在 off，翻转 on 再 off 以覆盖）——
+  // 直接走 userToggledDeafen 模拟：on（已是 channel 聋）→ off
+  await m.userToggledDeafen()
+  assert.equal(m.deafenedPreference.value, true)
+  assert.equal(m.deafened.value, true)
+  await m.userToggledDeafen()
+  assert.equal(m.deafenedPreference.value, false)
+  // 频道作用域静音仍在：偏好 off 但 channelDeafened 仍 true
+  assert.equal(m.deafened.value, true)
+  assert.equal(m.channelDeafened.value, true)
+})
+
+test('未连频道时 setCallChannelDeafen 只记录状态、无副作用；恢复也无副作用', async () => {
+  const h = makeHarness({ status: 'idle' })
+  const m = useVoiceMuteDeafenModule(h.ctx)
+  const before = h.calls.length
+  await m.setCallChannelDeafen(true)
+  assert.equal(m.channelDeafened.value, true)
+  assert.equal(h.calls.length, before)
+  await m.setCallChannelDeafen(false)
+  assert.equal(m.channelDeafened.value, false)
+  assert.equal(m.deafenedPreference.value, false)
+  assert.equal(h.calls.length, before)
+})
+
+test('setCallChannelDeafen 幂等：重复施加/解除不产生额外副作用', async () => {
+  const h = makeHarness({
+    status: 'connected',
+    room: { kind: 'room' },
+    voiceSession: 1,
+    connectedChannelId: 5,
+    connectedGuildId: 9,
+    microphoneCurrentlyEnabled: true,
+    preseeMicrophoneEnabled: true,
+  })
+  const m = useVoiceMuteDeafenModule(h.ctx)
+  await m.setCallChannelDeafen(true)
+  const syncCountTrue = h.calls.filter(c => c === 'syncDeafenedToBackend:9,5,true').length
+  await m.setCallChannelDeafen(true)
+  assert.equal(h.calls.filter(c => c === 'syncDeafenedToBackend:9,5,true').length, syncCountTrue)
+})

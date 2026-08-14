@@ -4,6 +4,7 @@ import { ChevronRight, MicOff, Music2, Signal, Volume2, VolumeX } from '@lucide/
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
+import { useToastStore } from '../stores/toast'
 import { backgroundAudioStatusLabel, microphoneStatusLabel, voiceQualityDisplay } from '../stores/voice-utils'
 import type { Channel, PresenceStatus } from '../types'
 
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 }>()
 const app = useAppStore()
 const voice = useVoiceStore()
+const toast = useToastStore()
 const selectedId = ref<number | null>(null)
 
 const connected = computed(() => voice.joined && voice.connectedChannelId === props.channel.id)
@@ -31,6 +33,17 @@ const statusLabel = computed(() => {
 
 function userFor(participant: VoiceParticipant | { userId: number }) {
   return app.users.find((user) => user.id === participant.userId)
+}
+
+// 通话中来频道邀请被拒（ticket 04 / ADR-0032）：通话进行中（呼出/振铃/通话中）
+// 点击加入或切换语音频道被拒，提示「正在通话中」。语义判定放在组件层，不给
+// voice-session 深模块灌注通话知识。
+function joinChannel() {
+  if (voice.callStatus !== 'idle') {
+    toast.showWarning('正在通话中')
+    return
+  }
+  void voice.join(props.channel.id)
 }
 
 function statusFor(participant: VoiceParticipant | { userId: number }): PresenceStatus | undefined {
@@ -80,7 +93,7 @@ function openParticipantKeyboardMenu(participant: VoiceParticipant, event: Keybo
     <button
       :class="['channel-row', { active: connected }]"
       :disabled="voice.status === 'connecting'"
-      @click="voice.join(channel.id)"
+      @click="joinChannel"
       @contextmenu.prevent="openContextMenu"
       @keydown="openKeyboardMenu"
     >

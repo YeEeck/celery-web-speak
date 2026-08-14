@@ -305,6 +305,14 @@ export const useVoiceStore = defineStore('voice', () => {
     applyAudioSink: (element, deviceId) => void setAudioSink(element, deviceId),
   })
 
+  // 频道作用域耳机静音接线（ticket 04 / ADR-0032）：发起通话（outgoing）与
+  // 接听进入通话（active）时自动静音频道；来电振铃（ringing）期间频道保持原样；
+  // 任何方式回到 idle（挂断/拒接/取消/超时等）自动解除并恢复通话前偏好。
+  // 语义判定放在接线层，不写进 call 会话（保持 voice-call 对「频道」无感知）。
+  watch(() => call.status.value, (status) => {
+    void muteDeafen.setCallChannelDeafen(status === 'outgoing' || status === 'active')
+  })
+
   // 把 WS 点到点 call_* 事件路由给通话会话。app.ts 在 handleEvent 里按
   // call_ 前缀统一转发到这里注册的 handler（模块级，避免 app ↔ voice 循环依赖）。
   setCallSignalHandler((type, data) => {
@@ -492,6 +500,8 @@ export const useVoiceStore = defineStore('voice', () => {
     setStatusSetting: presence.setStatusSetting,
     // 语音通话会话公开面（通话浮层/个人信息卡片入口消费）。
     callStatus: call.status,
+    // 频道作用域耳机静音叠加态（通话期间为 true）：频道信息区显示临时态用。
+    callChannelDeafened: muteDeafen.channelDeafened,
     callReconnecting: call.reconnecting,
     callPeer: call.peer,
     callMicrophoneMuted: call.microphoneMuted,

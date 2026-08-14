@@ -739,6 +739,10 @@ function closeChangelog() {
             @click="voice.leave({ intent: 'active' })"
           ><LogOut :size="18" /></button>
         </div>
+        <p v-if="voice.callChannelDeafened" class="voice-call-deafen-notice" role="status">
+          通话中 · 频道已静音
+          <small>挂断后恢复</small>
+        </p>
         <p v-if="voice.transmissionModeError" class="voice-control-error" role="alert">{{ voice.transmissionModeError }}</p>
       </div>
       <div v-if="voice.overlaySupported" class="voice-overlay-row">
