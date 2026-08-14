@@ -20,6 +20,10 @@ export type ApplicationSoundOccurrence =
   | 'voice-participant-left'
   | 'text-message-received'
   | 'muted-speaking-reminder'
+  | 'call-incoming'
+  | 'call-outgoing'
+  | 'call-connected'
+  | 'call-ended'
 
 export interface ApplicationSoundPlaybackContext {
   deafened: boolean
@@ -121,6 +125,11 @@ export interface ApplicationSounds {
   settings: ApplicationSoundSettings
   mutedSpeakingReminderAudible: ComputedRef<boolean>
   signal(occurrence: ApplicationSoundOccurrence): void
+  // 循环播放：按 occurrence 对应槽位的选中音源反复播放（spec 09）；同一时刻最多
+  // 一个循环（来电振铃 / 呼出回铃互斥）。循环遵守播放策略——总开关、音量、耳机静音
+  // 关闭时静默但保持循环状态，条件恢复后下一周期自动续播。
+  loop(occurrence: ApplicationSoundOccurrence): void
+  stopLoop(): void
   followPlayback(context: ApplicationSoundPlaybackContext): void
 }
 
@@ -153,6 +162,8 @@ interface InternalSlot {
 
 const DEFAULT_VOLUME = 0.6
 const MIN_INTERVAL_MS = 300
+// 循环提示音（振铃/回铃）相邻两次播放之间的静默间隔。
+const LOOP_GAP_MS = 400
 const STORAGE_PREFIX = 'cws.notificationSounds'
 const CUSTOM_CHOICE_KEY = 'custom'
 const MAX_FILE_SIZE = 512 * 1024
@@ -175,6 +186,10 @@ const OPERATION_SOUNDS: readonly { event: OperationSoundEvent; label: string }[]
   { event: 'join', label: '加入语音' },
   { event: 'leave', label: '退出语音' },
   { event: 'message', label: '新文字消息' },
+  { event: 'call-ringing', label: '来电振铃' },
+  { event: 'call-ringback', label: '呼出回铃' },
+  { event: 'call-connect', label: '接通' },
+  { event: 'call-end', label: '结束' },
 ]
 
 export function createApplicationSounds(dependencies: ApplicationSoundDependencies): ApplicationSoundsRuntime {
@@ -200,6 +215,40 @@ export function createApplicationSounds(dependencies: ApplicationSoundDependenci
   const mutedSpeakingReminderAudible = computed(() => (
     master.enabled && master.volume > 0 && !playback.deafened
   ))
+
+  // 循环播放状态（spec 09）：同时最多一个循环，用 generation 保证 stop / 重新
+  // loop 后旧定时器不再触发。loop 由更外层接线（voice.ts 的 watch）驱动；
+  // 播放策略在每次周期内实时判定，静默期间保持循环、条件恢复后自动续播。
+  let loopGeneration = 0
+  let loopTimer: ReturnType<typeof setTimeout> | null = null
+
+  function loop(occurrence: ApplicationSoundOccurrence) {
+    if (occurrence === 'muted-speaking-reminder') return
+    const target = operationForOccurrence(occurrence)
+    const slot = slots.get(target.event)!
+    stopLoop()
+    const generation = loopGeneration
+    playLoopIteration(slot, generation)
+  }
+
+  function stopLoop() {
+    loopGeneration += 1
+    if (loopTimer) clearTimeout(loopTimer)
+    loopTimer = null
+  }
+
+  // 单次周期：立即播放 + 定时下一周期。政策不满足（总开关/音量/耳机静音）时静默，
+  // 但定时链不断，条件恢复后下一周期自动续播（spec 09）。generation 使 stop 后旧链失效。
+  function playLoopIteration(slot: InternalSlot, generation: number) {
+    if (loopGeneration !== generation) return
+    const policy = slot.playbackPolicy()
+    if (policy.enabled && policy.volume > 0 && !policy.deafened && slot.enabled) {
+      void playSelected(slot, policy.volume, dependencies.audio).catch((error) => {
+        dependencies.diagnose(`${slot.control.label}提示音循环播放失败`, error)
+      })
+    }
+    loopTimer = setTimeout(() => playLoopIteration(slot, generation), loopPeriodMs(slot))
+  }
 
   function signal(occurrence: ApplicationSoundOccurrence) {
     if (occurrence === 'muted-speaking-reminder') {
@@ -233,6 +282,8 @@ export function createApplicationSounds(dependencies: ApplicationSoundDependenci
     settings,
     mutedSpeakingReminderAudible,
     signal,
+    loop,
+    stopLoop,
     followPlayback,
     whenReady: () => Promise.all([...slots.values()].map((slot) => slot.hydration)).then(() => undefined),
     async dispose() {
@@ -580,10 +631,33 @@ function operationForOccurrence(occurrence: Exclude<ApplicationSoundOccurrence, 
   if (occurrence === 'text-message-received') {
     return { event: 'message' as const, bypassRateLimit: false }
   }
+  if (occurrence === 'call-incoming') {
+    return { event: 'call-ringing' as const, bypassRateLimit: false }
+  }
+  if (occurrence === 'call-outgoing') {
+    return { event: 'call-ringback' as const, bypassRateLimit: false }
+  }
+  if (occurrence === 'call-connected') {
+    return { event: 'call-connect' as const, bypassRateLimit: false }
+  }
+  if (occurrence === 'call-ended') {
+    return { event: 'call-end' as const, bypassRateLimit: false }
+  }
   return {
     event: 'leave' as const,
     bypassRateLimit: occurrence === 'voice-self-left' || occurrence === 'voice-moderator-disconnected',
   }
+}
+
+// 单次循环周期 = 选中音源时长 + 静默间隔。系统预置取最长音符（delay+duration），
+// 自定义取解码时长，保证下一周期在前一音播放完毕后才开始。
+function loopPeriodMs(slot: InternalSlot) {
+  if (slot.selected.kind === 'custom') {
+    return Math.max(0, slot.selected.sound.duration * 1000) + LOOP_GAP_MS
+  }
+  const notes = SOUND_PRESETS[slot.selected.preset].notes
+  const duration = notes.reduce((max, note) => Math.max(max, note.delay + note.duration), 0)
+  return duration * 1000 + LOOP_GAP_MS
 }
 
 function syncSlotControl(slot: InternalSlot) {

@@ -79,7 +79,7 @@ class RecordingAudio implements ApplicationSoundAudioAdapter {
     this.plays.push(`preset:${preset}`)
   }
 
-  async playCustom() {
+  async playCustom(_sound: DecodedCustomSound) {
     if (this.failPlayback) throw new Error('playback failed')
     this.plays.push('custom')
   }
@@ -331,6 +331,128 @@ test('schedules the fixed muted-speaking reminder note pattern', async () => {
     assert.equal(oscillator.startedAt, context.currentTime + 0.005 + note.delay)
     assert.equal(oscillator.stoppedAt, context.currentTime + 0.015 + note.delay + note.duration)
   }
+})
+
+test('exposes call-connect and call-end operation sound slots with defaults and single-shot playback', async () => {
+  const harness = createHarness()
+  await harness.sounds.whenReady()
+
+  const connect = slot(harness, 'call-connect')
+  const end = slot(harness, 'call-end')
+  assert.equal(connect.label, '接通')
+  assert.equal(end.label, '结束')
+  assert.equal(connect.selectedChoice, 'preset:rise-duo')
+  assert.equal(end.selectedChoice, 'preset:fall-duo')
+
+  harness.sounds.signal('call-connected')
+  harness.sounds.signal('call-ended')
+  await Promise.resolve()
+  assert.deepEqual(harness.audio.plays, ['preset:rise-duo', 'preset:fall-duo'])
+})
+
+test('exposes ringing and ringback slots for customizable call loops', async () => {
+  const harness = createHarness()
+  await harness.sounds.whenReady()
+
+  assert.equal(slot(harness, 'call-ringing').label, '来电振铃')
+  assert.equal(slot(harness, 'call-ringback').label, '呼出回铃')
+})
+
+test('loop replays the selected source until stopped', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const harness = createHarness()
+  await harness.sounds.whenReady()
+
+  harness.sounds.loop('call-incoming')
+  await Promise.resolve()
+  assert.deepEqual(harness.audio.plays, ['preset:rise-duo'])
+
+  t.mock.timers.tick(1_000)
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 2)
+
+  t.mock.timers.tick(1_000)
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 3)
+
+  harness.sounds.stopLoop()
+  t.mock.timers.tick(1_000)
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 3)
+  t.mock.timers.reset()
+})
+
+test('loop stays silent while deafened and resumes after unmute', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const harness = createHarness()
+  await harness.sounds.whenReady()
+
+  harness.sounds.loop('call-incoming')
+  await Promise.resolve()
+  assert.deepEqual(harness.audio.plays, ['preset:rise-duo'])
+
+  harness.sounds.followPlayback({ deafened: true, outputDeviceId: 'headphones' })
+  t.mock.timers.tick(1_000)
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 1)
+
+  harness.sounds.followPlayback({ deafened: false, outputDeviceId: 'headphones' })
+  t.mock.timers.tick(1_000)
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 2)
+
+  harness.sounds.stopLoop()
+  t.mock.timers.reset()
+})
+
+test('loop obeys master enabled and volume gates', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const harness = createHarness()
+  await harness.sounds.whenReady()
+
+  await harness.sounds.settings.master.setEnabled(false)
+  harness.sounds.loop('call-incoming')
+  await Promise.resolve()
+  t.mock.timers.tick(1_000)
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 0)
+
+  await harness.sounds.settings.master.setEnabled(true)
+  t.mock.timers.tick(1_000)
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 1)
+
+  await harness.sounds.settings.master.setVolume(0)
+  t.mock.timers.tick(1_000)
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 1)
+
+  harness.sounds.stopLoop()
+  t.mock.timers.reset()
+})
+
+test('loop plays a custom source repeatedly', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const customSounds = new MemoryCustomSounds()
+  customSounds.records.set('call-ringing', customRecord('call-ringing', 'ring.wav'))
+  const preferences = new MemoryPreferences({
+    'cws.notificationSounds.source.call-ringing': 'custom',
+  })
+  const harness = createHarness({ customSounds, preferences })
+  await harness.sounds.whenReady()
+
+  assert.equal(slot(harness, 'call-ringing').selectedChoice, 'custom')
+  harness.sounds.loop('call-incoming')
+  await Promise.resolve()
+  assert.deepEqual(harness.audio.plays, ['custom'])
+
+  // 自定义音效解码时长 1s（fake decodeDuration），下一周期 = 1s + 静默间隔。
+  t.mock.timers.tick(2_000)
+  await Promise.resolve()
+  assert.deepEqual(harness.audio.plays, ['custom', 'custom'])
+
+  harness.sounds.stopLoop()
+  t.mock.timers.reset()
 })
 
 function createBrowserAudioAdapter(context: FakeAudioContext, diagnostics: string[] = []) {

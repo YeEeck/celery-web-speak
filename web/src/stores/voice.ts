@@ -309,8 +309,24 @@ export const useVoiceStore = defineStore('voice', () => {
   // 接听进入通话（active）时自动静音频道；来电振铃（ringing）期间频道保持原样；
   // 任何方式回到 idle（挂断/拒接/取消/超时等）自动解除并恢复通话前偏好。
   // 语义判定放在接线层，不写进 call 会话（保持 voice-call 对「频道」无感知）。
-  watch(() => call.status.value, (status) => {
+  //
+  // 通话提示音接线（ticket 05 / spec 09）：呼出中循环回铃、来电循环振铃；进入
+  // active（接听/接通）停止循环并播放接通音；离开 active 或任何回到 idle 的终态
+  // 停止循环并播放结束音（busy/unreachable 等即时终态虽也回到 idle，会先经
+  // outgoing → idle 触发结束音；终态文案属 tick 06，不在本区间做）。
+  watch(() => call.status.value, (status, previous) => {
     void muteDeafen.setCallChannelDeafen(status === 'outgoing' || status === 'active')
+    if (status === 'outgoing') {
+      sounds.loop('call-outgoing')
+    } else if (status === 'ringing') {
+      sounds.loop('call-incoming')
+    } else if (status === 'active') {
+      sounds.stopLoop()
+      sounds.signal('call-connected')
+    } else {
+      sounds.stopLoop()
+      if (previous === 'active') sounds.signal('call-ended')
+    }
   })
 
   // 把 WS 点到点 call_* 事件路由给通话会话。app.ts 在 handleEvent 里按

@@ -1,4 +1,11 @@
-export type OperationSoundEvent = 'join' | 'leave' | 'message'
+export type OperationSoundEvent =
+  | 'join'
+  | 'leave'
+  | 'message'
+  | 'call-ringing'
+  | 'call-ringback'
+  | 'call-connect'
+  | 'call-end'
 
 export type SoundPresetId =
   | 'rise-duo'
@@ -59,6 +66,10 @@ export const DEFAULT_PRESETS: Record<OperationSoundEvent, SoundPresetId> = {
   join: 'rise-duo',
   leave: 'fall-duo',
   message: 'bright-single',
+  'call-ringing': 'rise-duo',
+  'call-ringback': 'low-pulse',
+  'call-connect': 'rise-duo',
+  'call-end': 'fall-duo',
 }
 
 export const MUTED_SPEAKING_NOTES: readonly NotePattern[] = [

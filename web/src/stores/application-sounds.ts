@@ -51,6 +51,8 @@ export const useApplicationSoundStore = defineStore('applicationSounds', () => {
     settings: runtime.settings,
     mutedSpeakingReminderAudible: runtime.mutedSpeakingReminderAudible,
     signal: (occurrence: ApplicationSoundOccurrence) => runtime.signal(occurrence),
+    loop: (occurrence: ApplicationSoundOccurrence) => runtime.loop(occurrence),
+    stopLoop: () => runtime.stopLoop(),
     followPlayback: (context: ApplicationSoundPlaybackContext) => runtime.followPlayback(context),
   }
 })
