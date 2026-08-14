@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { Room, supportsAudioOutputSelection } from 'livekit-client'
 import { request } from '../api.ts'
 import type { VoiceCredentials } from '../types.ts'
-import { useAppStore } from './app.ts'
+import { useAppStore, setCallSignalHandler } from './app.ts'
 import { useApplicationSoundStore } from './application-sounds.ts'
 import { SpeechDetectionEngine } from '../audio/SpeechDetectionEngine.ts'
 import { SpeechDetectionLifecycle } from '../audio/SpeechDetectionLifecycle.ts'
@@ -15,6 +15,7 @@ import { useApplicationAudio } from './voice-application-audio.ts'
 import { useVoiceMuteDeafenModule } from './voice-mute-deafen.ts'
 import { useVoicePresence } from './voice-presence.ts'
 import { useVoiceSession } from './voice-session.ts'
+import { useVoiceCall } from './voice-call.ts'
 import { useVoiceOverlay } from './voice-overlay.ts'
 import {
   DEAFENED_PREFERENCE_KEY,
@@ -269,6 +270,58 @@ export const useVoiceStore = defineStore('voice', () => {
   appAudioRef.current = appAudio
   participantVolumeRef.current = participantVolume
 
+  // 1:1 临时语音通话会话（spec 04/05）：与 channel 语音会话并列，各自持有一条
+  // LiveKit Room；ctx 复用本层已化解的 device/mute-deafen 输出（延迟解析位）。
+  const call = useVoiceCall({
+    currentUser: () => {
+      const user = useAppStore().user
+      return user ? { id: user.id } : null
+    },
+    createRoom: (options) => markRaw(new Room(options)),
+    startCallRequest: (calleeUserId) => request<{ callId: number; state: string; reason?: string }>('/api/calls', {
+      method: 'POST',
+      body: JSON.stringify({ calleeUserId }),
+    }),
+    acceptRequest: (callId) => request<void>(`/api/calls/${callId}/accept`, { method: 'POST' }),
+    rejectRequest: (callId) => request<void>(`/api/calls/${callId}/reject`, { method: 'POST' }),
+    cancelRequest: (callId) => request<void>(`/api/calls/${callId}/cancel`, { method: 'POST' }),
+    hangupRequest: (callId) => request<void>(`/api/calls/${callId}/hangup`, { method: 'POST' }),
+    fetchCallToken: (callId) => request<VoiceCredentials>(`/api/calls/${callId}/token`, { method: 'POST' }),
+    resolvedPreferredInputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('input') ?? '',
+    resolvedPreferredOutputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('output') ?? '',
+    echoCancellation: () => echoCancellation.value,
+    noiseSuppression: () => {
+      const context = voiceContextRef.current
+      return resolveNoiseSuppression(
+        noiseSuppressionOption.value,
+        context !== null && context.state !== 'closed' && context.sampleRate === 48_000,
+      )
+    },
+    microphoneEnabledPreference: () => muteDeafenRef.current?.microphoneEnabledPreference.value ?? false,
+    // 通话远端音频挂载到独立的 #call-audio-root，而不是频道语音的
+    // #voice-audio-root；这样频道 leave/join 清理频道音频元素时不会误删通话音频。
+    appendAudioElement: (element) => void document.querySelector('#call-audio-root')?.appendChild(element),
+    removeAudioElements: () => void document.querySelectorAll('#call-audio-root audio').forEach((element) => element.remove()),
+    applyAudioSink: (element, deviceId) => void setAudioSink(element, deviceId),
+  })
+
+  // 把 WS 点到点 call_* 事件路由给通话会话。app.ts 在 handleEvent 里按
+  // call_ 前缀统一转发到这里注册的 handler（模块级，避免 app ↔ voice 循环依赖）。
+  setCallSignalHandler((type, data) => {
+    if (data && typeof data === 'object' && typeof (data as { callId?: unknown }).callId === 'number') {
+      const signal = data as { type?: string; callId: number; peer?: { userId: number; username: string; displayName: string }; state?: string; reason?: string }
+      call.handleSignal({
+        type,
+        callId: signal.callId,
+        peer: signal.peer ?? { userId: 0, username: '', displayName: '' },
+        state: signal.state ?? '',
+        reason: signal.reason,
+      })
+      return
+    }
+    call.handleSignal({ type, callId: 0, peer: { userId: 0, username: '', displayName: '' }, state: '' })
+  })
+
   // 常开说话检测引擎的应用级生命周期（ADR-0024）：登录且麦克风授权时启动，
   // 退出登录或权限丢失时停止，首选输入设备变化时重启采集；失败后在标签页
   // 恢复可见、设备变化或权限重新授予时自动重试。
@@ -437,5 +490,18 @@ export const useVoiceStore = defineStore('voice', () => {
     statusSetting: presence.statusSetting,
     ownPresenceStatus: presence.ownPresenceStatus,
     setStatusSetting: presence.setStatusSetting,
+    // 语音通话会话公开面（通话浮层/个人信息卡片入口消费）。
+    callStatus: call.status,
+    callReconnecting: call.reconnecting,
+    callPeer: call.peer,
+    callMicrophoneMuted: call.microphoneMuted,
+    callOverlayOpen: call.overlayOpen,
+    callConnectedAt: call.connectedAt,
+    startCall: call.startCall,
+    acceptCall: call.accept,
+    rejectCall: call.reject,
+    cancelCall: call.cancel,
+    hangupCall: call.hangup,
+    toggleCallMicrophoneMute: call.toggleMicrophoneMute,
   }
 })

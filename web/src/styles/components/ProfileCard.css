@@ -18,6 +18,9 @@
 
 .profile-card-status { padding: 18px 6px; color: var(--faint); font-size: 13px; text-align: center; }
 
+.profile-card-call-button { min-height: 38px; margin: 2px 0 0; padding: 0 14px; border: 1px solid var(--green); border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: transparent; color: var(--green); font-weight: 650; cursor: pointer; transition: var(--t-colors); }
+.profile-card-call-button:hover { background: rgba(35,165,89,.14); color: var(--success-fg); }
+
 .profile-card-block { padding: 10px 6px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
 .profile-card-block h4 { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: none; }
 .profile-card-bio { margin: 0; color: var(--text); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }

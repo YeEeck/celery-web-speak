@@ -1,0 +1,17 @@
+.call-overlay-backdrop { z-index: 90; }
+.call-overlay-panel { width: min(360px, calc(100vw - 32px)); padding: 30px 24px 26px; border: 1px solid var(--border-strong); border-radius: 8px; display: grid; justify-items: center; gap: 14px; background: var(--panel); box-shadow: 0 18px 55px rgba(0,0,0,.46); }
+.call-overlay-name { color: var(--text); font-size: 20px; font-weight: 750; overflow-wrap: anywhere; text-align: center; }
+.call-overlay-status { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.call-overlay-status.reconnecting { color: var(--yellow); }
+.call-overlay-actions { display: flex; gap: 16px; }
+
+.call-action { width: 56px; height: 56px; padding: 0; border: 0; border-radius: 50%; display: grid; place-items: center; color: white; background: var(--hover); cursor: pointer; transition: var(--t-colors), transform var(--dur-fast) var(--ease); }
+.call-action:hover { transform: scale(1.06); }
+.call-action.accept { background: var(--green); }
+.call-action.accept:hover { background: color-mix(in srgb, var(--green) 86%, white); }
+.call-action.reject, .call-action.hangup { background: var(--red); }
+.call-action.reject:hover, .call-action.hangup:hover { background: var(--red-hover); }
+.call-action.muted { background: var(--yellow); color: #1a1a1a; }
+.call-action.muted:hover { background: color-mix(in srgb, var(--yellow) 86%, white); }
+
+#call-audio-root { position: fixed; width: 0; height: 0; overflow: hidden; }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Crown, ShieldCheck, MicOff, MessageSquareOff, Ban } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Crown, ShieldCheck, MicOff, MessageSquareOff, Ban, Phone } from '@lucide/vue'
 import type { PresenceStatus, User, UserProfile } from '../types'
 import { voiceLevelColorProgressPercent } from '../utils/voice-level'
 import { useAppStore } from '../stores/app'
@@ -112,6 +112,16 @@ function formatDate(value: string | undefined): string {
 
 const roleLabel = (role: string | undefined) => (role === 'owner' ? '服务器所有者' : role === 'admin' ? '服务器管理员' : '普通成员')
 
+// 「语音通话」入口：仅当目标是同服成员（member 非空）且非自己时显示（spec 02）。
+const callable = computed(() => props.member !== null && !props.isSelf)
+
+function startCall() {
+  const member = props.member
+  if (!member) return
+  emit('close', false)
+  void voice.startCall({ userId: member.id, username: member.username, displayName: member.displayName })
+}
+
 function statusOf(userId: number): PresenceStatus {
   return presenceStatusFor(userId, app.user?.id ?? null, voice.ownPresenceStatus, app.presenceStatuses)
 }
@@ -160,6 +170,11 @@ function remainingBan(member: User): string {
           <ShieldCheck v-else-if="member?.role === 'admin'" :size="15" class="channel-role" aria-label="服务器管理员" />
         </div>
       </header>
+
+      <button v-if="callable" class="profile-card-call-button" type="button" @click="startCall">
+        <Phone :size="16" />
+        语音通话
+      </button>
 
       <div v-if="loading" class="profile-card-status">正在加载…</div>
       <div v-else-if="failed || !profile" class="profile-card-status">无法查看该用户的资料</div>

@@ -7,6 +7,7 @@ import MessageActionMenu from './MessageActionMenu.vue'
 import GuildAdminPanel from './GuildAdminPanel.vue'
 import PlatformAdminPanel from './PlatformAdminPanel.vue'
 import ChangelogModal from './ChangelogModal.vue'
+import CallOverlay from './CallOverlay.vue'
 import ChatPane from './ChatPane.vue'
 import LeaveGuildDialog from './LeaveGuildDialog.vue'
 import LogoutDialog from './LogoutDialog.vue'
@@ -763,6 +764,7 @@ function closeChangelog() {
     </div>
 
     <div id="voice-audio-root" aria-hidden="true" />
+    <div id="call-audio-root" aria-hidden="true" />
     <GuildActionMenu
       v-if="guildActionMenu"
       :guild="guildActionMenu.guild"
@@ -847,5 +849,6 @@ function closeChangelog() {
     <PlatformAdminPanel v-if="platformAdminOpen" class="motion-modal-static" @close="platformAdminOpen = false" />
     <PlatformGuildsPanel v-if="platformOpen" class="motion-modal-static" :initial-guild-id="platformInitialGuildId" :create-on-open="platformCreateOnOpen" @accounts="openPlatformAccounts" @close="platformOpen = false" />
     <ChangelogModal v-if="changelogOpen" class="motion-modal-static" @close="closeChangelog" />
+    <CallOverlay v-if="voice.callOverlayOpen" />
   </main>
 </template>

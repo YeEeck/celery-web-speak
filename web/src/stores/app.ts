@@ -9,6 +9,14 @@ import { useSocket } from './app-socket'
 
 type AuthPayload = { user: User }
 
+// 点到点通话信令的落点（call_* 事件）。voice store 在实例化时注册；此处用
+// 模块级可变引用而非直接 import voice store，避免 app ↔ voice 的循环依赖。
+let callSignalHandler: ((type: string, data: unknown) => void) | null = null
+
+export function setCallSignalHandler(handler: ((type: string, data: unknown) => void) | null) {
+  callSignalHandler = handler
+}
+
 export const useAppStore = defineStore('app', () => {
   const sounds = useApplicationSoundStore()
   const ready = ref(false)
@@ -326,6 +334,10 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function handleEvent(type: string, data: unknown, guildId?: number) {
+    if (type.startsWith('call_')) {
+      callSignalHandler?.(type, data)
+      return
+    }
     if (type === 'voice_disconnected_by_moderator') {
       const payload = data as { guildId?: number; channelId?: number }
       if (typeof payload.guildId === 'number' && typeof payload.channelId === 'number') {

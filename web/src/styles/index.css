@@ -25,4 +25,5 @@
 @import './components/PlatformAdminPanel.css';
 @import './components/PlatformGuildsPanel.css';
 @import './components/ChangelogModal.css';
+@import './components/CallOverlay.css';
 @import './responsive.css';
