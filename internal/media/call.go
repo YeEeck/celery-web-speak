@@ -189,7 +189,12 @@ func (s *Service) StartCall(caller, callee store.User, reachable bool) StartCall
 
 	switch state {
 	case CallEnded:
+		// Immediate terminal start (busy/unreachable): the call never had
+		// participants, so evict it right after the terminal signal.
 		s.emit(caller.ID, callID, CallEnded, reason)
+		s.mu.Lock()
+		s.evictTerminalCallLocked(callID)
+		s.mu.Unlock()
 	case CallRinging:
 		s.schedule(callRingTimeout, func() { s.timeoutCall(callID) })
 		s.emit(callee.ID, callID, CallRinging, "")
@@ -256,6 +261,13 @@ func (s *Service) HangUpCall(callID, userID int64) error {
 	s.mu.Unlock()
 
 	s.emit(peerID, callID, CallEnded, CallEndNormal)
+
+	// Hangup normally leaves both parties in Participants, so the call is
+	// retained until the peers leave (via webhook/RemoveCallParticipant). Only
+	// when a participant-less call is somehow active does this reclamation fire.
+	s.mu.Lock()
+	s.evictTerminalCallLocked(callID)
+	s.mu.Unlock()
 	return nil
 }
 
@@ -307,6 +319,12 @@ func (s *Service) endRinging(callID, userID int64, expectCallee bool, reason Cal
 	s.mu.Unlock()
 
 	s.emit(peerID, callID, CallEnded, reason)
+
+	// A ringing call never has participants; evict it once the terminal
+	// signal is out so the peer field remains resolvable for the emit above.
+	s.mu.Lock()
+	s.evictTerminalCallLocked(callID)
+	s.mu.Unlock()
 	return nil
 }
 
@@ -323,10 +341,35 @@ func (s *Service) timeoutCall(callID int64) {
 	c.State = CallEnded
 	c.EndReason = CallEndTimeout
 	s.revision++
+	callerID := c.CallerID
+	calleeID := c.CalleeID
 	s.mu.Unlock()
 
-	s.emit(c.CallerID, callID, CallEnded, CallEndTimeout)
-	s.emit(c.CalleeID, callID, CallEnded, CallEndTimeout)
+	s.emit(callerID, callID, CallEnded, CallEndTimeout)
+	s.emit(calleeID, callID, CallEnded, CallEndTimeout)
+
+	// A ringing call never has participants; evict it once both terminal
+	// signals are out.
+	s.mu.Lock()
+	s.evictTerminalCallLocked(callID)
+	s.mu.Unlock()
+}
+
+// evictTerminalCallLocked removes a terminal call that has no participants
+// left to reference it. It is the in-memory reclamation path (spec 04): a
+// ringing call that ends (reject/cancel/timeout) or an immediate terminal start
+// (busy/unreachable) never builds a room and never gains participants, so it
+// must be dropped as soon as its terminal signal is emitted rather than waiting
+// for a room_finished that will never arrive. The caller must hold s.mu; it
+// returns whether s.calls was mutated.
+func (s *Service) evictTerminalCallLocked(callID int64) bool {
+	c, exists := s.calls[callID]
+	if !exists || c.State != CallEnded || len(c.Participants) != 0 {
+		return false
+	}
+	delete(s.calls, callID)
+	s.revision++
+	return true
 }
 
 // busyLocked reports whether the user is a party to any ringing or active call.
@@ -404,9 +447,17 @@ func (s *Service) JoinCallCredentials(ctx context.Context, user store.User, call
 	now := s.now()
 	roomName := CallRoomName(callID)
 	s.mu.Lock()
-	if _, exists := s.calls[callID]; !exists {
+	c, exists := s.calls[callID]
+	if !exists {
 		s.mu.Unlock()
 		return JoinCredentials{}, ErrCallNotFound
+	}
+	// Credentials are only issued once the call is connected (spec 05: both
+	// parties fetch their token after call_accept). A ringing call must not
+	// hand out a room-join token.
+	if c.State != CallActive {
+		s.mu.Unlock()
+		return JoinCredentials{}, ErrCallNotActive
 	}
 	previous := s.callTargets[user.ID]
 	generation := s.nextGenerationLocked(now)
@@ -548,6 +599,12 @@ func (s *Service) applyCallWebhook(ctx context.Context, event *livekit.WebhookEv
 		if disconnectedTo > 0 {
 			s.emit(disconnectedTo, callID, CallEnded, CallEndDisconnected)
 		}
+		// A terminal call whose last participant just left has nothing left to
+		// reference it; evict it (re-check under lock after the emit so the
+		// disconnect signal still resolves its peer).
+		s.mu.Lock()
+		s.evictTerminalCallLocked(callID)
+		s.mu.Unlock()
 		return true
 	case webhook.EventRoomFinished:
 		s.mu.Lock()

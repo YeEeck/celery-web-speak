@@ -395,6 +395,15 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 	}
 	calls := make(map[int64]*call, len(issuedCalls))
 	for callID, c := range issuedCalls {
+		// Safety net: a terminal call whose ExpiresAt has passed can no longer
+		// be referenced (its room is finished or never built), so drop it. The
+		// primary reclamation is the immediate eviction on terminal transition;
+		// this only sweeps ended calls that slipped through (e.g. a crash
+		// between signalling and eviction). active/ringing are never dropped
+		// here — a call may outlive its creation-time TTL.
+		if c.State == CallEnded && !c.ExpiresAt.After(now) {
+			continue
+		}
 		clone := cloneCall(c)
 		clone.Participants = make(map[int64]VoiceParticipant)
 		calls[callID] = clone

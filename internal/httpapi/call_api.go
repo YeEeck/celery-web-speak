@@ -91,6 +91,10 @@ func (s *Server) handleCallToken(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "not_found", "通话不存在")
 			return
 		}
+		if errors.Is(err, media.ErrCallNotActive) {
+			writeError(w, http.StatusConflict, "call_not_active", "通话已不在通话中状态")
+			return
+		}
 		s.internalError(w, "create call token", err)
 		return
 	}

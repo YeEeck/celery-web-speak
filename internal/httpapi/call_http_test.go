@@ -262,6 +262,44 @@ func TestCallRejectsNonSharedGuild(t *testing.T) {
 	readCallEvent(t, callerClient, "call_unreachable")
 }
 
+
+func TestCallTokenRequiresActive(t *testing.T) {
+	db, admin, server := newGuildHTTPTestServer(t)
+	callee := newCallPeer(t, db, "call_token_active_callee", "被叫")
+	addToDefaultGuild(t, db, admin.ID, callee.Username)
+	calleeClient := registerCallClient(t, server, callee.ID)
+
+	callerToken := callSessionToken(t, db, admin.ID)
+	calleeToken := callSessionToken(t, db, callee.ID)
+
+	recorder := serveGuildHTTPRequest(server, callerToken, http.MethodPost, "/api/calls", callBody(callee.ID))
+	var result media.StartCallResult
+	if err := json.NewDecoder(recorder.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	readCallEvent(t, calleeClient, "call_invite")
+
+	// Before accept: a party may not fetch a token (still ringing).
+	recorder = serveGuildHTTPRequest(server, calleeToken, http.MethodPost, "/api/calls/"+formatID(result.CallID)+"/token", "")
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("pre-accept token = %d, want 409", recorder.Code)
+	}
+
+	// After accept: both parties fetch tokens successfully.
+	recorder = serveGuildHTTPRequest(server, calleeToken, http.MethodPost, "/api/calls/"+formatID(result.CallID)+"/accept", "")
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("accept = %d %s", recorder.Code, recorder.Body.String())
+	}
+	recorder = serveGuildHTTPRequest(server, calleeToken, http.MethodPost, "/api/calls/"+formatID(result.CallID)+"/token", "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("post-accept callee token = %d %s", recorder.Code, recorder.Body.String())
+	}
+	recorder = serveGuildHTTPRequest(server, callerToken, http.MethodPost, "/api/calls/"+formatID(result.CallID)+"/token", "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("post-accept caller token = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestCallTokenRestrictedToParties(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	callee := newCallPeer(t, db, "call_token_callee", "被叫")

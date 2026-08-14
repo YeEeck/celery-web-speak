@@ -51,6 +51,10 @@ func TestNewCallAllocatesMonotonicCallIDs(t *testing.T) {
 func TestCallTokenAllowsFullPublishSubscribe(t *testing.T) {
 	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
 	callID := service.NewCall(100, 200)
+	// Credentials are only issued once the call is active (spec 05).
+	if err := service.AcceptCall(callID, 200); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
 	credentials, err := service.JoinCallCredentials(context.Background(), store.User{
 		ID: 100, Username: "caller", DisplayName: "主叫",
 	}, callID, 200)

@@ -72,9 +72,8 @@ func TestStartCallUnreachableEndsImmediately(t *testing.T) {
 	if result.State != CallEnded || result.Reason != CallEndUnreachable {
 		t.Fatalf("start result = %+v, want ended(unreachable)", result)
 	}
-	call := service.calls[result.CallID]
-	if call == nil || call.State != CallEnded || call.EndReason != CallEndUnreachable {
-		t.Fatalf("call = %+v", call)
+	if _, exists := service.calls[result.CallID]; exists {
+		t.Fatalf("unreachable call remained in calls")
 	}
 	if len(signaler.signals) != 1 {
 		t.Fatalf("signals = %+v, want 1 call_unreachable", signaler.signals)
@@ -131,6 +130,28 @@ func TestMutualDialLaterArrivalIsBusy(t *testing.T) {
 	}
 }
 
+func TestJoinCallCredentialsRequiresActive(t *testing.T) {
+	service := newLifecycleService()
+	result := service.StartCall(caller(), callee(), true)
+
+	// Ringing: credential issuance must be refused.
+	if _, err := service.JoinCallCredentials(context.Background(), caller(), result.CallID, 200); !errors.Is(err, ErrCallNotActive) {
+		t.Fatalf("ringing join credentials error = %v, want ErrCallNotActive", err)
+	}
+
+	// Accept then issue: allowed.
+	if err := service.AcceptCall(result.CallID, 200); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	credentials, err := service.JoinCallCredentials(context.Background(), caller(), result.CallID, 200)
+	if err != nil {
+		t.Fatalf("active join credentials: %v", err)
+	}
+	if credentials.RoomName != CallRoomName(result.CallID) {
+		t.Fatalf("room name = %q, want %q", credentials.RoomName, CallRoomName(result.CallID))
+	}
+}
+
 func TestAcceptAdvancesToActiveAndSignalsCaller(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
@@ -168,9 +189,8 @@ func TestRejectEndsRejectedAndSignalsCaller(t *testing.T) {
 	if err := service.RejectCall(result.CallID, 200); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
-	call := service.calls[result.CallID]
-	if call.State != CallEnded || call.EndReason != CallEndRejected {
-		t.Fatalf("call = %+v, want ended(rejected)", call)
+	if _, exists := service.calls[result.CallID]; exists {
+		t.Fatalf("rejected call remained in calls")
 	}
 	if len(signaler.signals) != 1 {
 		t.Fatalf("signals = %+v, want 1 call_reject", signaler.signals)
@@ -191,9 +211,8 @@ func TestCancelEndsCanceledAndSignalsCallee(t *testing.T) {
 	if err := service.CancelCall(result.CallID, 100); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
-	call := service.calls[result.CallID]
-	if call.State != CallEnded || call.EndReason != CallEndCanceled {
-		t.Fatalf("call = %+v, want ended(canceled)", call)
+	if _, exists := service.calls[result.CallID]; exists {
+		t.Fatalf("canceled call remained in calls")
 	}
 	if len(signaler.signals) != 1 {
 		t.Fatalf("signals = %+v, want 1 call_cancel", signaler.signals)
@@ -212,14 +231,17 @@ func TestHangUpEndsAndSignalsOtherParty(t *testing.T) {
 	if err := service.AcceptCall(result.CallID, 200); err != nil {
 		t.Fatalf("accept: %v", err)
 	}
+	generation := uint64(time.Now().UnixNano())
+	service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantJoined, result.CallID, 100, generation))
+	service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantJoined, result.CallID, 200, generation))
 	signaler.signals = nil
 
 	if err := service.HangUpCall(result.CallID, 100); err != nil {
 		t.Fatalf("hangup: %v", err)
 	}
 	call := service.calls[result.CallID]
-	if call.State != CallEnded || call.EndReason != CallEndNormal {
-		t.Fatalf("call = %+v, want ended(ended)", call)
+	if call == nil || call.State != CallEnded || call.EndReason != CallEndNormal {
+		t.Fatalf("call after hangup (participants present) = %+v, want ended(ended)", call)
 	}
 	if len(signaler.signals) != 1 {
 		t.Fatalf("signals = %+v, want 1 call_end", signaler.signals)
@@ -275,9 +297,8 @@ func TestRingTimeoutEndsAndSignalsBoth(t *testing.T) {
 		t.Fatal("timeout not scheduled")
 	}
 
-	call := service.calls[result.CallID]
-	if call.State != CallEnded || call.EndReason != CallEndTimeout {
-		t.Fatalf("call = %+v, want ended(timeout)", call)
+	if _, exists := service.calls[result.CallID]; exists {
+		t.Fatalf("timed-out call remained in calls")
 	}
 	if len(signaler.signals) != 2 {
 		t.Fatalf("signals = %+v, want 2 call_timeout", signaler.signals)
@@ -324,6 +345,165 @@ func TestTimeoutAfterAcceptIsNoOp(t *testing.T) {
 	}
 }
 
+
+
+func TestTerminalCallEvictedWhenNoParticipants(t *testing.T) {
+	// A terminal ringing call (never built a room, never had participants) must
+	// be evicted from s.calls immediately after its terminal signal is emitted.
+	t.Run("reject", func(t *testing.T) {
+		service := newLifecycleService()
+		signaler := &recordingSignaler{}
+		service.SetCallSignaler(signaler)
+		result := service.StartCall(caller(), callee(), true)
+		signaler.signals = nil
+		if err := service.RejectCall(result.CallID, 200); err != nil {
+			t.Fatalf("reject: %v", err)
+		}
+		if _, exists := service.calls[result.CallID]; exists {
+			t.Fatalf("rejected call remained in calls")
+		}
+		if len(signaler.signals) != 1 || signaler.signals[0].Type != "call_reject" {
+			t.Fatalf("signals = %+v, want 1 call_reject", signaler.signals)
+		}
+		// The terminal signal's peer must survive the eviction (emit before delete).
+		if signaler.signals[0].Peer.UserID != 200 {
+			t.Fatalf("reject peer = %+v, want callee (200)", signaler.signals[0].Peer)
+		}
+	})
+	t.Run("cancel", func(t *testing.T) {
+		service := newLifecycleService()
+		signaler := &recordingSignaler{}
+		service.SetCallSignaler(signaler)
+		result := service.StartCall(caller(), callee(), true)
+		signaler.signals = nil
+		if err := service.CancelCall(result.CallID, 100); err != nil {
+			t.Fatalf("cancel: %v", err)
+		}
+		if _, exists := service.calls[result.CallID]; exists {
+			t.Fatalf("canceled call remained in calls")
+		}
+		if len(signaler.signals) != 1 || signaler.signals[0].Type != "call_cancel" {
+			t.Fatalf("signals = %+v, want 1 call_cancel", signaler.signals)
+		}
+		if signaler.signals[0].Peer.UserID != 100 {
+			t.Fatalf("cancel peer = %+v, want caller (100)", signaler.signals[0].Peer)
+		}
+	})
+	t.Run("timeout", func(t *testing.T) {
+		service := newLifecycleService()
+		signaler := &recordingSignaler{}
+		service.SetCallSignaler(signaler)
+		scheduled := make(chan func(), 1)
+		service.schedule = func(_ time.Duration, fn func()) { scheduled <- fn }
+		result := service.StartCall(caller(), callee(), true)
+		signaler.signals = nil
+		var fn func()
+		select {
+		case fn = <-scheduled:
+		case <-time.After(time.Second):
+			t.Fatal("timeout not scheduled")
+		}
+		fn()
+		if _, exists := service.calls[result.CallID]; exists {
+			t.Fatalf("timed-out call remained in calls")
+		}
+		if len(signaler.signals) != 2 {
+			t.Fatalf("signals = %+v, want 2 call_timeout", signaler.signals)
+		}
+	})
+	t.Run("unreachable", func(t *testing.T) {
+		service := newLifecycleService()
+		signaler := &recordingSignaler{}
+		service.SetCallSignaler(signaler)
+		result := service.StartCall(caller(), callee(), false)
+		if _, exists := service.calls[result.CallID]; exists {
+			t.Fatalf("unreachable call remained in calls")
+		}
+		if len(signaler.signals) != 1 || signaler.signals[0].Type != "call_unreachable" {
+			t.Fatalf("signals = %+v, want 1 call_unreachable", signaler.signals)
+		}
+		if signaler.signals[0].Peer.UserID != 200 {
+			t.Fatalf("unreachable peer = %+v, want callee (200)", signaler.signals[0].Peer)
+		}
+	})
+	t.Run("busy", func(t *testing.T) {
+		service := newLifecycleService()
+		signaler := &recordingSignaler{}
+		service.SetCallSignaler(signaler)
+		// Occupy the callee with a ringing call so the second start is busy.
+		service.StartCall(caller(), callee(), true)
+		signaler.signals = nil
+		third := store.User{ID: 300, Username: "third", DisplayName: "第三者"}
+		result := service.StartCall(third, callee(), true)
+		if _, exists := service.calls[result.CallID]; exists {
+			t.Fatalf("busy call remained in calls")
+		}
+		if len(signaler.signals) != 1 || signaler.signals[0].Type != "call_busy" {
+			t.Fatalf("signals = %+v, want 1 call_busy", signaler.signals)
+		}
+		if signaler.signals[0].Peer.UserID != 200 {
+			t.Fatalf("busy peer = %+v, want callee (200)", signaler.signals[0].Peer)
+		}
+	})
+}
+
+func TestHangUpRetainsCallUntilParticipantsLeave(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+	result := service.StartCall(caller(), callee(), true)
+	if err := service.AcceptCall(result.CallID, 200); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	generation := uint64(time.Now().UnixNano())
+	service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantJoined, result.CallID, 100, generation))
+	service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantJoined, result.CallID, 200, generation))
+	signaler.signals = nil
+
+	// Hang up: ended but participants still present -> call retained.
+	if err := service.HangUpCall(result.CallID, 100); err != nil {
+		t.Fatalf("hangup: %v", err)
+	}
+	if c := service.calls[result.CallID]; c == nil || c.State != CallEnded {
+		t.Fatalf("hung-up call should remain while participants present: %+v", c)
+	}
+
+	// Both parties leave -> call evicted.
+	service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantLeft, result.CallID, 100, generation))
+	service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantLeft, result.CallID, 200, generation))
+	if _, exists := service.calls[result.CallID]; exists {
+		t.Fatalf("call remained after both participants left")
+	}
+}
+
+func TestDisconnectedRetainedUntilOtherLeaves(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+	result := service.StartCall(caller(), callee(), true)
+	if err := service.AcceptCall(result.CallID, 200); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	generation := uint64(time.Now().UnixNano())
+	service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantJoined, result.CallID, 100, generation))
+	service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantJoined, result.CallID, 200, generation))
+	signaler.signals = nil
+
+	// Callee drops: disconnected, caller still present -> retained.
+	if !service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantLeft, result.CallID, 200, generation)) {
+		t.Fatal("active call participant leave did not change snapshot")
+	}
+	if c := service.calls[result.CallID]; c == nil || c.State != CallEnded || c.EndReason != CallEndDisconnected {
+		t.Fatalf("disconnected call should remain while peer present: %+v", c)
+	}
+
+	// Caller leaves -> evicted.
+	service.ApplyWebhook(context.Background(), callParticipantEvent(webhook.EventParticipantLeft, result.CallID, 100, generation))
+	if _, exists := service.calls[result.CallID]; exists {
+		t.Fatalf("call remained after last participant left")
+	}
+}
+
 func TestTransitionErrors(t *testing.T) {
 	service := newLifecycleService()
 	signaler := &recordingSignaler{}
@@ -336,15 +516,16 @@ func TestTransitionErrors(t *testing.T) {
 	if err := service.CancelCall(999999, 100); !errors.Is(err, ErrCallNotFound) {
 		t.Fatalf("cancel missing call error = %v, want ErrCallNotFound", err)
 	}
-	// Reject then accept: not ringing.
+	// Reject evicts the participant-less terminal call; later actions on the
+	// same callID then report not-found rather than a stale-state error.
 	if err := service.RejectCall(result.CallID, 200); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
-	if err := service.AcceptCall(result.CallID, 200); !errors.Is(err, ErrCallNotRinging) {
-		t.Fatalf("accept after ended error = %v, want ErrCallNotRinging", err)
+	if err := service.AcceptCall(result.CallID, 200); !errors.Is(err, ErrCallNotFound) {
+		t.Fatalf("accept after rejected error = %v, want ErrCallNotFound", err)
 	}
-	if err := service.HangUpCall(result.CallID, 200); !errors.Is(err, ErrCallNotActive) {
-		t.Fatalf("hangup while ended error = %v, want ErrCallNotActive", err)
+	if err := service.HangUpCall(result.CallID, 200); !errors.Is(err, ErrCallNotFound) {
+		t.Fatalf("hangup after rejected error = %v, want ErrCallNotFound", err)
 	}
 }
 
@@ -378,3 +559,37 @@ func TestActiveParticipantLeftEndsDisconnected(t *testing.T) {
 		t.Fatalf("disconnect signal = %+v", sig)
 	}
 }
+func TestRefreshEvictsEndedExpiredCallsOnly(t *testing.T) {
+	service := New("http://127.0.0.1:1", "ws://127.0.0.1:7880", "key", "secret")
+	now := time.Date(2026, time.July, 21, 3, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	service.room = &listingRoomService{}
+
+	// ended + expired -> evicted by Refresh.
+	expiredEnded := service.NewCall(100, 200)
+	service.calls[expiredEnded].State = CallEnded
+	service.calls[expiredEnded].EndReason = CallEndRejected
+	service.calls[expiredEnded].ExpiresAt = now.Add(-time.Minute)
+
+	// active + expired -> retained (calls may outlive the creation TTL).
+	expiredActive := service.NewCall(300, 400)
+	service.calls[expiredActive].State = CallActive
+	service.calls[expiredActive].ExpiresAt = now.Add(-time.Minute)
+
+	// ringing (not expired) -> retained.
+	ringing := service.NewCall(500, 600)
+
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if _, exists := service.calls[expiredEnded]; exists {
+		t.Fatalf("ended+expired call survived Refresh")
+	}
+	if _, exists := service.calls[expiredActive]; !exists {
+		t.Fatalf("active+expired call was evicted by Refresh")
+	}
+	if _, exists := service.calls[ringing]; !exists {
+		t.Fatalf("ringing call was evicted by Refresh")
+	}
+}
+
