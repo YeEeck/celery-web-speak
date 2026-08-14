@@ -14,6 +14,13 @@
 
 理由：互斥（离开频道）会让用户接完电话还要手动回到原频道，且进出对频道其他成员是 join/leave 噪音。叠加 + 频道耳机静音保留了频道成员资格与连接、零 churn、挂断自动恢复。代价是打破"一人一条语音连接"不变式：`targets[userID]` 单值改为「每用户最多一个频道目标 + 一个通话目标」，前端单 room 改为频道会话 + 通话会话并列；"耳机静音"细化为「频道作用域 deafen」（只静频道、不静通话）。
 
+## 决策 3：通话 token 状态门控 + 终态驱逐（状态机扩展，已批准）
+
+在 1 与 2 定稿后的实现评审中补记两项状态机决策：
+
+- **token 仅 active 状态签发**：`JoinCallCredentials` 只在 `State == CallActive` 时签发 JoinCredentials，ringing/ended 返回 `ErrCallNotActive`（HTTP 409 `call_not_active`）。理由：token 是进入 `call-<callID>` 房间的凭证，房间只在 accept 后才有实际媒体意义；振铃期签发会让被叫在拒绝/超时后仍持有可加入的令牌，把「通话已结束」的仲裁权泄漏给客户端。
+- **终态通话立即回收**：`evictTerminalCallLocked` 在全部终态转移点 emit 后驱逐无参与者的终态通话——reject/cancel/timeout/busy/unreachable 这类从未建房或已无参与者的终态即时回收；hangup/disconnect 因参与者仍可能在场，保留到最后参与者离场（`RemoveCallParticipant`/participant_left）再驱逐。Refresh 兜底丢弃 ended + 过期 call（active/ringing 不因创建 TTL 过期而丢弃）。理由：call 实体纯内存（决策 1），不回收即内存泄漏；但驱逐必须发生在终态信令 emit 之后，保证 peer 字段仍可解析。
+
 ## 相关
 
 - LiveKit 能力事实（ticket 12）

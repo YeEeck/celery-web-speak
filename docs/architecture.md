@@ -20,7 +20,7 @@ Browser
 
 默认启用 Caddy Gateway（`caddy:2.11`，通过 Compose profiles 可选禁用），终止 HTTPS 并将 `/rtc`、`/rtc/*` 转发至 LiveKit，其余 HTTP 与业务 WebSocket 请求转发至 Go 应用。Gateway 使用 Let's Encrypt `shortlived` profile 自动签发和续期公网 IP 证书；`default_sni` 使不发送 SNI 的裸 IP 浏览器连接也能选中证书，显式 HTTP 路由确保非标准 `HTTPS_PORT` 的重定向保留端口。禁用 Gateway 时需部署方自行提供 HTTPS 反代（参考 `deploy/nginx.conf.example`）。WebRTC 媒体不经过 Go 或 Gateway，而是由浏览器直接连接 LiveKit 暴露的 UDP 或 ICE/TCP 媒体端口。
 
-Go 应用提供嵌入式前端、认证与管理 API、文字聊天 WebSocket、LiveKit 访问令牌、Webhook 和房间管理。SQLite 保存频道、消息、已读位置及账号数据；在线状态、发送限流、WebSocket 客户端集合和语音房间占用快照保存在 Go 进程内存中，LiveKit 保存实际媒体房间状态。
+Go 应用提供嵌入式前端、认证与管理 API、文字聊天 WebSocket、LiveKit 访问令牌、Webhook 和房间管理。SQLite 保存频道、消息、已读位置及账号数据；在线状态、发送限流、WebSocket 客户端集合、语音房间占用快照和 1:1 通话协调状态（calls/callTargets，见 ADR-0032）保存在 Go 进程内存中，LiveKit 保存实际媒体房间状态。
 
 ## 技术组件
 
@@ -77,7 +77,8 @@ Hub 分别维护可写连接集合和按账号聚合的在线租约。同一账�
 - 每个语音频道对应稳定房间名 `guild-{服务器数字ID}-channel-{频道数字ID}`，identity 为 `user-{数字用户ID}`；服务器、频道、显示名称、用户 ID 和有效服务器角色写入参与者属性。
 - Go 通过经过签名校验的 LiveKit Webhook 实时更新进程内语音占用状态，并在启动、业务 WebSocket 建立、客户端主动请求和后台周期任务中通过 RoomService 全量校准。后台校准间隔由 `VOICE_RECONCILE_INTERVAL` 控制，默认 15 秒，设为 `0` 可禁用。
 - 全量校准失败时保留最后一次有效快照并记录警告；校准成功后仅在快照变化时广播。周期任务不会重叠执行，发现同一账号残留在多个房间时按令牌签发代次保留最新有效连接并移除旧连接；数据库已不存在的频道房间由同一周期任务调用 RoomService 删除，失败后在下一周期重试。
-- 同一账号在所有房间中只允许一个语音连接。每次签发令牌时将单调递增的签发代次同时写入服务端目标状态和 LiveKit 参与者属性；令牌有效期内只有最新代次及其目标房间可以加入，旧令牌产生的延迟加入会被服务端移除。进程重启后可从参与者属性恢复代次比较。
+- 同一账号在频道语音中只允许一个连接（每用户最多一个频道目标 + 一个通话目标，ADR-0032）。每次签发令牌时将单调递增的签发代次同时写入服务端目标状态和 LiveKit 参与者属性；令牌有效期内只有最新代次及其目标房间可以加入，旧令牌产生的延迟加入会被服务端移除。进程重启后可从参与者属性恢复代次比较。
+- 1:1 临时语音通话使用独立 ad-hoc 房间 `call-<callID>`（callID 服务端单调分配，UnixNano），与频道房间并存互不侵入；calls/callTargets 为纯内存协调态，不持久化、不产 guild 计量。通话 token 仅在 active 状态签发（ringing/ended 返回 409 call_not_active）；终态通话立即或随参与者离场驱逐出 calls，Refresh 兜底清理过期终态，避免内存泄漏。
 - 耳机静音作为当前语音会话的 LiveKit 参与者属性，由已认证的 Go 接口代为更新；客户端监听参与者属性变化并刷新成员列表。新加入者从房间状态获得现有成员的耳机静音状态，参与者离开后状态随之消失，不写入 SQLite。
 - 客户端先执行本地耳机与麦克风静音，再请求同步耳机状态。同步失败不回滚本地静音，客户端显示错误并在 LiveKit 重连后重试。
 - Go 签发有效期 15 分钟的加入令牌，只授予订阅和麦克风发布能力，禁止 LiveKit DataChannel 发布。
