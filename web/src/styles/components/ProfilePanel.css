@@ -54,3 +54,15 @@
 .profile-bio-label textarea { resize: vertical; min-height: 70px; line-height: 1.45; }
 .profile-bio-count { font-size: 11px; font-weight: 600; color: var(--faint); justify-self: end; }
 .profile-bio-count.near { color: var(--danger-fg); }
+
+.call-block-search { position: relative; display: flex; align-items: center; }
+.call-block-search svg { position: absolute; left: 10px; color: var(--faint); pointer-events: none; }
+.call-block-search input { padding-left: 34px; }
+.call-block-list { display: grid; gap: 8px; margin-top: 10px; }
+.call-block-row { display: grid; grid-template-columns: auto minmax(0,1fr) auto; gap: 6px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--main); }
+.call-block-identity { min-width: 0; display: grid; }
+.call-block-identity strong { overflow: hidden; color: var(--text); font-size: 13px; white-space: nowrap; text-overflow: ellipsis; }
+.call-block-identity small { color: var(--faint); font-size: 11px; }
+.call-block-state { color: var(--muted); font-size: 11px; font-weight: 650; }
+.call-block-actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+.call-block-actions .secondary-button { min-height: 30px; padding: 0 10px; font-size: 12px; }

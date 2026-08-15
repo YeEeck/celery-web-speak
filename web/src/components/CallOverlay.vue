@@ -56,6 +56,10 @@ function reject() {
   void voice.rejectCall()
 }
 
+function rejectAndBlockTemporarily() {
+  void voice.rejectAndBlockTemporarily()
+}
+
 function hangup() {
   void voice.hangupCall()
 }
@@ -91,6 +95,9 @@ function toggleMute() {
               <PhoneOff :size="24" />
             </button>
           </div>
+          <button class="call-overlay-block-temporary" type="button" @click="rejectAndBlockTemporarily">
+            暂时屏蔽 24 小时
+          </button>
         </template>
 
         <template v-else-if="voice.callStatus === 'active'">

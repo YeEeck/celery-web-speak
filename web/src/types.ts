@@ -41,6 +41,33 @@ export interface User {
   isPlatformAdmin?: boolean
   avatarVersion: number
   hasAvatar: boolean
+  callReceiving?: boolean
+}
+
+export type CallBlockKind = 'temporary' | 'permanent'
+
+export interface CallBlock {
+  kind: CallBlockKind
+  expiresAt?: string
+}
+
+export interface CallBlockEntry {
+  userId: number
+  username: string
+  displayName: string
+  avatarVersion: number
+  hasAvatar: boolean
+  kind: CallBlockKind
+  expiresAt?: string
+}
+
+export interface CallBlockCandidate {
+  userId: number
+  username: string
+  displayName: string
+  avatarVersion: number
+  hasAvatar: boolean
+  block: CallBlock | null
 }
 
 export interface VoiceProgress {

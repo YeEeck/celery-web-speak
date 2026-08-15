@@ -9,6 +9,7 @@ import {
   type RemoteTrackPublication,
   type RoomOptions,
 } from 'livekit-client'
+import { ApiError } from '../api.ts'
 import { buildMicrophoneCaptureOptions } from '../audio/microphoneCaptureOptions.ts'
 import type { VoiceCredentials } from '../types.ts'
 import { participantUserId } from './voice-utils.ts'
@@ -17,7 +18,7 @@ import { participantUserId } from './voice-utils.ts'
 // 自持有一条 LiveKit Room 连接（频道房间与通话房间并存，ADR-0032），互不侵入。
 // 终端原因仅在结束时记录，用于浮层清理；本票不为各原因做专属文案（06）。
 export type CallStatus = 'idle' | 'outgoing' | 'ringing' | 'active'
-export type CallEndReason = 'busy' | 'unreachable' | 'rejected' | 'canceled' | 'timeout' | 'ended' | 'disconnected'
+export type CallEndReason = 'busy' | 'unavailable' | 'unreachable' | 'rejected' | 'canceled' | 'timeout' | 'ended' | 'disconnected'
 
 // 通话对方的最小渲染字段，取自后端信令的 peer 或发起来源（个人信息卡片成员）。
 export interface CallPeer {
@@ -50,6 +51,8 @@ export interface VoiceCallContext {
   startCallRequest(calleeUserId: number): Promise<StartCallResult>
   acceptRequest(callId: string): Promise<void>
   rejectRequest(callId: string): Promise<void>
+  // 来电浮层「暂时屏蔽 24 小时」先持久化单向屏蔽、再拒绝当前来电。
+  setTemporaryBlockRequest(targetUserId: number): Promise<void>
   cancelRequest(callId: string): Promise<void>
   hangupRequest(callId: string): Promise<void>
   fetchCallToken(callId: string): Promise<VoiceCredentials>
@@ -185,6 +188,26 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     const id = callId.value
     if (status.value !== 'ringing' || id === null) return
     await ctx.rejectRequest(id)
+    endSession('rejected')
+  }
+
+  // 来电态「暂时屏蔽 24 小时」：先设置屏蔽再拒绝。屏蔽成功而通话已不在
+  // 振铃（call_not_ringing，例如恰好超时）视为动作成功；其余 reject 失败
+  // 保留振铃态并抛出，让浮层提示错误后用户仍可重试。
+  async function rejectAndBlockTemporarily(): Promise<void> {
+    const id = callId.value
+    const target = peer.value
+    if (status.value !== 'ringing' || id === null || target === null) return
+    await ctx.setTemporaryBlockRequest(target.userId)
+    try {
+      await ctx.rejectRequest(id)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409 && error.code === 'call_not_ringing') {
+        endSession('rejected')
+        return
+      }
+      throw error
+    }
     endSession('rejected')
   }
 
@@ -324,6 +347,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
         break
       }
       case 'call_busy':
+      case 'call_unavailable':
       case 'call_unreachable':
       case 'call_reject':
       case 'call_cancel':
@@ -349,6 +373,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     startCall,
     accept,
     reject,
+    rejectAndBlockTemporarily,
     cancel,
     hangup,
     toggleMicrophoneMute,
@@ -359,7 +384,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
 
 // 后端原因值白名单（CallEndReason 的合法取值）。两处 normalize 共用同一守卫。
 function isCallEndReason(reason: string | undefined): reason is CallEndReason {
-  return reason === 'busy' || reason === 'unreachable' || reason === 'rejected' || reason === 'canceled'
+  return reason === 'busy' || reason === 'unavailable' || reason === 'unreachable' || reason === 'rejected' || reason === 'canceled'
     || reason === 'timeout' || reason === 'ended' || reason === 'disconnected'
 }
 
@@ -372,6 +397,7 @@ function normalizeTerminalReason(type: string, reason: string | undefined): Call
   if (isCallEndReason(reason)) return reason
   switch (type) {
     case 'call_busy': return 'busy'
+    case 'call_unavailable': return 'unavailable'
     case 'call_unreachable': return 'unreachable'
     case 'call_reject': return 'rejected'
     case 'call_cancel': return 'canceled'

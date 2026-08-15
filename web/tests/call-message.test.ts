@@ -15,6 +15,12 @@ test('caller busy / unreachable / rejected / timeout 各有专属文案', () => 
   assert.deepEqual(callTerminalMessage('timeout', 'caller'), { message: '对方未接听', type: 'warning' })
 })
 
+test('unavailable 主叫统一看到「对方暂时无法接听」，被叫侧静默', () => {
+  assert.deepEqual(callTerminalMessage('unavailable', 'caller'), { message: '对方暂时无法接听', type: 'warning' })
+  assert.equal(callTerminalMessage('unavailable', 'callee'), null)
+  assert.equal(callTerminalMessage('unavailable', null), null)
+})
+
 test('callee cancel / timeout 各有专属文案', () => {
   assert.deepEqual(callTerminalMessage('canceled', 'callee'), { message: '对方已取消', type: 'warning' })
   assert.deepEqual(callTerminalMessage('timeout', 'callee'), { message: '来电已超时', type: 'warning' })

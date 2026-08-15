@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, type ComponentPublicInstance } from 'vue'
-import { BellRing, Gamepad2, Headphones, Mic, Palette, Play, RefreshCw, Save, Trash2, Upload, UserRound, X } from '@lucide/vue'
+import { BellRing, Gamepad2, Headphones, Mic, Palette, Phone, Play, RefreshCw, Save, Trash2, Upload, UserRound, X } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useApplicationSoundStore, type OperationSoundControl, type OperationSoundEvent } from '../stores/application-sounds'
 import { useThemeStore } from '../stores/theme'
@@ -8,6 +8,7 @@ import { useToastStore } from '../stores/toast'
 import { useVoiceStore } from '../stores/voice'
 import { VOICE_OVERLAY_CONFIG_LIMITS } from '../stores/voice-overlay'
 import { rangeProgressStyle } from '../utils/range'
+import CallSettingsTab from './CallSettingsTab.vue'
 import ImageCropperModal from './ImageCropperModal.vue'
 import UserAvatar from './UserAvatar.vue'
 
@@ -24,7 +25,7 @@ const voice = useVoiceStore()
 const sounds = useApplicationSoundStore()
 const theme = useThemeStore()
 const toast = useToastStore()
-const tab = ref<'account' | 'audio' | 'sound' | 'theme' | 'overlay'>(props.initialTab)
+const tab = ref<'account' | 'call' | 'audio' | 'sound' | 'theme' | 'overlay'>(props.initialTab)
 const audioSubNav = ref<'input' | 'output'>(props.initialAudioSubNav)
 
 const displayName = ref(app.user!.displayName)
@@ -215,6 +216,7 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
       </header>
       <nav class="profile-tabs">
         <button :class="{ active: tab === 'account' }" @click="tab = 'account'"><UserRound :size="17" />账号</button>
+        <button :class="{ active: tab === 'call' }" @click="tab = 'call'"><Phone :size="17" />通话</button>
         <button :class="{ active: tab === 'audio' }" @click="tab = 'audio'"><Mic :size="17" />音频</button>
         <button :class="{ active: tab === 'sound' }" @click="tab = 'sound'"><BellRing :size="17" />音效</button>
         <button :class="{ active: tab === 'theme' }" @click="tab = 'theme'"><Palette :size="17" />主题</button>
@@ -261,6 +263,8 @@ const accentSwatches: { value: 'indigo' | 'green' | 'rose' | 'amber'; label: str
           <h3>关于</h3>
           <button class="changelog-entry-button" @click="$emit('changelog')">更新日志</button>
         </section>
+
+        <CallSettingsTab v-else-if="tab === 'call'" />
 
         <section v-else-if="tab === 'audio'" class="profile-audio-layout motion-content-in">
           <aside class="profile-audio-nav">

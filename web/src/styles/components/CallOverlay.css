@@ -13,5 +13,7 @@
 .call-action.reject:hover, .call-action.hangup:hover { background: var(--red-hover); }
 .call-action.muted { background: var(--yellow); color: #1a1a1a; }
 .call-action.muted:hover { background: color-mix(in srgb, var(--yellow) 86%, white); }
+.call-overlay-block-temporary { margin-top: -2px; padding: 6px 12px; border: 0; border-radius: 6px; color: var(--muted); font-size: 13px; background: transparent; cursor: pointer; }
+.call-overlay-block-temporary:hover { color: var(--text); background: var(--hover); }
 
 #call-audio-root { position: fixed; width: 0; height: 0; overflow: hidden; }

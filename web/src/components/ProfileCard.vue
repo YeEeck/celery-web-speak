@@ -6,6 +6,7 @@ import { voiceLevelColorProgressPercent } from '../utils/voice-level'
 import { useAppStore } from '../stores/app'
 import { useVoiceStore } from '../stores/voice'
 import { presenceStatusFor } from '../utils/presence-status'
+import CallBlockMenu from './CallBlockMenu.vue'
 import UserAvatar from './UserAvatar.vue'
 
 const app = useAppStore()
@@ -181,6 +182,7 @@ function remainingBan(member: User): string {
         >
           <Phone :size="16" />
         </button>
+        <CallBlockMenu :user-id="props.userId" />
       </div>
 
       <div v-if="loading" class="profile-card-status">正在加载…</div>

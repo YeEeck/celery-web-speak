@@ -28,6 +28,9 @@ export function callTerminalMessage(reason: CallEndReason, side: CallTerminalSid
   switch (reason) {
     case 'busy':
       return side === 'caller' ? { message: '对方正忙', type: 'warning' } : null
+    case 'unavailable':
+      // 可被呼叫设置关闭或被呼叫屏蔽的统一隐式文案，不暴露具体原因。
+      return side === 'caller' ? { message: '对方暂时无法接听', type: 'warning' } : null
     case 'unreachable':
       return side === 'caller' ? { message: '对方不在线', type: 'warning' } : null
     case 'rejected':

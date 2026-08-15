@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ref, type Ref } from 'vue'
 import { RoomEvent } from 'livekit-client'
+import { ApiError } from '../src/api.ts'
 import { useVoiceCall, type VoiceCallContext } from '../src/stores/voice-call.ts'
 import type { VoiceCredentials } from '../src/types.ts'
 
@@ -105,6 +106,8 @@ interface Harness {
   rejectCalls: number
   cancelCalls: number
   hangupCalls: number
+  blockRequests: Array<{ userId: number }>
+  rejectError: Error | null
   tokenCalls: number
   appendedElements: number
   removeAllCalls: number
@@ -135,6 +138,8 @@ function makeHarness(): Harness {
     rejectCalls: 0,
     cancelCalls: 0,
     hangupCalls: 0,
+    blockRequests: [],
+    rejectError: null,
     tokenCalls: 0,
     appendedElements: 0,
     removeAllCalls: 0,
@@ -164,7 +169,11 @@ function makeHarness(): Harness {
       return harness.startResult
     },
     acceptRequest: async () => { harness.acceptCalls += 1 },
-    rejectRequest: async () => { harness.rejectCalls += 1 },
+    rejectRequest: async () => {
+      harness.rejectCalls += 1
+      if (harness.rejectError) throw harness.rejectError
+    },
+    setTemporaryBlockRequest: async (userId) => { harness.blockRequests.push({ userId }) },
     cancelRequest: async () => { harness.cancelCalls += 1 },
     hangupRequest: async () => { harness.hangupCalls += 1 },
     resolvedPreferredInputDeviceId: () => state.inputDeviceId,
@@ -212,6 +221,14 @@ test('startCall reaching a terminal state clears the session immediately', async
   assert.equal(h.call.endedReason.value, 'busy')
 })
 
+test('startCall preserves the unavailable terminal reason', async () => {
+  const h = makeHarness()
+  h.startResult = { callId: '100', state: 'ended', reason: 'unavailable' }
+  await h.call.startCall(PEER)
+  assert.equal(h.call.status.value, 'idle')
+  assert.equal(h.call.endedReason.value, 'unavailable')
+})
+
 test('accept joins the call room and reaches active', async () => {
   const h = makeHarness()
   await h.call.handleSignal({ type: 'call_invite', callId: '100', peer: PEER, state: 'ringing' })
@@ -242,6 +259,37 @@ test('reject clears the session and notifies the server', async () => {
   assert.equal(h.call.endedReason.value, 'rejected')
 })
 
+test('rejectAndBlockTemporarily blocks the peer before rejecting the call', async () => {
+  const h = makeHarness()
+  await h.call.handleSignal({ type: 'call_invite', callId: '100', peer: PEER, state: 'ringing' })
+  await h.call.rejectAndBlockTemporarily()
+  assert.deepEqual(h.blockRequests, [{ userId: 2 }])
+  assert.equal(h.rejectCalls, 1)
+  assert.equal(h.call.status.value, 'idle')
+  assert.equal(h.call.endedReason.value, 'rejected')
+})
+
+test('rejectAndBlockTemporarily tolerates an already-ended call after the block succeeded', async () => {
+  const h = makeHarness()
+  h.rejectError = new ApiError(409, 'call_not_ringing', '通话已不在振铃状态')
+  await h.call.handleSignal({ type: 'call_invite', callId: '100', peer: PEER, state: 'ringing' })
+  await h.call.rejectAndBlockTemporarily()
+  assert.deepEqual(h.blockRequests, [{ userId: 2 }])
+  assert.equal(h.rejectCalls, 1)
+  assert.equal(h.call.status.value, 'idle')
+  assert.equal(h.call.endedReason.value, 'rejected')
+})
+
+test('rejectAndBlockTemporarily keeps ringing and rethrows unexpected reject failures', async () => {
+  const h = makeHarness()
+  h.rejectError = new ApiError(500, 'internal_error', '服务器错误')
+  await h.call.handleSignal({ type: 'call_invite', callId: '100', peer: PEER, state: 'ringing' })
+  await assert.rejects(() => h.call.rejectAndBlockTemporarily())
+  assert.deepEqual(h.blockRequests, [{ userId: 2 }])
+  assert.equal(h.rejectCalls, 1)
+  assert.equal(h.call.status.value, 'ringing')
+})
+
 test('cancel clears the outgoing session', async () => {
   const h = makeHarness()
   await h.call.startCall(PEER)
@@ -268,6 +316,7 @@ test('terminal signals clear the session', async () => {
     ['call_cancel', 'canceled'],
     ['call_timeout', 'timeout'],
     ['call_busy', 'busy'],
+    ['call_unavailable', 'unavailable'],
     ['call_unreachable', 'unreachable'],
     ['call_end', 'ended'],
   ] as const) {

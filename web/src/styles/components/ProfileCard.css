@@ -22,6 +22,17 @@
 
 .profile-card-call-button { width: 28px; height: 28px; margin: 0; padding: 0; border: 0; border-radius: 6px; display: grid; place-items: center; background: transparent; color: var(--green); cursor: pointer; transition: var(--t-colors); }
 .profile-card-call-button:hover { background: rgba(35,165,89,.14); color: var(--success-fg); }
+.profile-card-call-button.block { color: var(--red); }
+.profile-card-call-button.block:hover { background: rgba(218,55,60,.14); color: var(--danger-fg); }
+
+.profile-card-block-control { position: relative; }
+.profile-card-block-menu { position: absolute; left: 36px; top: -4px; z-index: 10; width: 172px; padding: 6px; border: 1px solid var(--border-strong); border-radius: 6px; display: grid; gap: 2px; background: var(--elevated); box-shadow: 0 8px 22px rgba(0,0,0,.36); }
+.profile-card-block-state { padding: 4px 6px; color: var(--muted); font-size: 11px; }
+.profile-card-block-menu button { padding: 7px 8px; border: 0; border-radius: 4px; color: var(--text); font-size: 12px; text-align: left; background: transparent; cursor: pointer; }
+.profile-card-block-menu button:hover:not(:disabled) { background: var(--hover); }
+.profile-card-block-menu button:disabled { opacity: .55; cursor: default; }
+.profile-card-block-menu .danger-text { color: var(--danger-fg); }
+.profile-card-block-menu .form-error { padding: 4px 6px; font-size: 11px; }
 
 .profile-card-block { padding: 10px 6px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
 .profile-card-block h4 { margin: 0; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: none; }

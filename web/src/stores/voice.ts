@@ -16,6 +16,7 @@ import { useVoiceMuteDeafenModule } from './voice-mute-deafen.ts'
 import { useVoicePresence } from './voice-presence.ts'
 import { useVoiceSession } from './voice-session.ts'
 import { useVoiceCall, type CallPeer } from './voice-call.ts'
+import { useCallPermissionsStore } from './call-permissions.ts'
 import { useVoiceOverlay } from './voice-overlay.ts'
 import { callTerminalMessage, callTerminalSide } from './call-message.ts'
 import { useToastStore } from './toast.ts'
@@ -291,6 +292,9 @@ export const useVoiceStore = defineStore('voice', () => {
     }),
     acceptRequest: (callId) => request<void>(`/api/calls/${callId}/accept`, { method: 'POST' }),
     rejectRequest: (callId) => request<void>(`/api/calls/${callId}/reject`, { method: 'POST' }),
+    setTemporaryBlockRequest: (targetUserId) => (
+      useCallPermissionsStore().setBlockForCall(targetUserId, 'temporary').then(() => undefined)
+    ),
     cancelRequest: (callId) => request<void>(`/api/calls/${callId}/cancel`, { method: 'POST' }),
     hangupRequest: (callId) => request<void>(`/api/calls/${callId}/hangup`, { method: 'POST' }),
     fetchCallToken: (callId) => request<VoiceCredentials>(`/api/calls/${callId}/token`, { method: 'POST' }),
@@ -561,6 +565,9 @@ export const useVoiceStore = defineStore('voice', () => {
     }),
     acceptCall: call.accept,
     rejectCall: call.reject,
+    rejectAndBlockTemporarily: () => call.rejectAndBlockTemporarily().catch((error) => {
+      toast.showWarning(error instanceof ApiError ? error.message : '暂时屏蔽失败，请重试')
+    }),
     cancelCall: call.cancel,
     hangupCall: call.hangup,
     toggleCallMicrophoneMute: call.toggleMicrophoneMute,
