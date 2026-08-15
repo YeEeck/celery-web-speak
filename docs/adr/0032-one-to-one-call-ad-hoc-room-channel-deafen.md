@@ -21,6 +21,12 @@
 - **token 仅 active 状态签发**：`JoinCallCredentials` 只在 `State == CallActive` 时签发 JoinCredentials，ringing/ended 返回 `ErrCallNotActive`（HTTP 409 `call_not_active`）。理由：token 是进入 `call-<callID>` 房间的凭证，房间只在 accept 后才有实际媒体意义；振铃期签发会让被叫在拒绝/超时后仍持有可加入的令牌，把「通话已结束」的仲裁权泄漏给客户端。
 - **终态通话立即回收**：`evictTerminalCallLocked` 在全部终态转移点 emit 后驱逐无参与者的终态通话——reject/cancel/timeout/busy/unreachable 这类从未建房或已无参与者的终态即时回收；hangup/disconnect 因参与者仍可能在场，保留到最后参与者离场（`RemoveCallParticipant`/participant_left）再驱逐。Refresh 兜底丢弃 ended + 过期 call（active/ringing 不因创建 TTL 过期而丢弃）。理由：call 实体纯内存（决策 1），不回收即内存泄漏；但驱逐必须发生在终态信令 emit 之后，保证 peer 字段仍可解析。
 
+## 决策 4：参与者观察驱动的终态转移统一为一个入口（已批准）
+
+Webhook 的 participant_joined/left 与 Refresh 的全量参与者集合归一为同一观察载荷，经统一转移表推进 Participants 增删、准入移除、active→ended(disconnected) 与驱逐。webhook 送达的 left 是权威事件，立即触发断开；Refresh 推断的缺席只对曾在 Participants 中出现过的一方触发断开，因此接听后双方取 token、进房的窗口不会被误判为离开。room_finished 保持直接删除、不发信令。信令与移除副作用在转移决策时物化，并按固定顺序执行。
+
+理由：Refresh 是 webhook 漏事件的兜底，但原实现只重建参与者、不推进生命周期——漏 left 会让剩下一方停留在 active 通话；同时 Refresh 无法区分「刚接听还没进房」与「已进房后离开」，所以推断缺席需要「曾出现过」这一历史约束。这不改变决策 1/2/3 的取舍。
+
 ## 相关
 
 - LiveKit 能力事实（ticket 12）
