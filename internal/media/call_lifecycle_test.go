@@ -3,9 +3,11 @@ package media
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/webhook"
 	"github.com/yeck/celery-web-speak/internal/store"
 )
@@ -395,8 +397,6 @@ func TestTimeoutAfterAcceptIsNoOp(t *testing.T) {
 	}
 }
 
-
-
 func TestTerminalCallEvictedWhenNoParticipants(t *testing.T) {
 	// A terminal ringing call (never built a room, never had participants) must
 	// be evicted from s.calls immediately after its terminal signal is emitted.
@@ -643,3 +643,277 @@ func TestRefreshEvictsEndedExpiredCallsOnly(t *testing.T) {
 	}
 }
 
+func voiceParticipantInfo(userID int64, generation uint64) *livekit.ParticipantInfo {
+	return &livekit.ParticipantInfo{
+		Identity: Identity(userID),
+		Name:     fmt.Sprintf("通话成员-%d", userID),
+		Attributes: map[string]string{
+			"user_id":                fmt.Sprint(userID),
+			"call_id":                fmt.Sprint(1),
+			VoiceGenerationAttribute: fmt.Sprint(generation),
+		},
+	}
+}
+
+func setRecordedCallParticipants(c *call, userIDs ...int64) {
+	c.Participants = make(map[int64]VoiceParticipant, len(userIDs))
+	for _, userID := range userIDs {
+		c.Participants[userID] = VoiceParticipant{UserID: userID, Identity: Identity(userID), Generation: 7}
+	}
+}
+
+type recordingListingRoomService struct {
+	listingRoomService
+	removed *livekit.RoomParticipantIdentity
+}
+
+func (r *recordingListingRoomService) RemoveParticipant(_ context.Context, participant *livekit.RoomParticipantIdentity) (*livekit.RemoveParticipantResponse, error) {
+	r.removed = participant
+	return &livekit.RemoveParticipantResponse{}, nil
+}
+
+func TestRefreshMarksPreviouslyObservedAbsentPartyDisconnected(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+	callID := newRingingCall(t, service, 100, 200)
+	if err := service.AcceptCall(callID, 200); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	setRecordedCallParticipants(service.calls[callID], 100, 200)
+	service.room = &listingRoomService{
+		rooms: []*livekit.Room{{Name: CallRoomName(callID)}},
+		participants: map[string][]*livekit.ParticipantInfo{
+			CallRoomName(callID): {voiceParticipantInfo(200, 7)},
+		},
+	}
+	signaler.signals = nil
+
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	call := service.calls[callID]
+	if call == nil || call.State != CallEnded || call.EndReason != CallEndDisconnected {
+		t.Fatalf("call after refresh = %+v, want ended(disconnected)", call)
+	}
+	if len(call.Participants) != 1 {
+		t.Fatalf("participants after refresh = %+v, want only remaining party", call.Participants)
+	}
+	if _, ok := call.Participants[200]; !ok {
+		t.Fatalf("remaining party missing from participants: %+v", call.Participants)
+	}
+	if len(signaler.signals) != 1 {
+		t.Fatalf("signals = %+v, want 1 call_end to remaining party", signaler.signals)
+	}
+	sig := signaler.signals[0]
+	if sig.TargetUserID != 200 || sig.Type != "call_end" || sig.Reason != CallEndDisconnected {
+		t.Fatalf("disconnect signal = %+v", sig)
+	}
+	if sig.Peer.UserID != 100 {
+		t.Fatalf("disconnect peer = %+v, want absent caller", sig.Peer)
+	}
+}
+
+func TestRefreshDoesNotDisconnectBeforeFirstObservation(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+	callID := newRingingCall(t, service, 100, 200)
+	if err := service.AcceptCall(callID, 200); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	signaler.signals = nil
+	// The call room has not been built yet: accept happened, token/join is
+	// still in flight. Refresh sees no call room, but no party was recorded
+	// before, so this must stay active.
+	service.room = &listingRoomService{}
+
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	call := service.calls[callID]
+	if call == nil || call.State != CallActive || len(call.Participants) != 0 {
+		t.Fatalf("call after refresh = %+v, want untouched active", call)
+	}
+	if len(signaler.signals) != 0 {
+		t.Fatalf("signals = %+v, want none during join window", signaler.signals)
+	}
+}
+
+func TestWebhookAuthoritativeLeftDisconnectsWhenJoinWasMissed(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+	callID := newRingingCall(t, service, 100, 200)
+	if err := service.AcceptCall(callID, 200); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	// Only the callee's join was recorded; the caller's join webhook was lost.
+	setRecordedCallParticipants(service.calls[callID], 200)
+	signaler.signals = nil
+
+	left := callParticipantEvent(webhook.EventParticipantLeft, callID, 100, 7)
+	if !service.ApplyWebhook(context.Background(), left) {
+		t.Fatal("authoritative left did not change snapshot")
+	}
+	call := service.calls[callID]
+	if call == nil || call.State != CallEnded || call.EndReason != CallEndDisconnected {
+		t.Fatalf("call after authoritative left = %+v, want ended(disconnected)", call)
+	}
+	if len(signaler.signals) != 1 {
+		t.Fatalf("signals = %+v, want 1 call_end to recorded peer", signaler.signals)
+	}
+	sig := signaler.signals[0]
+	if sig.TargetUserID != 200 || sig.Type != "call_end" || sig.Reason != CallEndDisconnected {
+		t.Fatalf("disconnect signal = %+v", sig)
+	}
+	if sig.Peer.UserID != 100 {
+		t.Fatalf("disconnect peer = %+v, want caller", sig.Peer)
+	}
+}
+
+func TestObservationTransitionAdmissionAndEffectOrder(t *testing.T) {
+	now := time.Date(2026, time.July, 21, 3, 0, 0, 0, time.UTC)
+	current := &call{
+		CallID:    77,
+		CallerID:  100,
+		CalleeID:  200,
+		Caller:    CallParty{UserID: 100, Username: "caller", DisplayName: "主叫"},
+		Callee:    CallParty{UserID: 200, Username: "callee", DisplayName: "被叫"},
+		State:     CallActive,
+		ExpiresAt: now.Add(time.Minute),
+	}
+	setRecordedCallParticipants(current, 100, 200)
+	observed := map[int64]VoiceParticipant{
+		200: {UserID: 200, Identity: Identity(200), Generation: 9},
+		999: {UserID: 999, Identity: Identity(999), Generation: 0},
+	}
+
+	next, effects := transitionCallParticipants(current, observed, 0, now, map[int64]callTarget{})
+	if next == nil || next.State != CallEnded || next.EndReason != CallEndDisconnected {
+		t.Fatalf("next call = %+v, want ended(disconnected)", next)
+	}
+	if len(next.Participants) != 1 {
+		t.Fatalf("next participants = %+v, want only admitted callee", next.Participants)
+	}
+	if len(effects) != 2 {
+		t.Fatalf("effects = %+v, want removal then signal", effects)
+	}
+	if effects[0].kind != callEffectRemoveParticipant {
+		t.Fatalf("effect[0] = %+v, want remove participant", effects[0])
+	}
+	if effects[0].roomName != CallRoomName(77) || effects[0].identity != Identity(999) {
+		t.Fatalf("remove effect = %+v", effects[0])
+	}
+	if effects[1].kind != callEffectEmitSignal {
+		t.Fatalf("effect[1] = %+v, want emit signal", effects[1])
+	}
+	if effects[1].targetUserID != 200 || effects[1].signal.Type != "call_end" || effects[1].signal.Reason != CallEndDisconnected {
+		t.Fatalf("signal effect = %+v", effects[1])
+	}
+	if effects[1].signal.Peer.UserID != 100 {
+		t.Fatalf("signal peer = %+v, want materialized caller party", effects[1].signal.Peer)
+	}
+}
+
+func TestRefreshAdmissionRemovesIllegalCallParticipant(t *testing.T) {
+	service := newLifecycleService()
+	callID := newRingingCall(t, service, 100, 200)
+	room := &recordingListingRoomService{
+		listingRoomService: listingRoomService{
+			rooms: []*livekit.Room{{Name: CallRoomName(callID)}},
+			participants: map[string][]*livekit.ParticipantInfo{
+				CallRoomName(callID): {voiceParticipantInfo(999, 0)},
+			},
+		},
+	}
+	service.room = room
+
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if room.removed == nil || room.removed.Room != CallRoomName(callID) || room.removed.Identity != Identity(999) {
+		t.Fatalf("remove request = %+v, want illegal participant", room.removed)
+	}
+	if call := service.calls[callID]; call == nil || len(call.Participants) != 0 {
+		t.Fatalf("call = %+v, illegal participant must not be recorded", call)
+	}
+}
+
+func TestRefreshEndedCallBookkeeping(t *testing.T) {
+	t.Run("observed participant retained without signals", func(t *testing.T) {
+		service := newLifecycleService()
+		signaler := &recordingSignaler{}
+		service.SetCallSignaler(signaler)
+		callID := newRingingCall(t, service, 100, 200)
+		call := service.calls[callID]
+		call.State = CallEnded
+		call.EndReason = CallEndNormal
+		call.ExpiresAt = service.now().Add(time.Minute)
+		setRecordedCallParticipants(call, 100)
+		signaler.signals = nil
+		service.room = &listingRoomService{
+			rooms: []*livekit.Room{{Name: CallRoomName(callID)}},
+			participants: map[string][]*livekit.ParticipantInfo{
+				CallRoomName(callID): {voiceParticipantInfo(100, 7)},
+			},
+		}
+
+		if _, err := service.Refresh(context.Background()); err != nil {
+			t.Fatalf("refresh: %v", err)
+		}
+		if call := service.calls[callID]; call == nil || call.State != CallEnded || len(call.Participants) != 1 {
+			t.Fatalf("call after refresh = %+v, want ended with observed participant", call)
+		}
+		if len(signaler.signals) != 0 {
+			t.Fatalf("signals = %+v, want none for ended bookkeeping", signaler.signals)
+		}
+	})
+
+	t.Run("absent observed participant evicts empty ended call", func(t *testing.T) {
+		service := newLifecycleService()
+		signaler := &recordingSignaler{}
+		service.SetCallSignaler(signaler)
+		callID := newRingingCall(t, service, 100, 200)
+		call := service.calls[callID]
+		call.State = CallEnded
+		call.EndReason = CallEndNormal
+		call.ExpiresAt = service.now().Add(time.Minute)
+		setRecordedCallParticipants(call, 100)
+		signaler.signals = nil
+		service.room = &listingRoomService{}
+
+		if _, err := service.Refresh(context.Background()); err != nil {
+			t.Fatalf("refresh: %v", err)
+		}
+		if _, exists := service.calls[callID]; exists {
+			t.Fatalf("ended call with no observed participants survived Refresh")
+		}
+		if len(signaler.signals) != 0 {
+			t.Fatalf("signals = %+v, want none for ended eviction", signaler.signals)
+		}
+	})
+}
+
+func TestRefreshBothPartiesAbsentEndsSilently(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+	callID := newRingingCall(t, service, 100, 200)
+	if err := service.AcceptCall(callID, 200); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	setRecordedCallParticipants(service.calls[callID], 100, 200)
+	signaler.signals = nil
+	service.room = &listingRoomService{}
+
+	if _, err := service.Refresh(context.Background()); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if _, exists := service.calls[callID]; exists {
+		t.Fatalf("active call survived Refresh with both parties absent")
+	}
+	if len(signaler.signals) != 0 {
+		t.Fatalf("signals = %+v, want silent eviction when no peer remains", signaler.signals)
+	}
+}
