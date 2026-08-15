@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.4.37",
+    "date": "2026-08-15",
+    "changes": [
+      "feat(call): 1:1 语音通话——media 层 StartCall/Accept/Reject/Cancel/HangUp 生命周期状态机（30s 振铃超时、busy/互拨判定、终态回收与 token active 门控），httpapi 注册 /api/calls 六端点并经 hub 推送 call_* 点到点信令",
+      "feat(web): 通话前端——voice-call 会话模块与通话浮层三形态（呼出中/来电/通话中 + 时长 + 重连中）、个人信息卡片语音通话入口、呼出回铃/来电振铃/接通/结束提示音（循环接口遵守总开关与耳机静音策略）、终态原因 × 侧别 toast 提示、频道作用域耳机静音叠加（只静频道不静通话）",
+      "fix(call): 非共享服务器成员发起通话返回 403、主叫自忙拒绝并发发起、callID int64 跨端 JSON 字符串序列化精度修复",
+      "fix(web): 通话提示音区分全局耳机静音与频道叠加、通话会话偏好联动与信令健壮性、个人信息卡片通话按钮独立成行",
+      "refactor(media): 抽取通话参与者准入守卫消除 webhook/Refresh 重复",
+      "docs: 1:1 语音通话术语与内存状态基线落档（CONTEXT.md/ADR-0032）",
+      "test: HTTP+WS 集成测试覆盖通话全状态机，e2e 双标签页互拨用例与移动端适配"
+    ]
+  },
+  {
     "version": "0.4.36",
     "date": "2026-08-09",
     "changes": [
