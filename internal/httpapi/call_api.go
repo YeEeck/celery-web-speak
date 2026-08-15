@@ -46,8 +46,14 @@ func (s *Server) handleCallCreate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "not_in_shared_guild", "只能呼叫与你有共同服务器的成员")
 		return
 	}
+	blocked, err := s.store.CallBlockActive(r.Context(), callee.ID, caller.ID)
+	if err != nil {
+		s.internalError(w, "check call block for call", err)
+		return
+	}
+	inboundAllowed := callee.CallReceiving && !blocked
 	reachable := s.hub.IsOnline(callee.ID)
-	result, err := s.media.StartCall(caller, callee, reachable)
+	result, err := s.media.StartCall(caller, callee, reachable, inboundAllowed)
 	if err != nil {
 		s.writeCallError(w, err)
 		return

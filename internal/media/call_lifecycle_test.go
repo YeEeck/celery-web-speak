@@ -37,11 +37,38 @@ func newLifecycleService() *Service {
 // mustStart runs StartCall and fails the test on an unexpected refusal.
 func mustStart(t *testing.T, service *Service, caller, callee store.User, reachable bool) StartCallResult {
 	t.Helper()
-	result, err := service.StartCall(caller, callee, reachable)
+	result, err := service.StartCall(caller, callee, reachable, true)
 	if err != nil {
 		t.Fatalf("start call: %v", err)
 	}
 	return result
+}
+
+func TestStartCallInboundNotAllowedReturnsUnavailable(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+
+	result, err := service.StartCall(caller(), callee(), true, false)
+	if err != nil {
+		t.Fatalf("start call with inbound disallowed: %v", err)
+	}
+	if result.State != CallEnded || result.Reason != CallEndUnavailable {
+		t.Fatalf("start result = %+v, want ended(unavailable)", result)
+	}
+	if len(service.calls) != 0 {
+		t.Fatalf("terminal unavailable call remained tracked: %+v", service.calls)
+	}
+	if len(signaler.signals) != 1 {
+		t.Fatalf("signals = %+v, want 1 call_unavailable to caller", signaler.signals)
+	}
+	sig := signaler.signals[0]
+	if sig.TargetUserID != 100 || sig.Type != "call_unavailable" || sig.State != CallEnded || sig.Reason != CallEndUnavailable {
+		t.Fatalf("signal = %+v, want call_unavailable to caller", sig)
+	}
+	if sig.Peer.UserID != 200 {
+		t.Fatalf("signal peer = %+v, want callee", sig.Peer)
+	}
 }
 
 func TestStartCallRingingEmitsInviteToCallee(t *testing.T) {
@@ -154,7 +181,7 @@ func TestStartCallRefusedWhenCallerBusyElsewhere(t *testing.T) {
 	// A dials a third party C while still in the call with B: refused (spec 04
 	// 忙碌 = 已有任一通话). No call is created and nothing is signalled.
 	third := store.User{ID: 300, Username: "third", DisplayName: "第三者"}
-	if _, err := service.StartCall(caller(), third, true); !errors.Is(err, ErrCallBusy) {
+	if _, err := service.StartCall(caller(), third, true, true); !errors.Is(err, ErrCallBusy) {
 		t.Fatalf("caller-busy start error = %v, want ErrCallBusy", err)
 	}
 	if len(service.calls) != 1 {

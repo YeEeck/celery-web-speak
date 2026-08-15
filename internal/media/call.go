@@ -38,8 +38,12 @@ const (
 type CallEndReason string
 
 const (
-	CallEndBusy         CallEndReason = "busy"
-	CallEndUnreachable  CallEndReason = "unreachable"
+	CallEndBusy        CallEndReason = "busy"
+	CallEndUnreachable CallEndReason = "unreachable"
+	// CallEndUnavailable terminates an initiation refused by the callee's
+	// 可被呼叫设置 or a 呼叫屏蔽. The caller is told only the unified
+	// unavailable outcome, never the concrete reason.
+	CallEndUnavailable  CallEndReason = "unavailable"
 	CallEndRejected     CallEndReason = "rejected"
 	CallEndCanceled     CallEndReason = "canceled"
 	CallEndTimeout      CallEndReason = "timeout"
@@ -138,20 +142,22 @@ type StartCallResult struct {
 	Reason CallEndReason `json:"reason,omitempty"`
 }
 
-// StartCall performs the one-shot initiation arbitration (spec 04/05): an
+// StartCall performs the one-shot initiation arbitration (spec 04/05): a
+// callee that does not accept inbound calls (inboundAllowed=false, decided by
+// httpapi from 可被呼叫设置 and 呼叫屏蔽) ends immediately as unavailable, an
 // unreachable callee ends immediately, a busy callee (already in any ringing
 // or active call) ends as busy, otherwise the call enters ringing and a 30s
 // timeout is armed. The resulting signalling events are delivered to the
-// registered CallSignaler. reachable is decided by the caller (httpapi) from
-// shared-guild membership and online presence; busy is decided here from the
-// in-memory call coordination.
+// registered CallSignaler. reachable and inboundAllowed are decided by the
+// caller (httpapi) from store state; busy is decided here from the in-memory
+// call coordination.
 //
 // The initiation is refused with ErrCallBusy when the initiator is already a
 // party to a ringing or active call with someone other than the intended
 // callee (spec 04: 忙碌 = 已有任一通话). The mutual-dial case (the initiator's
 // existing call involves the callee) is excluded: it is judged on the callee
 // side by the busy branch below, per "双方互拨：后到判忙".
-func (s *Service) StartCall(caller, callee store.User, reachable bool) (StartCallResult, error) {
+func (s *Service) StartCall(caller, callee store.User, reachable, inboundAllowed bool) (StartCallResult, error) {
 	now := s.now()
 	s.mu.Lock()
 	if s.callerBusyElsewhereLocked(caller.ID, callee.ID) {
@@ -162,6 +168,9 @@ func (s *Service) StartCall(caller, callee store.User, reachable bool) (StartCal
 	state := CallRinging
 	var reason CallEndReason
 	switch {
+	case !inboundAllowed:
+		state = CallEnded
+		reason = CallEndUnavailable
 	case !reachable:
 		state = CallEnded
 		reason = CallEndUnreachable
@@ -186,8 +195,8 @@ func (s *Service) StartCall(caller, callee store.User, reachable bool) (StartCal
 
 	switch state {
 	case CallEnded:
-		// Immediate terminal start (busy/unreachable): the call never had
-		// participants, so evict it right after the terminal signal.
+		// Immediate terminal start (unavailable/busy/unreachable): the call
+		// never had participants, so evict it right after the terminal signal.
 		s.emit(caller.ID, callID, CallEnded, reason)
 		s.mu.Lock()
 		s.evictTerminalCallLocked(callID)
@@ -446,6 +455,8 @@ func callEventType(state CallState, reason CallEndReason) string {
 		return "call_busy"
 	case CallEndUnreachable:
 		return "call_unreachable"
+	case CallEndUnavailable:
+		return "call_unavailable"
 	case CallEndRejected:
 		return "call_reject"
 	case CallEndCanceled:

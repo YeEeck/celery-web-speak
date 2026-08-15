@@ -861,7 +861,12 @@ func TestGuildAuthorizationDoesNotCrossGuildThroughLegacyOrScopedRoutes(t *testi
 
 func newGuildHTTPTestServer(t *testing.T) (*store.Store, store.User, *Server) {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	return newGuildHTTPTestServerWithPath(t, filepath.Join(t.TempDir(), "test.db"))
+}
+
+func newGuildHTTPTestServerWithPath(t *testing.T, path string) (*store.Store, store.User, *Server) {
+	t.Helper()
+	db, err := store.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
