@@ -615,8 +615,11 @@ async function previewSlot(
   dependencies: ApplicationSoundDependencies,
 ): Promise<SoundChangeResult> {
   slot.control.issue = null
+  // 试听豁免耳机静音（全局与频道作用域）：它是用户主动发起的确认播放，语义上
+  // 与「让本机安静」的耳机静音冲突（术语见 CONTEXT.md「提示音试听」）；总开关
+  // 与音量仍遵守。
   const policy = slot.playbackPolicy()
-  if (!policy.enabled || policy.volume === 0 || policy.deafened) return success()
+  if (!policy.enabled || policy.volume === 0) return success()
   try {
     await playSelected(slot, policy.volume, dependencies.audio)
     return success()

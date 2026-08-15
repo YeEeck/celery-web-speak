@@ -242,7 +242,7 @@ test('applies operation gates and independent accepted-event rate limits', async
   assert.equal(harness.audio.plays.at(-1), 'preset:fall-duo')
 })
 
-test('preview ignores the slot switch but obeys master playback policy', async () => {
+test('preview ignores the slot switch and deafen but obeys master playback policy', async () => {
   const harness = createHarness()
   await harness.sounds.whenReady()
   const join = slot(harness, 'join')
@@ -256,9 +256,14 @@ test('preview ignores the slot switch but obeys master playback policy', async (
   assert.equal(harness.audio.plays.length, 1)
 
   await harness.sounds.settings.master.setEnabled(true)
+  // 试听豁免耳机静音：全局与频道作用域耳机静音下试听仍播放（术语见 CONTEXT.md）。
   harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: '' })
   assert.equal((await join.preview()).ok, true)
-  assert.equal(harness.audio.plays.length, 1)
+  assert.equal(harness.audio.plays.at(-1), 'preset:rise-duo')
+
+  harness.sounds.followPlayback({ deafened: false, channelDeafened: true, outputDeviceId: '' })
+  assert.equal((await join.preview()).ok, true)
+  assert.equal(harness.audio.plays.at(-1), 'preset:rise-duo')
 })
 
 test('projects muted-speaking audibility and keeps reminder outside operation limits', async () => {
