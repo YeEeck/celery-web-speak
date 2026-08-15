@@ -122,6 +122,16 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   details TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS call_blocks (
+  owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK(kind IN ('temporary','permanent')),
+  expires_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (owner_user_id, target_user_id)
+);
+CREATE INDEX IF NOT EXISTS call_blocks_owner ON call_blocks(owner_user_id);
 `
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate database: %w", err)
@@ -164,6 +174,22 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 	}
 	if err := s.ensureUserFixedAwayColumn(ctx); err != nil {
 		return fmt.Errorf("migrate user status setting: %w", err)
+	}
+	if err := s.ensureUserCallReceivingColumn(ctx); err != nil {
+		return fmt.Errorf("migrate user call receiving setting: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ensureUserCallReceivingColumn(ctx context.Context) error {
+	has, err := s.tableHasColumn(ctx, "users", "call_receiving")
+	if err != nil {
+		return err
+	}
+	if !has {
+		if _, err := s.db.ExecContext(ctx, "ALTER TABLE users ADD COLUMN call_receiving INTEGER NOT NULL DEFAULT 1"); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -535,14 +561,14 @@ func (s *Store) Authenticate(ctx context.Context, username, password string) (Us
 	var user User
 	var passwordHash, createdAt string
 	var bio sql.NullString
-	var platformAdmin, permanentlyBanned, hasAvatar int
+	var platformAdmin, permanentlyBanned, hasAvatar, callReceiving int
 	var suspendedAt sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, bio, online_seconds_total, password_hash, permanently_banned, suspended_at, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL, fixed_away
+SELECT id, username, display_name, bio, online_seconds_total, password_hash, permanently_banned, suspended_at, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL, fixed_away, call_receiving
 FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(username)).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &bio, &user.OnlineSecondsTotal, &passwordHash,
 		&permanentlyBanned, &suspendedAt, &createdAt, &platformAdmin,
-		&user.AvatarVersion, &hasAvatar, &user.FixedAway,
+		&user.AvatarVersion, &hasAvatar, &user.FixedAway, &callReceiving,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrInvalidLogin
@@ -565,6 +591,7 @@ FROM users WHERE username = ? AND deleted_at IS NULL`, strings.TrimSpace(usernam
 	user.IsPlatformAdmin = platformAdmin != 0
 	user.Role = platformRole(user.IsPlatformAdmin)
 	user.HasAvatar = hasAvatar != 0
+	user.CallReceiving = callReceiving != 0
 	user.CreatedAt, _ = parseTime(createdAt)
 	if user.PermanentlyBanned || user.SuspendedAt != nil {
 		return User{}, ErrBanned
@@ -576,14 +603,14 @@ func (s *Store) UserByID(ctx context.Context, id int64) (User, error) {
 	var user User
 	var createdAt string
 	var bio sql.NullString
-	var platformAdmin, permanentlyBanned, hasAvatar int
+	var platformAdmin, permanentlyBanned, hasAvatar, callReceiving int
 	var suspendedAt sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-SELECT id, username, display_name, bio, online_seconds_total, permanently_banned, suspended_at, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL, fixed_away
+SELECT id, username, display_name, bio, online_seconds_total, permanently_banned, suspended_at, created_at, is_platform_admin, avatar_version, avatar_bytes IS NOT NULL, fixed_away, call_receiving
 FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 		&user.ID, &user.Username, &user.DisplayName, &bio, &user.OnlineSecondsTotal,
 		&permanentlyBanned, &suspendedAt, &createdAt, &platformAdmin,
-		&user.AvatarVersion, &hasAvatar, &user.FixedAway,
+		&user.AvatarVersion, &hasAvatar, &user.FixedAway, &callReceiving,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
@@ -603,6 +630,7 @@ FROM users WHERE id = ? AND deleted_at IS NULL`, id).Scan(
 	user.IsPlatformAdmin = platformAdmin != 0
 	user.Role = platformRole(user.IsPlatformAdmin)
 	user.HasAvatar = hasAvatar != 0
+	user.CallReceiving = callReceiving != 0
 	user.CreatedAt, _ = parseTime(createdAt)
 	return user, nil
 }

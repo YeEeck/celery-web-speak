@@ -87,6 +87,7 @@ type User struct {
 	FixedAway          bool       `json:"fixedAway"`
 	AvatarVersion      int        `json:"avatarVersion"`
 	HasAvatar          bool       `json:"hasAvatar"`
+	CallReceiving      bool       `json:"callReceiving"`
 }
 
 type Channel struct {

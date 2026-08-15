@@ -131,6 +131,24 @@ UPDATE users SET fixed_away = ?, updated_at = ? WHERE id = ? AND deleted_at IS N
 	return nil
 }
 
+// SetUserCallReceiving persists the user's 可被呼叫设置. It returns
+// ErrNotFound when the account does not exist or is deleted.
+func (s *Store) SetUserCallReceiving(ctx context.Context, userID int64, enabled bool) error {
+	value := 0
+	if enabled {
+		value = 1
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE users SET call_receiving = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`, value, formatTime(s.now()), userID)
+	if err != nil {
+		return fmt.Errorf("set user call receiving: %w", err)
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (s *Store) ResetPassword(ctx context.Context, actorID, userID int64, password string) error {
 	if err := validatePassword(password); err != nil {
 		return err
