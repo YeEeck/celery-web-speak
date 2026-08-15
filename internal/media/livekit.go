@@ -404,33 +404,42 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 		if c.State == CallEnded && !c.ExpiresAt.After(now) {
 			continue
 		}
-		clone := cloneCall(c)
-		clone.Participants = make(map[int64]VoiceParticipant)
-		calls[callID] = clone
+		// Keep the previous participants: the transition table below diffs
+		// them against the observed room members instead of only repopulating.
+		calls[callID] = cloneCall(c)
 	}
 	removals := make([]livekit.RoomParticipantIdentity, 0)
+	callEffects := make([]callObservationEffect, 0)
+	seenCallRooms := make(map[int64]struct{})
 	for _, roomInfo := range response.Rooms {
 		if callID, isCall := ParseCallRoomName(roomInfo.Name); isCall {
+			seenCallRooms[callID] = struct{}{}
 			participants, listErr := s.room.ListParticipants(ctx, &livekit.ListParticipantsRequest{Room: roomInfo.Name})
 			if listErr != nil {
 				return false, listErr
 			}
+			observed := make(map[int64]VoiceParticipant, len(participants.Participants))
 			for _, info := range participants.Participants {
 				participant, ok := voiceParticipant(info)
 				if !ok {
 					continue
 				}
-				target, hasTarget := issuedCallTargets[participant.UserID]
-				if !callParticipantAllowed(now, target, hasTarget, roomInfo.Name, callID, participant) {
-					removals = append(removals, livekit.RoomParticipantIdentity{Room: roomInfo.Name, Identity: participant.Identity})
-					continue
+				observed[participant.UserID] = participant
+			}
+			if current, ok := calls[callID]; ok {
+				next, effects := transitionCallParticipants(current, observed, 0, now, issuedCallTargets)
+				if next == nil {
+					delete(calls, callID)
+				} else {
+					calls[callID] = next
 				}
-				if c, ok := calls[callID]; ok {
-					if c.Participants == nil {
-						c.Participants = make(map[int64]VoiceParticipant)
-					}
-					c.Participants[participant.UserID] = participant
-				}
+				callEffects = append(callEffects, effects...)
+			} else {
+				// No coordination record for an orphaned call room: run the
+				// admission half of the table so illegal participants still
+				// get removed; the produced call state is discarded.
+				_, effects := transitionCallParticipants(&call{CallID: callID}, observed, 0, now, issuedCallTargets)
+				callEffects = append(callEffects, effects...)
 			}
 			continue
 		}
@@ -487,6 +496,23 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 			}
 		}
 	}
+	// Calls whose room no longer appears in ListRooms get an empty full-set
+	// observation. For an active call this is where a missed participant_left
+	// webhook finally turns into ended(disconnected); for a call that has not
+	// built its room yet (accept/join window) the empty observation leaves it
+	// untouched because no party was previously recorded.
+	for callID, current := range calls {
+		if _, seen := seenCallRooms[callID]; seen {
+			continue
+		}
+		next, effects := transitionCallParticipants(current, nil, 0, now, issuedCallTargets)
+		if next == nil {
+			delete(calls, callID)
+		} else {
+			calls[callID] = next
+		}
+		callEffects = append(callEffects, effects...)
+	}
 	changed, applied := s.replaceSnapshot(revision, rooms, targets, callTargets, calls)
 	if !applied {
 		return false, nil
@@ -494,6 +520,7 @@ func (s *Service) Refresh(ctx context.Context) (bool, error) {
 	for index := range removals {
 		_, _ = s.room.RemoveParticipant(ctx, &removals[index])
 	}
+	s.executeCallObservationEffects(ctx, callEffects)
 	return changed, nil
 }
 

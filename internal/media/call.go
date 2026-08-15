@@ -116,6 +116,10 @@ func (c *call) otherParty(userID int64) int64 {
 	return c.CallerID
 }
 
+func (c *call) isCallParty(userID int64) bool {
+	return userID == c.CallerID || userID == c.CalleeID
+}
+
 func CallRoomName(callID int64) string {
 	return "call-" + strconv.FormatInt(callID, 10)
 }
@@ -554,61 +558,13 @@ func (s *Service) applyCallWebhook(ctx context.Context, event *livekit.WebhookEv
 		if !ok {
 			return false
 		}
-		s.mu.Lock()
-		target, hasTarget := s.callTargets[participant.UserID]
-		c, exists := s.calls[callID]
-		if !exists || !callParticipantAllowed(s.now(), target, hasTarget, roomName, callID, participant) {
-			s.mu.Unlock()
-			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: participant.Identity})
-			return false
-		}
-		if c.Participants == nil {
-			c.Participants = make(map[int64]VoiceParticipant)
-		}
-		c.Participants[participant.UserID] = participant
-		if participant.Generation > s.generation {
-			s.generation = participant.Generation
-		}
-		s.revision++
-		s.mu.Unlock()
-		return true
+		return s.observeCallParticipantJoined(ctx, callID, roomName, participant)
 	case webhook.EventParticipantLeft:
 		participant, ok := voiceParticipant(event.GetParticipant())
 		if !ok {
 			return false
 		}
-		s.mu.Lock()
-		c, exists := s.calls[callID]
-		if !exists {
-			s.mu.Unlock()
-			return false
-		}
-		stored, ok := c.Participants[participant.UserID]
-		if !ok || (stored.Generation > 0 && participant.Generation > 0 && stored.Generation != participant.Generation) {
-			s.mu.Unlock()
-			return false
-		}
-		delete(c.Participants, participant.UserID)
-		// A party leaving an active call (without a prior hangup) is a terminal
-		// disconnect, per spec 04; signal the other party.
-		var disconnectedTo int64
-		if c.State == CallActive && (participant.UserID == c.CallerID || participant.UserID == c.CalleeID) {
-			c.State = CallEnded
-			c.EndReason = CallEndDisconnected
-			disconnectedTo = c.otherParty(participant.UserID)
-		}
-		s.revision++
-		s.mu.Unlock()
-		if disconnectedTo > 0 {
-			s.emit(disconnectedTo, callID, CallEnded, CallEndDisconnected)
-		}
-		// A terminal call whose last participant just left has nothing left to
-		// reference it; evict it (re-check under lock after the emit so the
-		// disconnect signal still resolves its peer).
-		s.mu.Lock()
-		s.evictTerminalCallLocked(callID)
-		s.mu.Unlock()
-		return true
+		return s.observeCallParticipantLeft(ctx, callID, participant)
 	case webhook.EventRoomFinished:
 		s.mu.Lock()
 		if _, exists := s.calls[callID]; exists {
@@ -652,6 +608,223 @@ func callParticipantAllowed(now time.Time, target callTarget, hasTarget bool, ro
 		return false
 	}
 	return !hasTarget || !target.valid(now) || target.accepts(roomName, callID, participant.Generation)
+}
+
+// callObservationEffectKind discriminates the external side effects produced
+// by the participant-observation transition table.
+type callObservationEffectKind uint8
+
+const (
+	callEffectEmitSignal callObservationEffectKind = iota
+	callEffectRemoveParticipant
+)
+
+// callObservationEffect is a fully materialized side effect computed at
+// transition time. Executors never read call state back to resolve peers or
+// room names, so effect order is explicit and emit-before-evict no longer
+// depends on state still being present.
+type callObservationEffect struct {
+	kind         callObservationEffectKind
+	targetUserID int64
+	signal       CallSignal
+	roomName     string
+	identity     string
+}
+
+func newCallSignalEffect(targetUserID int64, c *call, state CallState, reason CallEndReason) callObservationEffect {
+	return callObservationEffect{
+		kind:         callEffectEmitSignal,
+		targetUserID: targetUserID,
+		signal: CallSignal{
+			Type:   callEventType(state, reason),
+			CallID: c.CallID,
+			Peer:   callPartyFor(c, targetUserID),
+			State:  state,
+			Reason: reason,
+		},
+	}
+}
+
+func newCallRemoveEffect(roomName, identity string) callObservationEffect {
+	return callObservationEffect{
+		kind:     callEffectRemoveParticipant,
+		roomName: roomName,
+		identity: identity,
+	}
+}
+
+func callPartyFor(c *call, userID int64) CallParty {
+	if userID == c.CallerID {
+		return c.Callee
+	}
+	if userID == c.CalleeID {
+		return c.Caller
+	}
+	return CallParty{}
+}
+
+// transitionCallParticipants is the pure participant-observation transition
+// table for a call. It takes the current call, one full participant set as
+// observed by webhook or Refresh, and the participant that an authoritative
+// left event names (0 when the observation is a Refresh inference).
+//
+// It returns the next call (nil when the call should be evicted) and ordered
+// external effects. Admission lives here: observed participants that fail
+// callParticipantAllowed never enter Participants and produce a removal
+// effect instead.
+func transitionCallParticipants(current *call, observed map[int64]VoiceParticipant, authoritativeLeft int64, now time.Time, targets map[int64]callTarget) (*call, []callObservationEffect) {
+	next := cloneCall(current)
+	roomName := CallRoomName(current.CallID)
+	var effects []callObservationEffect
+
+	for userID, participant := range observed {
+		target, hasTarget := targets[userID]
+		if !callParticipantAllowed(now, target, hasTarget, roomName, current.CallID, participant) {
+			effects = append(effects, newCallRemoveEffect(roomName, participant.Identity))
+			continue
+		}
+		next.Participants[userID] = participant
+	}
+
+	removedAny := false
+	transitionedAny := false
+	var absent []int64
+	for userID := range current.Participants {
+		if _, present := observed[userID]; present {
+			continue
+		}
+		delete(next.Participants, userID)
+		removedAny = true
+		absent = append(absent, userID)
+	}
+	for _, userID := range absent {
+		var transitioned bool
+		effects, transitioned = disconnectCallIfActive(next, userID, effects)
+		transitionedAny = transitionedAny || transitioned
+	}
+
+	if authoritativeLeft > 0 {
+		if _, present := observed[authoritativeLeft]; !present {
+			var transitioned bool
+			effects, transitioned = disconnectCallIfActive(next, authoritativeLeft, effects)
+			transitionedAny = transitionedAny || transitioned
+		}
+	}
+
+	// A terminal call only disappears once this observation emptied it or
+	// moved it from active to ended while already empty. An already-empty
+	// ended call seen by Refresh stays for the ExpiresAt sweep (ADR-0032).
+	if next.State == CallEnded && len(next.Participants) == 0 && (removedAny || transitionedAny) {
+		return nil, effects
+	}
+	return next, effects
+}
+
+// disconnectCallIfActive turns an observed departure into
+// ended(disconnected). The peer is signalled only when it remains admitted in
+// the observed participant set; when both parties are absent the call ends
+// silently and eviction is decided by the caller.
+func disconnectCallIfActive(c *call, leavingUserID int64, effects []callObservationEffect) ([]callObservationEffect, bool) {
+	if c.State != CallActive || !c.isCallParty(leavingUserID) {
+		return effects, false
+	}
+	c.State = CallEnded
+	c.EndReason = CallEndDisconnected
+	peerID := c.otherParty(leavingUserID)
+	if _, present := c.Participants[peerID]; present {
+		effects = append(effects, newCallSignalEffect(peerID, c, CallEnded, CallEndDisconnected))
+	}
+	return effects, true
+}
+
+// applyCallObservationLocked applies one full participant observation to the
+// call while s.mu is held. It returns the effects to execute after unlock and
+// whether the call state changed.
+func (s *Service) applyCallObservationLocked(callID int64, current *call, observed map[int64]VoiceParticipant, authoritativeLeft int64) ([]callObservationEffect, bool) {
+	next, effects := transitionCallParticipants(current, observed, authoritativeLeft, s.now(), s.callTargets)
+	if next == nil {
+		delete(s.calls, callID)
+		s.revision++
+		return effects, true
+	}
+	if callsEqual(current, next) {
+		return effects, false
+	}
+	s.calls[callID] = next
+	s.revision++
+	return effects, true
+}
+
+// executeCallObservationEffects runs materialized effects in order. It is the
+// only place where transition decisions touch the signal sink and the room
+// adapter.
+func (s *Service) executeCallObservationEffects(ctx context.Context, effects []callObservationEffect) {
+	for _, effect := range effects {
+		switch effect.kind {
+		case callEffectEmitSignal:
+			if s.callSignaler != nil {
+				s.callSignaler.EmitCallSignal(effect.targetUserID, effect.signal)
+			}
+		case callEffectRemoveParticipant:
+			_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: effect.roomName, Identity: effect.identity})
+		}
+	}
+}
+
+// observeCallParticipantJoined applies a webhook participant_joined event:
+// admission, participant bookkeeping and any removal happen through the shared
+// transition table.
+func (s *Service) observeCallParticipantJoined(ctx context.Context, callID int64, roomName string, participant VoiceParticipant) bool {
+	s.mu.Lock()
+	current, exists := s.calls[callID]
+	if !exists {
+		s.mu.Unlock()
+		_, _ = s.room.RemoveParticipant(ctx, &livekit.RoomParticipantIdentity{Room: roomName, Identity: participant.Identity})
+		return false
+	}
+	observed := make(map[int64]VoiceParticipant, len(current.Participants)+1)
+	for userID, stored := range current.Participants {
+		observed[userID] = stored
+	}
+	observed[participant.UserID] = participant
+	effects, changed := s.applyCallObservationLocked(callID, current, observed, 0)
+	if changed {
+		if next := s.calls[callID]; next != nil {
+			if stored, ok := next.Participants[participant.UserID]; ok && stored.Generation > s.generation {
+				s.generation = stored.Generation
+			}
+		}
+	}
+	s.mu.Unlock()
+	s.executeCallObservationEffects(ctx, effects)
+	return changed
+}
+
+// observeCallParticipantLeft applies a webhook participant_left event. The
+// named participant is authoritative: a party missing from the observed set
+// disconnects the call even when its join was never recorded.
+func (s *Service) observeCallParticipantLeft(ctx context.Context, callID int64, participant VoiceParticipant) bool {
+	s.mu.Lock()
+	current, exists := s.calls[callID]
+	if !exists {
+		s.mu.Unlock()
+		return false
+	}
+	stored, wasRecorded := current.Participants[participant.UserID]
+	if wasRecorded && stored.Generation > 0 && participant.Generation > 0 && stored.Generation != participant.Generation {
+		s.mu.Unlock()
+		return false
+	}
+	observed := make(map[int64]VoiceParticipant, len(current.Participants))
+	for userID, present := range current.Participants {
+		if userID != participant.UserID {
+			observed[userID] = present
+		}
+	}
+	effects, changed := s.applyCallObservationLocked(callID, current, observed, participant.UserID)
+	s.mu.Unlock()
+	s.executeCallObservationEffects(ctx, effects)
+	return changed
 }
 
 func cloneCall(c *call) *call {
