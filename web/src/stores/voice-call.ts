@@ -12,29 +12,18 @@ import {
 import { ApiError } from '../api.ts'
 import { buildMicrophoneCaptureOptions } from '../audio/microphoneCaptureOptions.ts'
 import type { VoiceCredentials } from '../types.ts'
+import {
+  type CallEndReason,
+  type CallPeer,
+  type CallSignal,
+  type CallStatus,
+  normalizeCallEndReason,
+} from './call-signal.ts'
 import { participantUserId } from './voice-utils.ts'
 
 // 1:1 临时语音通话的会话状态机（spec 04/05）。与 voice-session 并列：两者各
 // 自持有一条 LiveKit Room 连接（频道房间与通话房间并存，ADR-0032），互不侵入。
-// 终端原因仅在结束时记录，用于浮层清理；本票不为各原因做专属文案（06）。
-export type CallStatus = 'idle' | 'outgoing' | 'ringing' | 'active'
-export type CallEndReason = 'busy' | 'unavailable' | 'unreachable' | 'rejected' | 'canceled' | 'timeout' | 'ended' | 'disconnected'
-
-// 通话对方的最小渲染字段，取自后端信令的 peer 或发起来源（个人信息卡片成员）。
-export interface CallPeer {
-  userId: number
-  username: string
-  displayName: string
-}
-
-// 后端 CallSignal 的 shape（hub.SendUser 点到点事件 data）。
-export interface CallSignal {
-  type: string
-  callId: string
-  peer: CallPeer
-  state: string
-  reason?: string
-}
+// 事件形状与终态归类归 call-signal module（ADR-0033）；这里只消费 typed signal。
 
 // POST /api/calls 的响应。
 export interface StartCallResult {
@@ -157,7 +146,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
       if (result.state === 'ended') {
         // 即时终态以 HTTP 响应为准；期间早到的终态信令不再回放（避免覆盖 reason）。
         pendingSignals.length = 0
-        endedReason.value = normalizeEndReason(result.reason)
+        endedReason.value = normalizeCallEndReason(result.reason)
         resetLocalState()
         return
       }
@@ -354,7 +343,10 @@ export function useVoiceCall(ctx: VoiceCallContext) {
       case 'call_cancel':
       case 'call_timeout':
       case 'call_end': {
-        endSession(normalizeTerminalReason(signal.type, signal.reason))
+        // typed contract（ADR-0033）：终态事件经 call-signal 解析后 reason 必为
+        // 合法值；null 只属于非终态事件，出现于此的畸形信号忽略。
+        if (signal.reason === null) return
+        endSession(signal.reason)
         break
       }
       default:
@@ -380,29 +372,5 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     toggleMicrophoneMute,
     handleSignal,
     buildCaptureOptions,
-  }
-}
-
-// 后端原因值白名单（CallEndReason 的合法取值）。两处 normalize 共用同一守卫。
-function isCallEndReason(reason: string | undefined): reason is CallEndReason {
-  return reason === 'busy' || reason === 'unavailable' || reason === 'unreachable' || reason === 'rejected' || reason === 'canceled'
-    || reason === 'timeout' || reason === 'ended' || reason === 'disconnected'
-}
-
-function normalizeEndReason(reason: string | undefined): CallEndReason {
-  return isCallEndReason(reason) ? reason : 'ended'
-}
-
-// 终端信令事件名 → 终端原因。
-function normalizeTerminalReason(type: string, reason: string | undefined): CallEndReason {
-  if (isCallEndReason(reason)) return reason
-  switch (type) {
-    case 'call_busy': return 'busy'
-    case 'call_unavailable': return 'unavailable'
-    case 'call_unreachable': return 'unreachable'
-    case 'call_reject': return 'rejected'
-    case 'call_cancel': return 'canceled'
-    case 'call_timeout': return 'timeout'
-    default: return 'ended'
   }
 }

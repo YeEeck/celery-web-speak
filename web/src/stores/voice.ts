@@ -15,10 +15,10 @@ import { useApplicationAudio } from './voice-application-audio.ts'
 import { useVoiceMuteDeafenModule } from './voice-mute-deafen.ts'
 import { useVoicePresence } from './voice-presence.ts'
 import { useVoiceSession } from './voice-session.ts'
-import { useVoiceCall, type CallPeer } from './voice-call.ts'
+import { useVoiceCall } from './voice-call.ts'
+import { callTerminalMessage, callTerminalSide, parseCallSignal, type CallPeer } from './call-signal.ts'
 import { useCallPermissionsStore } from './call-permissions.ts'
 import { useVoiceOverlay } from './voice-overlay.ts'
-import { callTerminalMessage, callTerminalSide } from './call-message.ts'
 import { useToastStore } from './toast.ts'
 import {
   DEAFENED_PREFERENCE_KEY,
@@ -44,9 +44,6 @@ import {
 } from './voice-utils.ts'
 
 export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils.ts'
-
-// 信令缺 peer 时的占位（handleSignal 内以 callId 空串守卫，占位不会进入会话）。
-const emptyCallPeer: CallPeer = { userId: 0, username: '', displayName: '' }
 
 export const useVoiceStore = defineStore('voice', () => {
   // 与连接无关的纯偏好（会话模块经 ctx 单向读取）。
@@ -364,21 +361,11 @@ export const useVoiceStore = defineStore('voice', () => {
 
   // 把 WS 点到点 call_* 事件路由给通话会话。app.ts 在 handleEvent 里按
   // call_ 前缀统一转发到这里注册的 handler（模块级，避免 app ↔ voice 循环依赖）。
+  // raw payload 的解析与归一由 call-signal module 完成（ADR-0033）：解析失败
+  // （未知 type / 空 callId）即忽略事件。
   setCallSignalHandler((type, data) => {
-    const raw = (data as { callId?: unknown } | null | undefined)?.callId
-    const callId = typeof raw === 'number' ? String(raw) : typeof raw === 'string' ? raw : ''
-    if (callId === '') {
-      call.handleSignal({ type, callId: '', peer: emptyCallPeer, state: '' })
-      return
-    }
-    const signal = data as { type?: string; peer?: CallPeer; state?: string; reason?: string }
-    call.handleSignal({
-      type,
-      callId,
-      peer: signal.peer ?? emptyCallPeer,
-      state: signal.state ?? '',
-      reason: signal.reason,
-    })
+    const signal = parseCallSignal(type, data)
+    if (signal) call.handleSignal(signal)
   })
 
   // 常开说话检测引擎的应用级生命周期（ADR-0024）：登录且麦克风授权时启动，
