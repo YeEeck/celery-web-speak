@@ -143,6 +143,24 @@ test('个人信息卡片永久屏蔽且可在设置页搜索管理', async ({ br
     await settings.getByRole('button', { name: '解除屏蔽' }).click()
     await expect(settings.getByText('你还没有屏蔽任何人的呼叫', { exact: true })).toBeVisible()
     await closeSettings(ownerPage)
+
+    // 卡片菜单内再次永久屏蔽并解除：菜单就地更新，解除后对方可再次呼叫。
+    await openProfileCard(ownerPage, targetName)
+    await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
+    await profileCard.getByRole('button', { name: '永久屏蔽' }).click()
+    await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
+    await expect(profileCard.getByText('永久屏蔽中', { exact: true })).toBeVisible()
+    await profileCard.getByRole('button', { name: '解除屏蔽' }).click()
+    await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
+    await expect(profileCard.getByRole('button', { name: '永久屏蔽' })).toBeVisible()
+    await expect(profileCard.getByText('永久屏蔽中', { exact: true })).toHaveCount(0)
+
+    // 解除生效：对方再次呼叫进入振铃，随后拒绝清理当前振铃。
+    await startCallFromMemberList(targetPage, accounts[0].displayName)
+    const ownerOverlay = ownerPage.getByRole('dialog', { name: '通话浮层' })
+    await expect(ownerOverlay).toBeVisible()
+    await ownerOverlay.getByRole('button', { name: '拒绝' }).click()
+    await expect(ownerOverlay).toHaveCount(0)
   } finally {
     await Promise.allSettled(contexts.map(({ context }) => context.close()))
     for (const account of accounts) {
