@@ -280,11 +280,11 @@ test('rejectAndBlockTemporarily tolerates an already-ended call after the block 
   assert.equal(h.call.endedReason.value, 'rejected')
 })
 
-test('rejectAndBlockTemporarily keeps ringing and rethrows unexpected reject failures', async () => {
+test('rejectAndBlockTemporarily keeps ringing and reports the block as succeeded when reject fails', async () => {
   const h = makeHarness()
   h.rejectError = new ApiError(500, 'internal_error', '服务器错误')
   await h.call.handleSignal({ type: 'call_invite', callId: '100', peer: PEER, state: 'ringing' })
-  await assert.rejects(() => h.call.rejectAndBlockTemporarily())
+  await assert.rejects(() => h.call.rejectAndBlockTemporarily(), /已屏蔽对方，但通话结束失败/)
   assert.deepEqual(h.blockRequests, [{ userId: 2 }])
   assert.equal(h.rejectCalls, 1)
   assert.equal(h.call.status.value, 'ringing')

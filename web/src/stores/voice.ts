@@ -566,7 +566,7 @@ export const useVoiceStore = defineStore('voice', () => {
     acceptCall: call.accept,
     rejectCall: call.reject,
     rejectAndBlockTemporarily: () => call.rejectAndBlockTemporarily().catch((error) => {
-      toast.showWarning(error instanceof ApiError ? error.message : '暂时屏蔽失败，请重试')
+      toast.showWarning(error instanceof Error ? error.message : '已屏蔽对方，但通话结束失败，请重试')
     }),
     cancelCall: call.cancel,
     hangupCall: call.hangup,

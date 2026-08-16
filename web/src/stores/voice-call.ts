@@ -193,7 +193,8 @@ export function useVoiceCall(ctx: VoiceCallContext) {
 
   // 来电态「暂时屏蔽 24 小时」：先设置屏蔽再拒绝。屏蔽成功而通话已不在
   // 振铃（call_not_ringing，例如恰好超时）视为动作成功；其余 reject 失败
-  // 保留振铃态并抛出，让浮层提示错误后用户仍可重试。
+  // 保留振铃态并抛出，但不得误报屏蔽失败——屏蔽已生效，重试会重新计时
+  // 24 小时（spec：任何变为暂时屏蔽的操作都重新计时），如实提示即可。
   async function rejectAndBlockTemporarily(): Promise<void> {
     const id = callId.value
     const target = peer.value
@@ -206,7 +207,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
         endSession('rejected')
         return
       }
-      throw error
+      throw new Error('已屏蔽对方，但通话结束失败，请重试')
     }
     endSession('rejected')
   }
