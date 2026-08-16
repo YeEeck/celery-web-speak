@@ -46,7 +46,17 @@ func TestPatchMyCallReceiving(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	token := callSessionToken(t, db, admin.ID)
 
-	recorder := serveGuildHTTPRequest(server, token, http.MethodPatch, "/api/me/call-receiving", `{"callReceiving":false}`)
+	// 规格要求显式布尔：空 body 或 null 不能静默当作 false 关闭被呼叫。
+	recorder := serveGuildHTTPRequest(server, token, http.MethodPatch, "/api/me/call-receiving", `{}`)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("empty body = %d %s, want 400", recorder.Code, recorder.Body.String())
+	}
+	recorder = serveGuildHTTPRequest(server, token, http.MethodPatch, "/api/me/call-receiving", `{"callReceiving":null}`)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("null callReceiving = %d %s, want 400", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = serveGuildHTTPRequest(server, token, http.MethodPatch, "/api/me/call-receiving", `{"callReceiving":false}`)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("patch call receiving = %d %s", recorder.Code, recorder.Body.String())
 	}

@@ -13,17 +13,21 @@ import (
 // sees the same value. Only the account owner can modify it.
 func (s *Server) handleUpdateMyCallReceiving(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		CallReceiving bool `json:"callReceiving"`
+		CallReceiving *bool `json:"callReceiving"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
+	if input.CallReceiving == nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "callReceiving 必须为布尔值")
+		return
+	}
 	user := currentUser(r)
-	if err := s.store.SetUserCallReceiving(r.Context(), user.ID, input.CallReceiving); err != nil {
+	if err := s.store.SetUserCallReceiving(r.Context(), user.ID, *input.CallReceiving); err != nil {
 		s.writeStoreError(w, err)
 		return
 	}
-	user.CallReceiving = input.CallReceiving
+	user.CallReceiving = *input.CallReceiving
 	s.hub.BroadcastUser(user.ID, "user_updated", user)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
