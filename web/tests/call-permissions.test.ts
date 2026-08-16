@@ -100,22 +100,18 @@ test('initialize always refreshes the block list on settings entry', async () =>
   assert.equal(permissions.blockState(3)?.kind, 'temporary')
 })
 
-test('ensureBlock caches while fetchBlock always reads the server', async () => {
+test('fetchBlock always reads the server and updates the index', async () => {
   const h = makeHarness()
   const permissions = useCallPermissions(h.ctx)
   h.blockByUser.set(7, { kind: 'temporary', expiresAt: '2026-08-02T12:00:00Z' })
-  await permissions.ensureBlock(7)
+  await permissions.fetchBlock(7)
   assert.equal(permissions.blockState(7)?.kind, 'temporary')
-  assert.equal(permissions.blockState(8), null)
+  assert.deepEqual(h.getBlockCalls, [7])
 
   h.blockByUser.delete(7)
-  await permissions.ensureBlock(7)
-  assert.equal(permissions.blockState(7)?.kind, 'temporary', '已缓存后不重新请求')
-
-  h.blockByUser.set(7, { kind: 'permanent' })
   await permissions.fetchBlock(7)
+  assert.equal(permissions.blockState(7), null, '每次调用都请求服务端，不缓存')
   assert.deepEqual(h.getBlockCalls, [7, 7])
-  assert.equal(permissions.blockState(7)?.kind, 'permanent')
 })
 
 test('setBlockForCall persists the block without refreshing the list', async () => {

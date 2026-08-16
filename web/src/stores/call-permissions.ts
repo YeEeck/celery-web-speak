@@ -17,7 +17,6 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
   const callReceiving = ref(true)
   const blocks = ref<CallBlockEntry[]>([])
   const blockStates = ref<Record<number, CallBlock | null>>({})
-  const initialized = ref(false)
   const loading = ref(false)
   const issue = ref<string | null>(null)
 
@@ -61,7 +60,6 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     issue.value = null
     try {
       await refreshBlocks()
-      initialized.value = true
     } catch (error) {
       issue.value = error instanceof Error ? error.message : '加载呼叫屏蔽失败'
       throw error
@@ -81,11 +79,6 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
       issue.value = error instanceof Error ? error.message : '更新可被呼叫设置失败'
       throw error
     }
-  }
-
-  async function ensureBlock(userId: number) {
-    if (Object.prototype.hasOwnProperty.call(blockStates.value, userId)) return
-    await fetchBlock(userId)
   }
 
   // 个人信息卡片每次打开都调用：服务端状态是权威，不走跨会话缓存。
@@ -148,7 +141,6 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
   return {
     callReceiving,
     blocks,
-    initialized,
     loading,
     issue,
     searchQuery,
@@ -159,7 +151,6 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     initialize,
     syncCallReceiving,
     setCallReceiving,
-    ensureBlock,
     fetchBlock,
     setBlock,
     setBlockForCall,
