@@ -122,8 +122,9 @@ test('个人信息卡片永久屏蔽且可在设置页搜索管理', async ({ br
     await openProfileCard(ownerPage, targetName)
     const profileCard = ownerPage.getByRole('dialog', { name: `${targetName}的个人信息卡片` })
     await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
-    // 菜单打开时点击卡片本体只关菜单，卡片保持打开。
-    await profileCard.getByText('个人简介', { exact: true }).click()
+    // 菜单打开时点击卡片本体只关菜单，卡片保持打开（点左上角头像区域——
+    // 屏蔽菜单浮在卡片右侧内容上方，居中点击正文会被菜单挡住）。
+    await profileCard.locator('.profile-card-header .avatar-wrap').first().click()
     await expect(profileCard.getByRole('button', { name: '永久屏蔽' })).toHaveCount(0)
     await expect(profileCard).toBeVisible()
     await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
