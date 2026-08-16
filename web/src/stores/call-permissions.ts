@@ -120,12 +120,15 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
   }
 
   async function search(query: string) {
-    searchQuery.value = query
-    const trimmed = query.trim()
+    // 规格：前缀匹配 @用户名/显示名称——归一化前导 @，仅剩 @ 时视为空查询。
+    const trimmed = query.trim().replace(/^@/, '')
     if (trimmed === '') {
+      searchQuery.value = ''
       searchResults.value = []
+      searchIssue.value = null
       return
     }
+    searchQuery.value = query
     searching.value = true
     searchIssue.value = null
     try {

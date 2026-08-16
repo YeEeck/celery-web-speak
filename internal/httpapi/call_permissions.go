@@ -142,7 +142,8 @@ func (s *Server) handleDeleteCallBlock(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCallBlockCandidates(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	// 规格：前缀匹配 @用户名/显示名称——用户习惯带 @ 输入，归一化后按用户名匹配。
+	query := strings.TrimPrefix(strings.TrimSpace(r.URL.Query().Get("q")), "@")
 	if query == "" {
 		writeError(w, http.StatusBadRequest, "invalid_request", "搜索关键字不能为空")
 		return

@@ -12,6 +12,7 @@ interface Harness {
   blockByUser: Map<number, CallBlock | null>
   getBlockCalls: number[]
   candidates: CallBlockCandidate[]
+  searches: string[]
   setCalls: Array<{ userId: number; kind: string }>
   deleteCalls: number[]
 }
@@ -26,6 +27,7 @@ function makeHarness(): Harness {
     blockByUser: new Map(),
     getBlockCalls: [],
     candidates: [],
+    searches: [],
     setCalls: [],
     deleteCalls: [],
   }
@@ -42,7 +44,10 @@ function makeHarness(): Harness {
       harness.getBlockCalls.push(userId)
       return harness.blockByUser.get(userId) ?? null
     },
-    searchCandidates: async () => harness.candidates,
+    searchCandidates: async (query) => {
+      harness.searches.push(query)
+      return harness.candidates
+    },
     setBlock: async (userId, kind) => {
       harness.setCalls.push({ userId, kind })
       const block: CallBlock = kind === 'permanent' ? { kind } : { kind, expiresAt: '2026-08-02T12:00:00Z' }
@@ -151,4 +156,19 @@ test('removeBlock removes from index, list and search results', async () => {
   assert.equal(permissions.blockState(2), null)
   assert.equal(permissions.blocks.value.some((block) => block.userId === 2), false)
   assert.equal(permissions.searchResults.value[0]?.block, null)
+})
+
+test('search strips a leading @ and treats a bare @ as empty', async () => {
+  const h = makeHarness()
+  h.candidates = [{ userId: 2, username: 'user2', displayName: '用户2', avatarVersion: 0, hasAvatar: false, block: null }]
+  const permissions = useCallPermissions(h.ctx)
+
+  await permissions.search('@user')
+  assert.deepEqual(h.searches, ['user'], '前导 @ 归一化后按用户名前缀匹配')
+  assert.equal(permissions.searchQuery.value, '@user')
+
+  await permissions.search('@')
+  assert.equal(h.searches.length, 1, '仅 @ 视为空查询，不发起请求')
+  assert.deepEqual(permissions.searchResults.value, [])
+  assert.equal(permissions.searchQuery.value, '')
 })

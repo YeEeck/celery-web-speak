@@ -459,4 +459,20 @@ func TestCallBlockCandidates(t *testing.T) {
 	if _, ok := ids[outsider.ID]; ok {
 		t.Fatalf("outsider leaked into candidates: %+v", payload.Users)
 	}
+
+	// 带 @ 前缀的查询归一化后同样按用户名前缀匹配；仅 @ 视为空查询。
+	recorder = serveGuildHTTPRequest(server, token, http.MethodGet, "/api/call-blocks/candidates?q=@block_search", "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("at-prefixed candidates = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Users) != 2 {
+		t.Fatalf("at-prefixed candidate count = %d, want 2", len(payload.Users))
+	}
+	recorder = serveGuildHTTPRequest(server, token, http.MethodGet, "/api/call-blocks/candidates?q=@", "")
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("bare at query = %d %s, want 400", recorder.Code, recorder.Body.String())
+	}
 }
