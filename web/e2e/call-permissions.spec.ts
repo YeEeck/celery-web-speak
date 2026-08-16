@@ -122,10 +122,16 @@ test('个人信息卡片永久屏蔽且可在设置页搜索管理', async ({ br
     await openProfileCard(ownerPage, targetName)
     const profileCard = ownerPage.getByRole('dialog', { name: `${targetName}的个人信息卡片` })
     await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
+    // 菜单打开时点击卡片本体只关菜单，卡片保持打开。
+    await profileCard.getByText('个人简介', { exact: true }).click()
+    await expect(profileCard.getByRole('button', { name: '永久屏蔽' })).toHaveCount(0)
+    await expect(profileCard).toBeVisible()
+    await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
     await profileCard.getByRole('button', { name: '永久屏蔽' }).click()
-    // 操作成功后菜单关闭；重新展开验证状态已持久化。
+    // 操作成功后菜单关闭；重新展开验证状态已持久化，且卡片展示屏蔽提示 pill。
     await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
     await expect(profileCard.getByText('永久屏蔽中', { exact: true })).toBeVisible()
+    await expect(profileCard.locator('.call-blocked-state', { hasText: '已屏蔽呼叫 · 永久' })).toBeVisible()
 
     // 对方此时呼叫被拒入。
     await startCallFromMemberList(targetPage, accounts[0].displayName)
@@ -144,16 +150,20 @@ test('个人信息卡片永久屏蔽且可在设置页搜索管理', async ({ br
     await expect(settings.getByText('你还没有屏蔽任何人的呼叫', { exact: true })).toBeVisible()
     await closeSettings(ownerPage)
 
-    // 卡片菜单内再次永久屏蔽并解除：菜单就地更新，解除后对方可再次呼叫。
+    // 卡片菜单内再次屏蔽：先暂时屏蔽，pill 展示实时倒计时；再转为永久屏蔽并解除。
     await openProfileCard(ownerPage, targetName)
     await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
-    await profileCard.getByRole('button', { name: '永久屏蔽' }).click()
+    await profileCard.getByRole('button', { name: '暂时屏蔽 24 小时' }).click()
+    await expect(profileCard.locator('.call-blocked-state', { hasText: /已屏蔽呼叫 · \d+:\d{2}:\d{2} 后解除/ })).toBeVisible()
+    await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
+    await profileCard.getByRole('button', { name: '转为永久屏蔽' }).click()
     await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
     await expect(profileCard.getByText('永久屏蔽中', { exact: true })).toBeVisible()
     await profileCard.getByRole('button', { name: '解除屏蔽' }).click()
     await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
     await expect(profileCard.getByRole('button', { name: '永久屏蔽' })).toBeVisible()
     await expect(profileCard.getByText('永久屏蔽中', { exact: true })).toHaveCount(0)
+    await expect(profileCard.getByText(/已屏蔽呼叫/)).toHaveCount(0)
 
     // 解除生效：对方再次呼叫进入振铃，随后拒绝清理当前振铃。
     await startCallFromMemberList(targetPage, accounts[0].displayName)
@@ -161,6 +171,15 @@ test('个人信息卡片永久屏蔽且可在设置页搜索管理', async ({ br
     await expect(ownerOverlay).toBeVisible()
     await ownerOverlay.getByRole('button', { name: '拒绝' }).click()
     await expect(ownerOverlay).toHaveCount(0)
+
+    // Escape 分级关闭：菜单打开时先只关菜单，再按一次才关卡片。
+    await openProfileCard(ownerPage, targetName)
+    await profileCard.getByRole('button', { name: '呼叫屏蔽' }).click()
+    await ownerPage.keyboard.press('Escape')
+    await expect(profileCard.getByRole('button', { name: '暂时屏蔽 24 小时' })).toHaveCount(0)
+    await expect(profileCard).toBeVisible()
+    await ownerPage.keyboard.press('Escape')
+    await expect(profileCard).toHaveCount(0)
   } finally {
     await Promise.allSettled(contexts.map(({ context }) => context.close()))
     for (const account of accounts) {

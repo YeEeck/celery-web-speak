@@ -122,6 +122,20 @@ test('fetchBlock always reads the server and updates the index', async () => {
   assert.deepEqual(h.getBlockCalls, [7, 7])
 })
 
+test('expireBlock 只清除本地卡片状态，不发请求', async () => {
+  const h = makeHarness()
+  h.listBlocks = [entry(7, 'temporary')]
+  const permissions = useCallPermissions(h.ctx)
+  await permissions.initialize()
+  assert.equal(permissions.blockState(7)?.kind, 'temporary')
+
+  permissions.expireBlock(7)
+  assert.equal(permissions.blockState(7), null, '到期后本地视为不存在')
+  assert.deepEqual(h.deleteCalls, [], '不调删除接口')
+  assert.deepEqual(h.getBlockCalls, [], '不重新拉取')
+  assert.equal(permissions.blocks.value.some((block) => block.userId === 7), true, '设置页列表不受影响，下次进入重新拉取')
+})
+
 test('setBlockForCall persists the block without refreshing the list', async () => {
   const h = makeHarness()
   const permissions = useCallPermissions(h.ctx)

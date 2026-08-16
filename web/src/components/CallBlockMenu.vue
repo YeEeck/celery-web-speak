@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Ban } from '@lucide/vue'
 import { useCallPermissionsStore } from '../stores/call-permissions'
 import type { CallBlockKind } from '../types'
-import { callBlockRemainingLabel } from '../utils/call-block'
+import { callBlockRemainingLabel, formatCallBlockCountdown } from '../utils/call-block'
 
 const props = defineProps<{ userId: number }>()
 
@@ -13,8 +13,16 @@ const busy = ref(false)
 const issue = ref('')
 const menu = ref<HTMLElement | null>(null)
 const trigger = ref<HTMLButtonElement | null>(null)
+const now = ref(Date.now())
+let tickTimer: number | undefined
 
 const block = computed(() => permissions.blockState(props.userId))
+
+const remainingMs = computed(() => {
+  const current = block.value
+  if (current?.kind !== 'temporary' || !current.expiresAt) return null
+  return new Date(current.expiresAt).getTime() - now.value
+})
 
 // 点击「菜单 ∪ 触发按钮」之外的任何位置（含卡片本体）关闭菜单；触发按钮的
 // pointerdown 被算作内部、click 仍执行开关切换，避免双重切换。
@@ -31,6 +39,18 @@ function handleKeyDown(event: KeyboardEvent) {
   event.preventDefault()
   event.stopPropagation()
   open.value = false
+}
+
+// 倒计时归零即本地翻转：清除本地屏蔽状态（不发请求），pill 消失、菜单回到
+// 未屏蔽动作（spec：过期 = 不存在，下次打开卡片以服务端为准）。
+function tick() {
+  now.value = Date.now()
+  const current = block.value
+  if (current?.kind !== 'temporary') return
+  const expiresAt = current.expiresAt
+  if (!expiresAt || new Date(expiresAt).getTime() - now.value <= 0) {
+    permissions.expireBlock(props.userId)
+  }
 }
 
 async function setBlock(kind: CallBlockKind) {
@@ -63,16 +83,25 @@ async function removeBlock() {
 onMounted(() => {
   document.addEventListener('pointerdown', handlePointerDown, true)
   document.addEventListener('keydown', handleKeyDown, true)
+  tickTimer = window.setInterval(tick, 1000)
   void permissions.fetchBlock(props.userId).catch(() => undefined)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handlePointerDown, true)
   document.removeEventListener('keydown', handleKeyDown, true)
+  window.clearInterval(tickTimer)
 })
 </script>
 
 <template>
+  <span v-if="block" class="profile-card-pill call-blocked-state">
+    <Ban :size="13" />
+    <span v-if="block.kind === 'temporary'">
+      已屏蔽呼叫 · {{ formatCallBlockCountdown(Math.max(0, remainingMs ?? 0)) }} 后解除
+    </span>
+    <span v-else>已屏蔽呼叫 · 永久</span>
+  </span>
   <div class="profile-card-block-control">
     <button
       ref="trigger"

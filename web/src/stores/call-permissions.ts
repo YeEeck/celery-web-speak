@@ -88,6 +88,12 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     return block
   }
 
+  // 暂时屏蔽到期（卡片倒计时归零）时仅清除本地卡片状态，不发请求；下次打开
+  // 卡片仍以服务端为准（spec：过期 = 不存在）。
+  function expireBlock(userId: number) {
+    applyBlockState(userId, null)
+  }
+
   async function persistBlock(userId: number, kind: CallBlockKind) {
     const block = await ctx.setBlock(userId, kind)
     applyBlockState(userId, block)
@@ -166,6 +172,7 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     syncCallReceiving,
     setCallReceiving,
     fetchBlock,
+    expireBlock,
     setBlock,
     setBlockForCall,
     removeBlock,
