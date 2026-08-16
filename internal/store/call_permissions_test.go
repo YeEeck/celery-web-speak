@@ -288,7 +288,7 @@ func TestCallBlockCandidatesRequireSharedGuildAndPrefix(t *testing.T) {
 	}
 }
 
-func TestCallBlockCandidatesExcludePermanentlyBannedUser(t *testing.T) {
+func TestCallBlockCandidatesExcludePermanentlyBannedUserViaSuspension(t *testing.T) {
 	db := newTestStore(t)
 	admin := bootstrapAdmin(t, db)
 	ctx := context.Background()
@@ -300,7 +300,9 @@ func TestCallBlockCandidatesExcludePermanentlyBannedUser(t *testing.T) {
 	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, banned.Username); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.db.ExecContext(ctx, "UPDATE users SET permanently_banned = 1 WHERE id = ?", banned.ID); err != nil {
+	// 平台封禁同时置停用标记（admin.go 的 SetPermanentBan）；候选搜索按规格
+	// 只过滤停用，不再单独过滤永久封禁。
+	if _, err := db.db.ExecContext(ctx, "UPDATE users SET permanently_banned = 1, suspended_at = ? WHERE id = ?", formatTime(db.now()), banned.ID); err != nil {
 		t.Fatal(err)
 	}
 

@@ -157,8 +157,9 @@ type CallBlockCandidate struct {
 }
 
 // CallBlockCandidates searches users sharing at least one guild with ownerID
-// by username or display-name prefix (case-insensitive). Self, deleted,
-// suspended and permanently banned users are excluded. Results are limited to
+// by username or display-name prefix (case-insensitive). Self, deleted and
+// suspended users are excluded (spec：排除自己、已删除与停用用户；平台永久封禁
+// 同时置停用标记，随停用条件排除，不再单独过滤). Results are limited to
 // 20 and ordered by display name.
 func (s *Store) CallBlockCandidates(ctx context.Context, ownerID int64, query string) ([]CallBlockCandidate, error) {
 	pattern := escapeLikePattern(query) + "%"
@@ -170,7 +171,6 @@ LEFT JOIN call_blocks cb ON cb.owner_user_id = ? AND cb.target_user_id = u.id
 WHERE u.id <> ?
   AND u.deleted_at IS NULL
   AND u.suspended_at IS NULL
-  AND u.permanently_banned = 0
   AND (u.username LIKE ? ESCAPE '!' OR u.display_name LIKE ? ESCAPE '!')
   AND EXISTS (
     SELECT 1 FROM guild_members mine
