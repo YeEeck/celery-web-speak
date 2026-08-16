@@ -95,13 +95,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <span v-if="block" class="profile-card-pill call-blocked-state">
-    <Ban :size="13" />
-    <span v-if="block.kind === 'temporary'">
-      已屏蔽呼叫 · {{ formatCallBlockCountdown(Math.max(0, remainingMs ?? 0)) }} 后解除
-    </span>
-    <span v-else>已屏蔽呼叫 · 永久</span>
-  </span>
   <div class="profile-card-block-control">
     <button
       ref="trigger"
@@ -129,4 +122,11 @@ onBeforeUnmount(() => {
       <span v-if="issue" class="form-error">{{ issue }}</span>
     </div>
   </div>
+  <span v-if="block" class="profile-card-pill call-blocked-state">
+    <Ban :size="13" />
+    <span v-if="block.kind === 'temporary'">
+      已屏蔽呼叫 · {{ formatCallBlockCountdown(Math.max(0, remainingMs ?? 0)) }} 后解除
+    </span>
+    <span v-else>已屏蔽呼叫 · 永久</span>
+  </span>
 </template>
