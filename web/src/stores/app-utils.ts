@@ -53,5 +53,7 @@ export function mapGuildMember(member: GuildMemberPayload): User {
     createdAt: member.joinedAt,
     avatarVersion: member.avatarVersion,
     hasAvatar: member.hasAvatar,
+    // 成员载荷不含可被呼叫设置；该字段只对账号本人有意义，此处取规格默认值（默认开启）。
+    callReceiving: true,
   }
 }

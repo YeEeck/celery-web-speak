@@ -89,6 +89,7 @@ function user(id: number, hasAvatar = false): User {
     createdAt: '2026-01-01T00:00:00Z',
     avatarVersion: hasAvatar ? 3 : 0,
     hasAvatar,
+    callReceiving: true,
   }
 }
 

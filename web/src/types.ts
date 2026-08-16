@@ -41,7 +41,7 @@ export interface User {
   isPlatformAdmin?: boolean
   avatarVersion: number
   hasAvatar: boolean
-  callReceiving?: boolean
+  callReceiving: boolean
 }
 
 export type CallBlockKind = 'temporary' | 'permanent'
