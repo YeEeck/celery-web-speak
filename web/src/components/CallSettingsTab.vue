@@ -70,6 +70,13 @@ async function setCallReceiving(enabled: boolean) {
   }
 }
 
+// store 失败时已回滚开关并写入 issue（模板展示），这里只需吞掉重新抛出的
+// 拒绝，避免 @change 触发 unhandled rejection。
+function onCallReceivingChange(event: Event) {
+  const enabled = (event.target as HTMLInputElement).checked
+  void setCallReceiving(enabled).catch(() => undefined)
+}
+
 onMounted(() => {
   permissions.syncCallReceiving(app.user?.callReceiving)
   void permissions.initialize(app.user?.callReceiving).catch(() => undefined)
@@ -96,7 +103,7 @@ onBeforeUnmount(() => {
         :checked="permissions.callReceiving.value"
         :disabled="savingReceiving"
         aria-label="允许别人发起语音通话给我"
-        @change="setCallReceiving(($event.target as HTMLInputElement).checked)"
+        @change="onCallReceivingChange"
       />
     </label>
     <span v-if="permissions.issue.value" class="form-error" role="alert">{{ permissions.issue.value }}</span>
