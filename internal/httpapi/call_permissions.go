@@ -42,7 +42,20 @@ func (s *Server) handleGetCallBlock(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	block, exists, err := s.store.CallBlock(r.Context(), currentUser(r).ID, targetID)
+	user := currentUser(r)
+	if targetID == user.ID {
+		writeError(w, http.StatusBadRequest, "self_action", "不能查询自己的呼叫屏蔽")
+		return
+	}
+	if _, err := s.store.UserByID(r.Context(), targetID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "用户不存在")
+			return
+		}
+		s.writeStoreError(w, err)
+		return
+	}
+	block, exists, err := s.store.CallBlock(r.Context(), user.ID, targetID)
 	if err != nil {
 		s.internalError(w, "read call block", err)
 		return
@@ -111,12 +124,8 @@ func (s *Server) handleDeleteCallBlock(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	user := currentUser(r)
-	if targetID == user.ID {
-		writeError(w, http.StatusBadRequest, "self_action", "不能屏蔽自己")
-		return
-	}
-	if err := s.store.DeleteCallBlock(r.Context(), user.ID, targetID); err != nil {
+	// 解除屏蔽幂等返回 204：自己不可能是屏蔽目标（PUT 已拒绝），无需 self 校验。
+	if err := s.store.DeleteCallBlock(r.Context(), currentUser(r).ID, targetID); err != nil {
 		s.internalError(w, "delete call block", err)
 		return
 	}

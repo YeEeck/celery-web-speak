@@ -160,6 +160,11 @@ func TestCallBlockEndpointsValidation(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	target := newCallPeer(t, db, "block_validation_target", "校验对象")
 	addToDefaultGuild(t, db, admin.ID, target.Username)
+	deleted := newCallPeer(t, db, "block_validation_deleted", "已删除对象")
+	addToDefaultGuild(t, db, admin.ID, deleted.Username)
+	if err := db.DeleteUser(t.Context(), admin.ID, deleted.ID, deleted.Username); err != nil {
+		t.Fatal(err)
+	}
 	token := callSessionToken(t, db, admin.ID)
 
 	recorder := serveGuildHTTPRequest(server, token, http.MethodPut, "/api/call-blocks/"+formatID(target.ID), `{"kind":"forever"}`)
@@ -174,6 +179,27 @@ func TestCallBlockEndpointsValidation(t *testing.T) {
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("missing target = %d %s", recorder.Code, recorder.Body.String())
 	}
+
+	// 读取同样校验目标：自己 400 self_action，不存在/已删除 404 not_found。
+	recorder = serveGuildHTTPRequest(server, token, http.MethodGet, "/api/call-blocks/"+formatID(admin.ID), "")
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "self_action") {
+		t.Fatalf("self read = %d %s", recorder.Code, recorder.Body.String())
+	}
+	recorder = serveGuildHTTPRequest(server, token, http.MethodGet, "/api/call-blocks/999999", "")
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("missing target read = %d %s", recorder.Code, recorder.Body.String())
+	}
+	recorder = serveGuildHTTPRequest(server, token, http.MethodGet, "/api/call-blocks/"+formatID(deleted.ID), "")
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("deleted target read = %d %s", recorder.Code, recorder.Body.String())
+	}
+
+	// 解除幂等 204：自己不可能有屏蔽行，删除自己同样成功而非报错。
+	recorder = serveGuildHTTPRequest(server, token, http.MethodDelete, "/api/call-blocks/"+formatID(admin.ID), "")
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("self delete = %d %s, want 204", recorder.Code, recorder.Body.String())
+	}
+
 	recorder = serveGuildHTTPRequest(server, "", http.MethodGet, "/api/call-blocks", "")
 	if recorder.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated list = %d, want 401", recorder.Code)
