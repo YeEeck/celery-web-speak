@@ -204,10 +204,14 @@ func TestCallBlockEndpointsValidation(t *testing.T) {
 		t.Fatalf("deleted target read = %d %s", recorder.Code, recorder.Body.String())
 	}
 
-	// 解除幂等 204：自己不可能有屏蔽行，删除自己同样成功而非报错。
-	recorder = serveGuildHTTPRequest(server, token, http.MethodDelete, "/api/call-blocks/"+formatID(admin.ID), "")
+	// 解除幂等 204：重复删除不存在的屏蔽行成功；自己仍按规格 L160 拒绝 400。
+	recorder = serveGuildHTTPRequest(server, token, http.MethodDelete, "/api/call-blocks/999999", "")
 	if recorder.Code != http.StatusNoContent {
-		t.Fatalf("self delete = %d %s, want 204", recorder.Code, recorder.Body.String())
+		t.Fatalf("idempotent delete = %d %s, want 204", recorder.Code, recorder.Body.String())
+	}
+	recorder = serveGuildHTTPRequest(server, token, http.MethodDelete, "/api/call-blocks/"+formatID(admin.ID), "")
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "self_action") {
+		t.Fatalf("self delete = %d %s, want 400 self_action", recorder.Code, recorder.Body.String())
 	}
 
 	recorder = serveGuildHTTPRequest(server, "", http.MethodGet, "/api/call-blocks", "")

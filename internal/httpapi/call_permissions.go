@@ -128,8 +128,13 @@ func (s *Server) handleDeleteCallBlock(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// 解除屏蔽幂等返回 204：自己不可能是屏蔽目标（PUT 已拒绝），无需 self 校验。
-	if err := s.store.DeleteCallBlock(r.Context(), currentUser(r).ID, targetID); err != nil {
+	user := currentUser(r)
+	if targetID == user.ID {
+		writeError(w, http.StatusBadRequest, "self_action", "不能屏蔽自己")
+		return
+	}
+	// 解除屏蔽幂等返回 204（重复删除同一目标同样成功）。
+	if err := s.store.DeleteCallBlock(r.Context(), user.ID, targetID); err != nil {
 		s.internalError(w, "delete call block", err)
 		return
 	}
