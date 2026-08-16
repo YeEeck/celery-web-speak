@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Ban } from '@lucide/vue'
 import { useCallPermissionsStore } from '../stores/call-permissions'
 import type { CallBlockKind } from '../types'
@@ -11,8 +11,27 @@ const permissions = useCallPermissionsStore()
 const open = ref(false)
 const busy = ref(false)
 const issue = ref('')
+const menu = ref<HTMLElement | null>(null)
+const trigger = ref<HTMLButtonElement | null>(null)
 
 const block = computed(() => permissions.blockState(props.userId))
+
+// 点击「菜单 ∪ 触发按钮」之外的任何位置（含卡片本体）关闭菜单；触发按钮的
+// pointerdown 被算作内部、click 仍执行开关切换，避免双重切换。
+function handlePointerDown(event: PointerEvent) {
+  const target = event.target as Node
+  if (menu.value?.contains(target) || trigger.value?.contains(target)) return
+  open.value = false
+}
+
+// Escape 分级关闭：菜单打开时只关菜单（阻止冒泡，不再关卡片）；菜单关闭时
+// 不拦截，Escape 照旧关闭整张卡片。
+function handleKeyDown(event: KeyboardEvent) {
+  if (!open.value || event.key !== 'Escape') return
+  event.preventDefault()
+  event.stopPropagation()
+  open.value = false
+}
 
 async function setBlock(kind: CallBlockKind) {
   busy.value = true
@@ -42,13 +61,21 @@ async function removeBlock() {
 
 // 卡片每次打开都从服务端读取当前屏蔽状态，不复用上次卡片的缓存。
 onMounted(() => {
+  document.addEventListener('pointerdown', handlePointerDown, true)
+  document.addEventListener('keydown', handleKeyDown, true)
   void permissions.fetchBlock(props.userId).catch(() => undefined)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', handlePointerDown, true)
+  document.removeEventListener('keydown', handleKeyDown, true)
 })
 </script>
 
 <template>
   <div class="profile-card-block-control">
     <button
+      ref="trigger"
       class="profile-card-call-button block"
       type="button"
       title="呼叫屏蔽"
@@ -58,7 +85,7 @@ onMounted(() => {
     >
       <Ban :size="16" />
     </button>
-    <div v-if="open" class="profile-card-block-menu" role="menu" aria-label="呼叫屏蔽">
+    <div v-if="open" ref="menu" class="profile-card-block-menu" role="menu" aria-label="呼叫屏蔽">
       <span v-if="block?.kind === 'temporary'" class="profile-card-block-state">
         暂时屏蔽 · {{ callBlockRemainingLabel(block.expiresAt) }}
       </span>
