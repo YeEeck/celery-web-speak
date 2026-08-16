@@ -42,15 +42,11 @@ function handleKeyDown(event: KeyboardEvent) {
 }
 
 // 倒计时归零即本地翻转：清除本地屏蔽状态（不发请求），pill 消失、菜单回到
-// 未屏蔽动作（spec：过期 = 不存在，下次打开卡片以服务端为准）。
+// 未屏蔽动作（spec：过期 = 不存在）。
 function tick() {
   now.value = Date.now()
-  const current = block.value
-  if (current?.kind !== 'temporary') return
-  const expiresAt = current.expiresAt
-  if (!expiresAt || new Date(expiresAt).getTime() - now.value <= 0) {
-    permissions.expireBlock(props.userId)
-  }
+  const ms = remainingMs.value
+  if (ms !== null && ms <= 0) permissions.clearBlockLocally(props.userId)
 }
 
 async function setBlock(kind: CallBlockKind) {
@@ -91,6 +87,9 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handlePointerDown, true)
   document.removeEventListener('keydown', handleKeyDown, true)
   window.clearInterval(tickTimer)
+  // 卡片关闭即清掉本卡片屏蔽状态：下次打开以服务端拉取为准，避免过期或
+  // 拉取失败时 pill/菜单渲染陈旧状态（spec：过期 = 不存在）。
+  permissions.clearBlockLocally(props.userId)
 })
 </script>
 
@@ -125,7 +124,7 @@ onBeforeUnmount(() => {
   <span v-if="block" class="profile-card-pill call-blocked-state">
     <Ban :size="13" />
     <span v-if="block.kind === 'temporary'">
-      已屏蔽呼叫 · {{ formatCallBlockCountdown(Math.max(0, remainingMs ?? 0)) }} 后解除
+      已屏蔽呼叫 · {{ formatCallBlockCountdown(remainingMs ?? 0) }} 后解除
     </span>
     <span v-else>已屏蔽呼叫 · 永久</span>
   </span>

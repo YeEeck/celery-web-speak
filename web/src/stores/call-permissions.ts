@@ -2,8 +2,10 @@ import { ref } from 'vue'
 import { request } from '../api.ts'
 import type { CallBlock, CallBlockCandidate, CallBlockEntry, CallBlockKind } from '../types.ts'
 
-// 语音通话权限设置的前端状态：可被呼叫设置 + 呼叫屏蔽列表。所有写操作以
-// 后端响应为准；本模块不做「能否呼叫」的预判（spec：只展示与更新权限）。
+// 语音通话权限设置的前端状态：可被呼叫设置 + 呼叫屏蔽列表。写操作以后端
+// 响应为准；本模块不做「能否呼叫」的预判（spec：只展示与更新权限）。唯一的
+// 例外是 clearBlockLocally：暂时屏蔽到期/卡片关闭时的本地状态清除，不发请求，
+// 下次打开卡片仍以服务端为准。
 export interface CallPermissionsContext {
   patchCallReceiving(enabled: boolean): Promise<void>
   listBlocks(): Promise<CallBlockEntry[]>
@@ -88,9 +90,9 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     return block
   }
 
-  // 暂时屏蔽到期（卡片倒计时归零）时仅清除本地卡片状态，不发请求；下次打开
-  // 卡片仍以服务端为准（spec：过期 = 不存在）。
-  function expireBlock(userId: number) {
+  // 暂时屏蔽到期（卡片倒计时归零）或卡片关闭时清除本卡片的本地屏蔽状态，
+  // 不发请求；下次打开卡片仍以服务端为准（spec：过期 = 不存在）。
+  function clearBlockLocally(userId: number) {
     applyBlockState(userId, null)
   }
 
@@ -172,7 +174,7 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     syncCallReceiving,
     setCallReceiving,
     fetchBlock,
-    expireBlock,
+    clearBlockLocally,
     setBlock,
     setBlockForCall,
     removeBlock,
