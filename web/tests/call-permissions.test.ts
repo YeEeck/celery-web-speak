@@ -9,6 +9,7 @@ interface Harness {
   patchError: Error | null
   listBlocks: CallBlockEntry[]
   listCalls: number
+  listError: Error | null
   blockByUser: Map<number, CallBlock | null>
   getBlockCalls: number[]
   candidates: CallBlockCandidate[]
@@ -24,6 +25,7 @@ function makeHarness(): Harness {
     patchError: null,
     listBlocks: [],
     listCalls: 0,
+    listError: null,
     blockByUser: new Map(),
     getBlockCalls: [],
     candidates: [],
@@ -38,6 +40,7 @@ function makeHarness(): Harness {
     },
     listBlocks: async () => {
       harness.listCalls += 1
+      if (harness.listError) throw harness.listError
       return harness.listBlocks
     },
     getBlock: async (userId) => {
@@ -156,6 +159,28 @@ test('removeBlock removes from index, list and search results', async () => {
   assert.equal(permissions.blockState(2), null)
   assert.equal(permissions.blocks.value.some((block) => block.userId === 2), false)
   assert.equal(permissions.searchResults.value[0]?.block, null)
+})
+
+test('setBlock succeeds and records a list refresh failure without failing the write', async () => {
+  const h = makeHarness()
+  h.listError = new Error('network')
+  const permissions = useCallPermissions(h.ctx)
+
+  await permissions.setBlock(2, 'permanent')
+  assert.deepEqual(h.setCalls, [{ userId: 2, kind: 'permanent' }])
+  assert.equal(permissions.blockState(2)?.kind, 'permanent', '写成功即就地更新状态')
+  assert.match(permissions.issue.value ?? '', /列表刷新失败/)
+})
+
+test('removeBlock succeeds and records a list refresh failure without failing the write', async () => {
+  const h = makeHarness()
+  h.listError = new Error('network')
+  const permissions = useCallPermissions(h.ctx)
+
+  await permissions.removeBlock(2)
+  assert.deepEqual(h.deleteCalls, [2])
+  assert.equal(permissions.blockState(2), null, '写成功即就地更新状态')
+  assert.match(permissions.issue.value ?? '', /列表刷新失败/)
 })
 
 test('search strips a leading @ and treats a bare @ as empty', async () => {

@@ -95,9 +95,20 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     return block
   }
 
+  // 写操作后的列表刷新是尽力而为：本地状态已在写成功后就地更新（spec：
+  // 操作完成后就地更新菜单），列表 GET 失败不否定已成功的写操作——只记录
+  // 提示，下次进入设置页 initialize 会重新拉取完整列表。
+  async function refreshBlocksBestEffort() {
+    try {
+      await refreshBlocks()
+    } catch {
+      issue.value = '屏蔽已保存，但列表刷新失败，请重新进入页面查看'
+    }
+  }
+
   async function setBlock(userId: number, kind: CallBlockKind) {
     await persistBlock(userId, kind)
-    await refreshBlocks()
+    await refreshBlocksBestEffort()
   }
 
   // 来电浮层专用：只写入并更新本地状态，不追加列表刷新请求——避免刷新失败
@@ -110,7 +121,7 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     await ctx.deleteBlock(userId)
     applyBlockState(userId, null)
     applyBlockToSearch(userId, null)
-    await refreshBlocks()
+    await refreshBlocksBestEffort()
   }
 
   function clearSearch() {
