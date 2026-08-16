@@ -52,6 +52,9 @@ func TestSetCallBlockPermanentActiveAndUpsert(t *testing.T) {
 	base := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
 	db.now = func() time.Time { return base }
 
+	// 首次设置要求共享服务器（spec 设置条件）——先加入同一服务器。
+	addToDefaultGuildForStoreTest(t, db, admin.ID, target.Username)
+
 	block, err := db.SetCallBlock(ctx, admin.ID, target.ID, CallBlockKindPermanent)
 	if err != nil {
 		t.Fatalf("set permanent block: %v", err)
@@ -99,6 +102,7 @@ func TestCallBlockActiveTreatsExpiredTemporaryAsInactive(t *testing.T) {
 	ctx := context.Background()
 	base := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
 	db.now = func() time.Time { return base }
+	addToDefaultGuildForStoreTest(t, db, admin.ID, target.Username)
 	if _, err := db.SetCallBlock(ctx, admin.ID, target.ID, CallBlockKindTemporary); err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +128,13 @@ func TestCallBlockGetAndDelete(t *testing.T) {
 	base := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
 	db.now = func() time.Time { return base }
 
-	block, exists, err := db.CallBlock(ctx, admin.ID, target.ID)
+	// 读取模型同样校验目标存在：缺失目标返回 ErrNotFound（spec 404 语义）。
+	if _, _, err := db.GetCallBlock(ctx, admin.ID, 999999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing target read error = %v, want ErrNotFound", err)
+	}
+
+	addToDefaultGuildForStoreTest(t, db, admin.ID, target.Username)
+	block, exists, err := db.GetCallBlock(ctx, admin.ID, target.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +145,7 @@ func TestCallBlockGetAndDelete(t *testing.T) {
 	if _, err := db.SetCallBlock(ctx, admin.ID, target.ID, CallBlockKindTemporary); err != nil {
 		t.Fatal(err)
 	}
-	block, exists, err = db.CallBlock(ctx, admin.ID, target.ID)
+	block, exists, err = db.GetCallBlock(ctx, admin.ID, target.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +156,7 @@ func TestCallBlockGetAndDelete(t *testing.T) {
 	if err := db.DeleteCallBlock(ctx, admin.ID, target.ID); err != nil {
 		t.Fatal(err)
 	}
-	_, exists, err = db.CallBlock(ctx, admin.ID, target.ID)
+	_, exists, err = db.GetCallBlock(ctx, admin.ID, target.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,6 +167,57 @@ func TestCallBlockGetAndDelete(t *testing.T) {
 	// Deleting again is idempotent.
 	if err := db.DeleteCallBlock(ctx, admin.ID, target.ID); err != nil {
 		t.Fatalf("second delete: %v", err)
+	}
+}
+
+func TestSetCallBlockRequiresSharedGuildOnFirstSetup(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	outsider, err := db.CreateUser(context.Background(), "block_outsider", "局外人", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	base := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	db.now = func() time.Time { return base }
+
+	// 首次设置且无共享服务器 → ErrNotInSharedGuild。
+	if _, err := db.SetCallBlock(ctx, admin.ID, outsider.ID, CallBlockKindTemporary); !errors.Is(err, ErrNotInSharedGuild) {
+		t.Fatalf("first setup without shared guild error = %v, want ErrNotInSharedGuild", err)
+	}
+	// 目标不存在 → ErrNotFound（先于共享服务器检查）。
+	if _, err := db.SetCallBlock(ctx, admin.ID, 999999, CallBlockKindTemporary); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing target error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSetCallBlockAllowsUpdateAfterLosingSharedGuild(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	target, err := db.CreateUser(context.Background(), "block_left_target", "离服对象", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	base := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	db.now = func() time.Time { return base }
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SetCallBlock(ctx, admin.ID, target.ID, CallBlockKindTemporary); err != nil {
+		t.Fatal(err)
+	}
+
+	// 已有屏蔽后双方不再共享服务器，修改仍然允许（spec 设置条件）。
+	if err := db.RemoveGuildMember(ctx, guildID, admin.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SetCallBlock(ctx, admin.ID, target.ID, CallBlockKindPermanent); err != nil {
+		t.Fatalf("update after losing shared guild: %v", err)
 	}
 }
 
@@ -171,6 +232,9 @@ func TestListCallBlocksReturnsActiveBlocksOrdered(t *testing.T) {
 	forever := mustCreateUser(t, db, "block_list_forever", "永久屏蔽")
 
 	db.now = func() time.Time { return base }
+	for _, user := range []User{soon, later, forever} {
+		addToDefaultGuildForStoreTest(t, db, admin.ID, user.Username)
+	}
 	if _, err := db.SetCallBlock(ctx, admin.ID, soon.ID, CallBlockKindTemporary); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +384,20 @@ func TestDeleteUserCascadesCallBlocks(t *testing.T) {
 	admin := bootstrapAdmin(t, db)
 	target := mustCreateUser(t, db, "block_cascade_target", "级联目标")
 	ctx := context.Background()
+	addToDefaultGuildForStoreTest(t, db, admin.ID, target.Username)
 	if _, err := db.SetCallBlock(ctx, admin.ID, target.ID, CallBlockKindPermanent); err != nil {
+		t.Fatal(err)
+	}
+	// 先退出服务器并清掉审计行（guild_audit 无级联外键），再硬删除用户验证
+	// 屏蔽行级联清理。
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.db.ExecContext(ctx, "DELETE FROM guild_members WHERE guild_id = ? AND user_id = ?", guildID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.db.ExecContext(ctx, "DELETE FROM audit_logs WHERE target_user_id = ?", target.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.db.ExecContext(ctx, "DELETE FROM users WHERE id = ?", target.ID); err != nil {
@@ -391,4 +468,18 @@ func mustCreateUser(t *testing.T, db *Store, username, displayName string) User 
 		t.Fatal(err)
 	}
 	return user
+}
+
+// addToDefaultGuildForStoreTest joins the user to the admin's default guild so
+// the first-time shared-guild requirement of SetCallBlock is satisfied.
+func addToDefaultGuildForStoreTest(t *testing.T, db *Store, adminID int64, username string) {
+	t.Helper()
+	ctx := context.Background()
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, adminID, username); err != nil {
+		t.Fatal(err)
+	}
 }

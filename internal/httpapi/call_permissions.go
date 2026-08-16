@@ -51,16 +51,12 @@ func (s *Server) handleGetCallBlock(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "self_action", "不能查询自己的呼叫屏蔽")
 		return
 	}
-	if _, err := s.store.UserByID(r.Context(), targetID); err != nil {
+	block, exists, err := s.store.GetCallBlock(r.Context(), user.ID, targetID)
+	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not_found", "用户不存在")
 			return
 		}
-		s.writeStoreError(w, err)
-		return
-	}
-	block, exists, err := s.store.CallBlock(r.Context(), user.ID, targetID)
-	if err != nil {
 		s.internalError(w, "read call block", err)
 		return
 	}
@@ -91,33 +87,18 @@ func (s *Server) handlePutCallBlock(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "屏蔽类型无效")
 		return
 	}
-	if _, err := s.store.UserByID(r.Context(), targetID); err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "用户不存在")
-			return
-		}
-		s.writeStoreError(w, err)
-		return
-	}
-	_, exists, err := s.store.CallBlock(r.Context(), user.ID, targetID)
-	if err != nil {
-		s.internalError(w, "read call block for upsert", err)
-		return
-	}
-	if !exists {
-		shared, err := s.store.SharedGuild(r.Context(), user.ID, targetID)
-		if err != nil {
-			s.internalError(w, "check shared guild for call block", err)
-			return
-		}
-		if !shared {
-			writeError(w, http.StatusForbidden, "not_in_shared_guild", "只能屏蔽与你有共同服务器的成员")
-			return
-		}
-	}
+	// 目标存在性与首次设置的共享服务器要求由 store 事务统一校验
+	// （ADR-0021：策略唯一收归于 store 事务，HTTP 层只做哨兵映射）。
 	block, err := s.store.SetCallBlock(r.Context(), user.ID, targetID, input.Kind)
 	if err != nil {
-		s.internalError(w, "set call block", err)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			writeError(w, http.StatusNotFound, "not_found", "用户不存在")
+		case errors.Is(err, store.ErrNotInSharedGuild):
+			writeError(w, http.StatusForbidden, "not_in_shared_guild", "只能屏蔽与你有共同服务器的成员")
+		default:
+			s.internalError(w, "set call block", err)
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"block": block})

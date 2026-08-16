@@ -44,7 +44,7 @@ type VoiceProgress struct {
 // ProfileView is the unscoped personal profile read: the global fields of a
 // user, readable by anyone sharing at least one guild membership with the
 // target. Platform admins bypass the shared-guild requirement. Returns
-// ErrProfileNotInSharedGuild when the requester shares no guild with the
+// ErrNotInSharedGuild when the requester shares no guild with the
 // target and is not a platform admin, ErrNotFound when the target does not
 // exist.
 func (s *Store) ProfileView(ctx context.Context, requesterID, targetID int64, requesterIsPlatformAdmin bool) (UserProfile, error) {
@@ -54,7 +54,7 @@ func (s *Store) ProfileView(ctx context.Context, requesterID, targetID int64, re
 			return UserProfile{}, err
 		}
 		if !shared && !requesterIsPlatformAdmin {
-			return UserProfile{}, ErrProfileNotInSharedGuild
+			return UserProfile{}, ErrNotInSharedGuild
 		}
 	}
 	return s.userProfile(ctx, targetID)

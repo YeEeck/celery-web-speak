@@ -90,7 +90,7 @@ func (s *Server) handleGetUserProfile(w http.ResponseWriter, r *http.Request) {
 	} else {
 		profile, err = s.store.ProfileView(r.Context(), requester.ID, id, requester.IsPlatformAdmin)
 		switch {
-		case errors.Is(err, store.ErrProfileNotInSharedGuild):
+		case errors.Is(err, store.ErrNotInSharedGuild):
 			writeError(w, http.StatusForbidden, "not_in_shared_guild", "无法查看该用户的资料")
 			return
 		case err != nil:

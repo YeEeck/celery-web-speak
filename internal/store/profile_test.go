@@ -22,8 +22,8 @@ func TestProfileViewRequiresSharedGuild(t *testing.T) {
 	}
 
 	// outsider asking for admin's profile → no shared guild.
-	if _, err := db.ProfileView(ctx, outsider.ID, admin.ID, false); !errors.Is(err, ErrProfileNotInSharedGuild) {
-		t.Fatalf("non-shared-guild profile read error = %v, want ErrProfileNotInSharedGuild", err)
+	if _, err := db.ProfileView(ctx, outsider.ID, admin.ID, false); !errors.Is(err, ErrNotInSharedGuild) {
+		t.Fatalf("non-shared-guild profile read error = %v, want ErrNotInSharedGuild", err)
 	}
 
 	// outsider can read their own profile.
