@@ -100,6 +100,22 @@ test('fetchBlock always reads the server and updates the index', async () => {
   assert.deepEqual(h.getBlockCalls, [7, 7])
 })
 
+test('fetchBlock keeps the known card state while a refresh is pending or fails', async () => {
+  const h = makeHarness()
+  h.blockByUser.set(7, { kind: 'permanent' })
+  const permissions = useCallPermissions(h.ctx)
+  await permissions.fetchBlock(7)
+
+  const pending = deferred<CallBlock | null>()
+  h.ctx.getBlock = async () => pending.promise
+  const read = permissions.fetchBlock(7)
+  assert.equal(permissions.blockState(7)?.kind, 'permanent', '读取期间保留已知卡片状态')
+
+  pending.reject(new Error('network'))
+  await assert.rejects(read)
+  assert.equal(permissions.blockState(7)?.kind, 'permanent', '读取失败不得把卡片状态伪装成未屏蔽')
+})
+
 test('clearBlockLocally 只清除本地卡片状态，不发请求', async () => {
   const h = makeHarness()
   h.listBlocks = [entry(7, 'temporary')]
@@ -112,6 +128,19 @@ test('clearBlockLocally 只清除本地卡片状态，不发请求', async () =>
   assert.deepEqual(h.deleteCalls, [], '不调删除接口')
   assert.deepEqual(h.getBlockCalls, [], '不重新拉取')
   assert.equal(permissions.blocks.value.some((block) => block.userId === 7), true, '设置页列表不受影响，下次进入重新拉取')
+})
+
+test('过期的打开卡片仍能就地显示后续屏蔽操作', async () => {
+  const h = makeHarness()
+  h.blockByUser.set(7, { kind: 'temporary', expiresAt: '2026-08-02T12:00:00Z' })
+  const permissions = useCallPermissions(h.ctx)
+  await permissions.fetchBlock(7)
+
+  permissions.expireBlockLocally(7)
+  assert.equal(permissions.blockState(7), null)
+
+  await permissions.setBlock(7, 'permanent')
+  assert.equal(permissions.blockState(7)?.kind, 'permanent', '卡片仍打开时成功写入应更新卡片投影')
 })
 
 test('setBlockForCall persists the block without refreshing the list', async () => {

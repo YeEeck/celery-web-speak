@@ -143,7 +143,11 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
   async function fetchBlock(userId: number) {
     const requestVersion = (cardRequestVersions.get(userId) ?? 0) + 1
     cardRequestVersions.set(userId, requestVersion)
-    cardProjections.value = { ...cardProjections.value, [userId]: { block: null, active: true } }
+    const currentCard = cardProjections.value[userId]
+    const initialBlock = currentCard?.active
+      ? currentCard.block
+      : hasOwn(knownBlocks.value, userId) ? knownBlocks.value[userId] : null
+    cardProjections.value = { ...cardProjections.value, [userId]: { block: initialBlock, active: true } }
     const mutationVersionAtStart = currentMutationVersion(userId)
     const block = await ctx.getBlock(userId)
     if (cardRequestVersions.get(userId) !== requestVersion || currentMutationVersion(userId) !== mutationVersionAtStart) return block
@@ -151,10 +155,20 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     return block
   }
 
-  // 暂时屏蔽到期或卡片关闭只使卡片 projection 失效，不发请求，也不修改
-  // 设置页列表的最近一次服务端快照。
-  function clearBlockLocally(userId: number) {
+  function invalidateCardRead(userId: number) {
     cardRequestVersions.set(userId, (cardRequestVersions.get(userId) ?? 0) + 1)
+  }
+
+  // 暂时屏蔽到期只清除卡片 projection，但卡片仍然打开，后续成功写入
+  // 必须能就地更新它；不发请求，也不修改设置页列表的最近一次服务端快照。
+  function expireBlockLocally(userId: number) {
+    invalidateCardRead(userId)
+    cardProjections.value = { ...cardProjections.value, [userId]: { block: null, active: true } }
+  }
+
+  // 卡片关闭使 projection 失效；晚到的读取或写入不得重新激活已关闭的卡片。
+  function clearBlockLocally(userId: number) {
+    invalidateCardRead(userId)
     cardProjections.value = { ...cardProjections.value, [userId]: { block: null, active: false } }
   }
 
@@ -169,6 +183,7 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
   // 写操作后的列表刷新是尽力而为：本地状态已在写成功后就地更新，列表
   // GET 失败不否定已成功的写操作；下次进入设置页再拉取完整列表。
   async function refreshBlocksBestEffort() {
+    issue.value = null
     try {
       await refreshBlocks()
     } catch {
@@ -244,6 +259,7 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     initialize,
     setBlockForCall,
     fetchBlock,
+    expireBlockLocally,
     clearBlockLocally,
     setBlock,
     removeBlock,

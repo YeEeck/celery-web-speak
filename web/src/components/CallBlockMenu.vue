@@ -46,7 +46,7 @@ function handleKeyDown(event: KeyboardEvent) {
 function tick() {
   now.value = Date.now()
   const ms = remainingMs.value
-  if (ms !== null && ms <= 0) permissions.clearBlockLocally(props.userId)
+  if (ms !== null && ms <= 0) permissions.expireBlockLocally(props.userId)
 }
 
 async function setBlock(kind: CallBlockKind) {

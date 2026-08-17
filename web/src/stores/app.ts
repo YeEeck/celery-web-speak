@@ -36,6 +36,8 @@ export const useAppStore = defineStore('app', () => {
   let moderatorVoiceDisconnectSequence = 0
   let guildBootstrapVersion = 0
   const messageLoadVersions = new Map<number, number>()
+  let accountCallReceivingRevision = 0
+  let callReceivingRequestVersion = 0
 
   const socket = useSocket({
     user,
@@ -299,14 +301,21 @@ export const useAppStore = defineStore('app', () => {
     if (currentUser === null) return
     const previous = currentUser.callReceiving
     user.value = { ...currentUser, callReceiving: enabled }
+    const requestVersion = ++callReceivingRequestVersion
+    const callReceivingRevisionAtStart = accountCallReceivingRevision
+    // 用户对象身份充当本次乐观写入的版本；user_updated、bootstrap 或其他
+    // 账号写入都会替换对象，使迟到的响应不能覆盖更新后的账号状态。
+    const optimisticUser = user.value
     try {
       const result = await request<{ user: User }>('/api/me/call-receiving', {
         method: 'PATCH',
         body: JSON.stringify({ callReceiving: enabled }),
       })
-      applyAccountUpdate(result.user)
+      if (requestVersion === callReceivingRequestVersion && user.value === optimisticUser) applyAccountUpdate(result.user)
     } catch (error) {
-      if (user.value?.id === currentUser.id) user.value = { ...user.value, callReceiving: previous }
+      if (requestVersion === callReceivingRequestVersion && accountCallReceivingRevision === callReceivingRevisionAtStart && user.value?.id === currentUser.id) {
+        user.value = { ...user.value, callReceiving: previous }
+      }
       throw error
     }
   }
@@ -469,6 +478,7 @@ export const useAppStore = defineStore('app', () => {
       const voiceMuted = user.value.voiceMuted
       const textMuted = user.value.textMuted
       user.value = { ...user.value, ...update, voiceMuted, textMuted }
+      if (Object.prototype.hasOwnProperty.call(update, 'callReceiving')) accountCallReceivingRevision += 1
     }
   }
 

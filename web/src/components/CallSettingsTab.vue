@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Ban, Phone, Search } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useCallPermissionsStore } from '../stores/call-permissions'
@@ -14,7 +14,6 @@ const toast = useToastStore()
 
 const searchInput = ref('')
 const savingReceiving = ref(false)
-const callReceivingIssue = ref<string | null>(null)
 const blockBusy = ref(new Set<number>())
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -64,26 +63,31 @@ async function removeBlock(userId: number) {
 
 async function setCallReceiving(enabled: boolean) {
   savingReceiving.value = true
-  callReceivingIssue.value = null
   try {
-    await app.setMyCallReceiving(enabled)
-  } catch (error) {
-    callReceivingIssue.value = error instanceof Error ? error.message : '更新可被呼叫设置失败'
-    throw error
+    await toast.runAction(async () => {
+      await app.setMyCallReceiving(enabled)
+    }, enabled ? '已允许别人发起语音通话' : '已关闭别人发起语音通话')
   } finally {
     savingReceiving.value = false
   }
 }
 
-// app store 失败时会回滚开关；这里只需吞掉重新抛出的拒绝，避免 @change
-// 触发 unhandled rejection。
+// toast store 负责操作反馈；这里只需异步触发，避免 @change 产生未处理拒绝。
 function onCallReceivingChange(event: Event) {
   const enabled = (event.target as HTMLInputElement).checked
-  void setCallReceiving(enabled).catch(() => undefined)
+  void setCallReceiving(enabled)
 }
 
 onMounted(() => {
   void permissions.initialize().catch(() => undefined)
+})
+
+watch(() => permissions.issue.value, (message) => {
+  if (message) toast.showError(message)
+})
+
+watch(() => permissions.searchIssue.value, (message) => {
+  if (message) toast.showError(message)
 })
 
 onBeforeUnmount(() => {
@@ -105,10 +109,7 @@ onBeforeUnmount(() => {
         @change="onCallReceivingChange"
       />
     </label>
-    <span v-if="callReceivingIssue" class="form-error" role="alert">{{ callReceivingIssue }}</span>
-
     <h3><Ban :size="18" />呼叫屏蔽</h3>
-    <p v-if="permissions.issue.value" class="form-error" role="alert">{{ permissions.issue.value }}</p>
     <div class="call-block-search">
       <Search :size="16" />
       <input
@@ -120,7 +121,6 @@ onBeforeUnmount(() => {
       />
     </div>
     <p v-if="permissions.searching.value" class="profile-hint">正在搜索…</p>
-    <p v-else-if="permissions.searchIssue.value" class="form-error" role="alert">{{ permissions.searchIssue.value }}</p>
 
     <div v-if="permissions.searchQuery.value.trim() && !permissions.searching.value" class="call-block-list">
       <div v-for="candidate in permissions.searchResults.value" :key="candidate.userId" class="call-block-row">
