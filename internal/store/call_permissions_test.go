@@ -132,6 +132,9 @@ func TestCallBlockGetAndDelete(t *testing.T) {
 	if _, _, err := db.GetCallBlock(ctx, admin.ID, 999999); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing target read error = %v, want ErrNotFound", err)
 	}
+	if err := db.DeleteCallBlock(ctx, admin.ID, 999999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing target delete error = %v, want ErrNotFound", err)
+	}
 
 	addToDefaultGuildForStoreTest(t, db, admin.ID, target.Username)
 	block, exists, err := db.GetCallBlock(ctx, admin.ID, target.ID)
@@ -218,6 +221,36 @@ func TestSetCallBlockAllowsUpdateAfterLosingSharedGuild(t *testing.T) {
 	}
 	if _, err := db.SetCallBlock(ctx, admin.ID, target.ID, CallBlockKindPermanent); err != nil {
 		t.Fatalf("update after losing shared guild: %v", err)
+	}
+}
+
+func TestSetCallBlockExpiredTemporaryRequiresSharedGuildAgain(t *testing.T) {
+	db := newTestStore(t)
+	admin := bootstrapAdmin(t, db)
+	target, err := db.CreateUser(context.Background(), "block_expired_left", "过期离服对象", "another-secure-password", RoleMember)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	base := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	db.now = func() time.Time { return base }
+	guildID, err := db.DefaultGuildID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.AddGuildMember(ctx, guildID, admin.ID, target.Username); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SetCallBlock(ctx, admin.ID, target.ID, CallBlockKindTemporary); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RemoveGuildMember(ctx, guildID, admin.ID, target.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	db.now = func() time.Time { return base.Add(24 * time.Hour) }
+	if _, err := db.SetCallBlock(ctx, admin.ID, target.ID, CallBlockKindTemporary); !errors.Is(err, ErrNotInSharedGuild) {
+		t.Fatalf("re-arm expired block without shared guild error = %v, want ErrNotInSharedGuild", err)
 	}
 }
 

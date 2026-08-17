@@ -204,10 +204,18 @@ func TestCallBlockEndpointsValidation(t *testing.T) {
 		t.Fatalf("deleted target read = %d %s", recorder.Code, recorder.Body.String())
 	}
 
-	// 解除幂等 204：重复删除不存在的屏蔽行成功；自己仍按规格 L160 拒绝 400。
+	// 解除：目标不存在/已删除 404；对已存在用户解除不存在的屏蔽行幂等 204；自己 400。
 	recorder = serveGuildHTTPRequest(server, token, http.MethodDelete, "/api/call-blocks/999999", "")
+	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), "not_found") {
+		t.Fatalf("missing target delete = %d %s, want 404 not_found", recorder.Code, recorder.Body.String())
+	}
+	recorder = serveGuildHTTPRequest(server, token, http.MethodDelete, "/api/call-blocks/"+formatID(deleted.ID), "")
+	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), "not_found") {
+		t.Fatalf("deleted target delete = %d %s, want 404 not_found", recorder.Code, recorder.Body.String())
+	}
+	recorder = serveGuildHTTPRequest(server, token, http.MethodDelete, "/api/call-blocks/"+formatID(target.ID), "")
 	if recorder.Code != http.StatusNoContent {
-		t.Fatalf("idempotent delete = %d %s, want 204", recorder.Code, recorder.Body.String())
+		t.Fatalf("idempotent delete existing user = %d %s, want 204", recorder.Code, recorder.Body.String())
 	}
 	recorder = serveGuildHTTPRequest(server, token, http.MethodDelete, "/api/call-blocks/"+formatID(admin.ID), "")
 	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "self_action") {

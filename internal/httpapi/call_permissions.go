@@ -114,8 +114,12 @@ func (s *Server) handleDeleteCallBlock(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "self_action", "不能屏蔽自己")
 		return
 	}
-	// 解除屏蔽幂等返回 204（重复删除同一目标同样成功）。
+	// 解除屏蔽：目标不存在/已删除 404；对已存在用户重复删除幂等 204。
 	if err := s.store.DeleteCallBlock(r.Context(), user.ID, targetID); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "用户不存在")
+			return
+		}
 		s.internalError(w, "delete call block", err)
 		return
 	}

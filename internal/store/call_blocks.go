@@ -39,8 +39,8 @@ WHERE a.user_id = ? AND b.user_id = ?`, userID, otherUserID).Scan(&count)
 
 // SetCallBlock upserts the owner's call block on target. The target must be an
 // existing non-deleted user; first-time setup additionally requires a shared
-// guild (spec：首次设置时双方必须共享至少一个服务器；已存在屏蔽时，修改与
-// 解除不要求当前仍共享服务器). Setting a temporary block starts a fresh 24h
+// guild (spec：首次设置时双方必须共享至少一个服务器；已存在未过期屏蔽时，修改与
+// 解除不要求当前仍共享服务器。过期暂时屏蔽视为不存在). Setting a temporary block starts a fresh 24h
 // window; setting a permanent block clears the expiry. Returns ErrNotFound
 // when the target is missing and ErrNotInSharedGuild on first setup without a
 // shared guild. All checks and the upsert run in one transaction.
@@ -63,11 +63,16 @@ func (s *Store) SetCallBlock(ctx context.Context, ownerID, targetID int64, kind 
 		return CallBlock{}, fmt.Errorf("check call block target: %w", err)
 	}
 
-	// 首次设置要求共享服务器；已有屏蔽行的修改不再要求（spec 设置条件）。
+	// 首次设置（含过期暂时屏蔽，查询视为不存在）要求共享服务器；
+	// 未过期屏蔽的修改不再要求（spec 设置条件）。
+	now := s.now()
+	nowValue := formatTime(now)
 	var hasBlock int
 	err = tx.QueryRowContext(ctx, `
-SELECT 1 FROM call_blocks WHERE owner_user_id = ? AND target_user_id = ?`,
-		ownerID, targetID).Scan(&hasBlock)
+SELECT 1 FROM call_blocks
+WHERE owner_user_id = ? AND target_user_id = ?
+  AND (kind = 'permanent' OR (kind = 'temporary' AND expires_at > ?))`,
+		ownerID, targetID, nowValue).Scan(&hasBlock)
 	if errors.Is(err, sql.ErrNoRows) {
 		shared, err := s.sharedGuildTx(ctx, tx, ownerID, targetID)
 		if err != nil {
@@ -80,7 +85,6 @@ SELECT 1 FROM call_blocks WHERE owner_user_id = ? AND target_user_id = ?`,
 		return CallBlock{}, fmt.Errorf("check existing call block: %w", err)
 	}
 
-	now := s.now()
 	var expiresAt *time.Time
 	if kind == CallBlockKindTemporary {
 		expiry := now.Add(24 * time.Hour)
@@ -90,7 +94,6 @@ SELECT 1 FROM call_blocks WHERE owner_user_id = ? AND target_user_id = ?`,
 	if expiresAt != nil {
 		expiresValue = formatTime(*expiresAt)
 	}
-	nowValue := formatTime(now)
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO call_blocks (owner_user_id, target_user_id, kind, expires_at, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?)
@@ -300,8 +303,17 @@ func activeCallBlock(kind string, expiresAt sql.NullString, now time.Time) (*Cal
 }
 
 // DeleteCallBlock removes the owner's call block on target. Deleting a
-// non-existent block succeeds (idempotent).
+// non-existent block on an existing user succeeds (idempotent). A missing or
+// deleted target returns ErrNotFound (spec：目标不存在/已删除 404).
 func (s *Store) DeleteCallBlock(ctx context.Context, ownerID, targetID int64) error {
+	var one int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM users WHERE id = ? AND deleted_at IS NULL`, targetID).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("check call block target: %w", err)
+	}
 	if _, err := s.db.ExecContext(ctx, `
 DELETE FROM call_blocks WHERE owner_user_id = ? AND target_user_id = ?`,
 		ownerID, targetID); err != nil {
