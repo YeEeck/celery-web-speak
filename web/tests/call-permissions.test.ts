@@ -141,6 +141,25 @@ test('clearBlockLocally 只清除本地卡片状态，不发请求', async () =>
   assert.equal(permissions.blocks.value.some((block) => block.userId === 7), true, '设置页列表不受影响，下次进入重新拉取')
 })
 
+test('重新打开卡片不得渲染关卡前的屏蔽状态，拉取失败保持不显示', async () => {
+  const h = makeHarness()
+  h.blockByUser.set(7, { kind: 'temporary', expiresAt: '2026-08-02T12:00:00Z' })
+  const permissions = useCallPermissions(h.ctx)
+  await permissions.fetchBlock(7)
+  permissions.clearBlockLocally(7)
+
+  const pending = deferred<CallBlock | null>()
+  h.ctx.getBlock = async () => pending.promise
+  const read = permissions.fetchBlock(7)
+  assert.equal(permissions.blockState(7), null, '打开瞬间不渲染陈旧 pill')
+  assert.equal(permissions.cardStatus(7), 'loading')
+
+  pending.reject(new Error('network'))
+  await assert.rejects(read)
+  assert.equal(permissions.blockState(7), null, '拉取失败不得停留在过期值')
+  assert.equal(permissions.cardStatus(7), 'error')
+})
+
 test('过期的打开卡片仍能就地显示后续屏蔽操作', async () => {
   const h = makeHarness()
   h.blockByUser.set(7, { kind: 'temporary', expiresAt: '2026-08-02T12:00:00Z' })

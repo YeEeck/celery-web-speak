@@ -170,15 +170,13 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     }
   }
 
-  // 个人信息卡片每次打开都从服务端读取。卡片的 invalidated projection
-  // 不会清除设置页列表；晚到的读取也不能重新激活已关闭的卡片。
+  // 个人信息卡片每次打开都从服务端读取。打开新卡片会话时不沿用
+  // knownBlocks：关卡后的陈旧/过期值不得在拉取完成前画上 pill。
   async function fetchBlock(userId: number) {
     const requestVersion = (cardRequestVersions.get(userId) ?? 0) + 1
     cardRequestVersions.set(userId, requestVersion)
     const currentCard = cardProjections.value[userId]
-    const initialBlock = currentCard?.active
-      ? currentCard.block
-      : hasOwn(knownBlocks.value, userId) ? knownBlocks.value[userId] : null
+    const initialBlock = currentCard?.active ? currentCard.block : null
     cardProjections.value = { ...cardProjections.value, [userId]: { block: initialBlock, active: true, status: 'loading' } }
     const mutationVersionAtStart = currentMutationVersion(userId)
     try {
@@ -199,10 +197,11 @@ export function useCallPermissions(ctx: CallPermissionsContext) {
     cardRequestVersions.set(userId, (cardRequestVersions.get(userId) ?? 0) + 1)
   }
 
-  // 暂时屏蔽到期只清除卡片 projection，但卡片仍然打开，后续成功写入
-  // 必须能就地更新它；不发请求，也不修改设置页列表的最近一次服务端快照。
+  // 暂时屏蔽到期清除有效状态与卡片投影；卡片仍打开，后续成功写入
+  // 必须能就地更新它。不发请求，也不修改设置页列表的最近一次服务端快照。
   function expireBlockLocally(userId: number) {
     invalidateCardRead(userId)
+    knownBlocks.value = { ...knownBlocks.value, [userId]: null }
     cardProjections.value = { ...cardProjections.value, [userId]: { block: null, active: true, status: 'ready' } }
   }
 
