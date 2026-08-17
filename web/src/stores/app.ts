@@ -294,6 +294,23 @@ export const useAppStore = defineStore('app', () => {
     applyAccountUpdate(result.user)
   }
 
+  async function setMyCallReceiving(enabled: boolean) {
+    const currentUser = user.value
+    if (currentUser === null) return
+    const previous = currentUser.callReceiving
+    user.value = { ...currentUser, callReceiving: enabled }
+    try {
+      const result = await request<{ user: User }>('/api/me/call-receiving', {
+        method: 'PATCH',
+        body: JSON.stringify({ callReceiving: enabled }),
+      })
+      applyAccountUpdate(result.user)
+    } catch (error) {
+      if (user.value?.id === currentUser.id) user.value = { ...user.value, callReceiving: previous }
+      throw error
+    }
+  }
+
   function sendSocketMessage(message: unknown) {
     socket.send(message)
   }
@@ -552,7 +569,7 @@ export const useAppStore = defineStore('app', () => {
     voiceRooms, messages, commandFeedbacks, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
     channelReadStates, onlineClients, presenceStatuses, socketStatus, moderatorVoiceDisconnect, isGuildAdmin, isPlatformAdmin,
     initialize, bootstrap, loadGuildBootstrap, selectGuild, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh: socket.requestVoiceRoomsRefresh,
-    sendMessage, executeSlashCommand, getSlashCommandSuggestions, addCommandFeedback, getUserProfile, setGuildMemberVoiceXP, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, setMyStatusSetting, sendSocketMessage, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft,
+    sendMessage, executeSlashCommand, getSlashCommandSuggestions, addCommandFeedback, getUserProfile, setGuildMemberVoiceXP, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, setMyStatusSetting, setMyCallReceiving, sendSocketMessage, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft,
     getChannelScroll, setChannelScroll, removeUser,
   }
 })

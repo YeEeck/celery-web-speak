@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { Ban, Phone, Search } from '@lucide/vue'
 import { useAppStore } from '../stores/app'
 import { useCallPermissionsStore } from '../stores/call-permissions'
@@ -14,6 +14,7 @@ const toast = useToastStore()
 
 const searchInput = ref('')
 const savingReceiving = ref(false)
+const callReceivingIssue = ref<string | null>(null)
 const blockBusy = ref(new Set<number>())
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -63,28 +64,26 @@ async function removeBlock(userId: number) {
 
 async function setCallReceiving(enabled: boolean) {
   savingReceiving.value = true
+  callReceivingIssue.value = null
   try {
-    await permissions.setCallReceiving(enabled)
+    await app.setMyCallReceiving(enabled)
+  } catch (error) {
+    callReceivingIssue.value = error instanceof Error ? error.message : '更新可被呼叫设置失败'
+    throw error
   } finally {
     savingReceiving.value = false
   }
 }
 
-// store 失败时已回滚开关并写入 issue（模板展示），这里只需吞掉重新抛出的
-// 拒绝，避免 @change 触发 unhandled rejection。
+// app store 失败时会回滚开关；这里只需吞掉重新抛出的拒绝，避免 @change
+// 触发 unhandled rejection。
 function onCallReceivingChange(event: Event) {
   const enabled = (event.target as HTMLInputElement).checked
   void setCallReceiving(enabled).catch(() => undefined)
 }
 
 onMounted(() => {
-  permissions.syncCallReceiving(app.user?.callReceiving)
-  void permissions.initialize(app.user?.callReceiving).catch(() => undefined)
-})
-
-// 可被呼叫设置经 user_updated 广播：设置页打开期间保持多设备同步。
-watch(() => app.user?.callReceiving, (enabled) => {
-  permissions.syncCallReceiving(enabled)
+  void permissions.initialize().catch(() => undefined)
 })
 
 onBeforeUnmount(() => {
@@ -100,15 +99,16 @@ onBeforeUnmount(() => {
       <span>允许别人发起语音通话给我</span>
       <input
         type="checkbox"
-        :checked="permissions.callReceiving.value"
+        :checked="app.user?.callReceiving ?? true"
         :disabled="savingReceiving"
         aria-label="允许别人发起语音通话给我"
         @change="onCallReceivingChange"
       />
     </label>
-    <span v-if="permissions.issue.value" class="form-error" role="alert">{{ permissions.issue.value }}</span>
+    <span v-if="callReceivingIssue" class="form-error" role="alert">{{ callReceivingIssue }}</span>
 
     <h3><Ban :size="18" />呼叫屏蔽</h3>
+    <p v-if="permissions.issue.value" class="form-error" role="alert">{{ permissions.issue.value }}</p>
     <div class="call-block-search">
       <Search :size="16" />
       <input
