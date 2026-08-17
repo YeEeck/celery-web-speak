@@ -17,6 +17,7 @@ const now = ref(Date.now())
 let tickTimer: number | undefined
 
 const block = computed(() => permissions.blockState(props.userId))
+const cardStatus = computed(() => permissions.cardStatus(props.userId))
 
 const remainingMs = computed(() => {
   const current = block.value
@@ -75,6 +76,19 @@ async function removeBlock() {
   }
 }
 
+async function retryRead() {
+  busy.value = true
+  issue.value = ''
+  try {
+    await permissions.fetchBlock(props.userId)
+  } catch {
+    // fetchBlock exposes the failed read through cardStatus; keep the menu open
+    // so the user can retry without treating the unknown state as unblocked.
+  } finally {
+    busy.value = false
+  }
+}
+
 // 卡片每次打开都从服务端读取当前屏蔽状态，不复用上次卡片的缓存。
 onMounted(() => {
   document.addEventListener('pointerdown', handlePointerDown, true)
@@ -111,13 +125,20 @@ onBeforeUnmount(() => {
         暂时屏蔽 · {{ callBlockRemainingLabel(block.expiresAt) }}
       </span>
       <span v-else-if="block?.kind === 'permanent'" class="profile-card-block-state">永久屏蔽中</span>
-      <button v-if="block?.kind === 'temporary'" type="button" :disabled="busy" @click="setBlock('permanent')">转为永久屏蔽</button>
-      <button v-else-if="block?.kind === 'permanent'" type="button" :disabled="busy" @click="setBlock('temporary')">转为暂时屏蔽 24 小时</button>
-      <template v-else>
-        <button type="button" :disabled="busy" @click="setBlock('temporary')">暂时屏蔽 24 小时</button>
-        <button type="button" :disabled="busy" @click="setBlock('permanent')">永久屏蔽</button>
+      <template v-if="cardStatus === 'ready'">
+        <button v-if="block?.kind === 'temporary'" type="button" :disabled="busy" @click="setBlock('permanent')">转为永久屏蔽</button>
+        <button v-else-if="block?.kind === 'permanent'" type="button" :disabled="busy" @click="setBlock('temporary')">转为暂时屏蔽 24 小时</button>
+        <template v-else>
+          <button type="button" :disabled="busy" @click="setBlock('temporary')">暂时屏蔽 24 小时</button>
+          <button type="button" :disabled="busy" @click="setBlock('permanent')">永久屏蔽</button>
+        </template>
+        <button v-if="block" class="danger-text" type="button" :disabled="busy" @click="removeBlock">解除屏蔽</button>
       </template>
-      <button v-if="block" class="danger-text" type="button" :disabled="busy" @click="removeBlock">解除屏蔽</button>
+      <template v-else-if="cardStatus === 'error'">
+        <span class="form-error" role="alert">无法读取呼叫屏蔽状态</span>
+        <button type="button" :disabled="busy" @click="retryRead">重试</button>
+      </template>
+      <span v-else class="profile-card-block-state">正在读取呼叫屏蔽状态…</span>
       <span v-if="issue" class="form-error">{{ issue }}</span>
     </div>
   </div>

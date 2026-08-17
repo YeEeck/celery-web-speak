@@ -303,17 +303,20 @@ export const useAppStore = defineStore('app', () => {
     user.value = { ...currentUser, callReceiving: enabled }
     const requestVersion = ++callReceivingRequestVersion
     const callReceivingRevisionAtStart = accountCallReceivingRevision
-    // 用户对象身份充当本次乐观写入的版本；user_updated、bootstrap 或其他
-    // 账号写入都会替换对象，使迟到的响应不能覆盖更新后的账号状态。
+    // user_updated 等带可被呼叫设置的账号更新会递增 revision；其他账号快照
+    // 即使替换了对象，成功响应也只合并自己的字段，不覆盖快照中的其他字段。
     const optimisticUser = user.value
     try {
       const result = await request<{ user: User }>('/api/me/call-receiving', {
         method: 'PATCH',
         body: JSON.stringify({ callReceiving: enabled }),
       })
-      if (requestVersion === callReceivingRequestVersion && user.value === optimisticUser) applyAccountUpdate(result.user)
-    } catch (error) {
       if (requestVersion === callReceivingRequestVersion && accountCallReceivingRevision === callReceivingRevisionAtStart && user.value?.id === currentUser.id) {
+        if (user.value === optimisticUser) applyAccountUpdate(result.user)
+        else user.value = { ...user.value, callReceiving: result.user.callReceiving }
+      }
+    } catch (error) {
+      if (requestVersion === callReceivingRequestVersion && accountCallReceivingRevision === callReceivingRevisionAtStart && user.value === optimisticUser) {
         user.value = { ...user.value, callReceiving: previous }
       }
       throw error
@@ -551,7 +554,13 @@ export const useAppStore = defineStore('app', () => {
     const index = users.value.findIndex((item) => item.id === update.id)
     if (index >= 0) users.value[index] = { ...users.value[index], ...update }
     else if (isCompleteUser(update)) users.value.push(update)
-    if (user.value?.id === update.id) user.value = { ...user.value, ...update }
+    if (user.value?.id === update.id) {
+      // Guild member payloads intentionally do not carry the account-level
+      // 可被呼叫设置; mapGuildMember supplies its default for the member list.
+      // Never let that member projection overwrite the account store's value.
+      const { callReceiving: _callReceiving, ...memberFields } = update
+      user.value = { ...user.value, ...memberFields }
+    }
   }
 
   function updateGuildMembershipRole(guildId: number, role: GuildMemberPayload['role']) {

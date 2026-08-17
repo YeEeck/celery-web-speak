@@ -81,7 +81,7 @@ test('initialize always refreshes the block list on settings entry', async () =>
   await permissions.initialize()
   assert.equal(h.listCalls, 2, '每次进入通话设置页都应重新拉取')
   assert.equal(permissions.loading.value, false)
-  assert.deepEqual(permissions.blocks.value, h.listBlocks)
+  assert.deepEqual(permissions.blocks.value.map((block) => block.userId), [3, 2], '列表按暂时屏蔽优先排序')
   assert.equal(permissions.blockState(2)?.kind, 'permanent')
   assert.equal(permissions.blockState(3)?.kind, 'temporary')
 })
@@ -92,12 +92,23 @@ test('fetchBlock always reads the server and updates the index', async () => {
   h.blockByUser.set(7, { kind: 'temporary', expiresAt: '2026-08-02T12:00:00Z' })
   await permissions.fetchBlock(7)
   assert.equal(permissions.blockState(7)?.kind, 'temporary')
+  assert.equal(permissions.cardStatus(7), 'ready')
   assert.deepEqual(h.getBlockCalls, [7])
 
   h.blockByUser.delete(7)
   await permissions.fetchBlock(7)
   assert.equal(permissions.blockState(7), null, '每次调用都请求服务端，不缓存')
   assert.deepEqual(h.getBlockCalls, [7, 7])
+})
+
+test('首次卡片读取失败保持未知状态，不伪装成未屏蔽', async () => {
+  const h = makeHarness()
+  h.ctx.getBlock = async () => { throw new Error('network') }
+  const permissions = useCallPermissions(h.ctx)
+
+  await assert.rejects(() => permissions.fetchBlock(7))
+  assert.equal(permissions.blockState(7), null)
+  assert.equal(permissions.cardStatus(7), 'error')
 })
 
 test('fetchBlock keeps the known card state while a refresh is pending or fails', async () => {
@@ -165,6 +176,33 @@ test('setBlock updates the index, list and search results', async () => {
   assert.equal(permissions.blockState(2)?.kind, 'temporary')
   assert.equal(permissions.blocks.value.some((block) => block.userId === 2), true)
   assert.equal(permissions.searchResults.value[0]?.block?.kind, 'temporary')
+})
+
+test('a list snapshot without a searched candidate clears its stale block state', async () => {
+  const h = makeHarness()
+  h.candidates = [{ userId: 2, username: 'user2', displayName: '用户2', avatarVersion: 0, hasAvatar: false, block: { kind: 'permanent' } }]
+  const permissions = useCallPermissions(h.ctx)
+  await permissions.search('user')
+  assert.equal(permissions.searchResults.value[0]?.block?.kind, 'permanent')
+
+  h.listBlocks = []
+  await permissions.initialize()
+  assert.equal(permissions.searchResults.value[0]?.block, null, '最新列表不含该用户时搜索投影应解除屏蔽')
+})
+
+test('local list projection keeps expiry and ordering consistent after a kind change', async () => {
+  const h = makeHarness()
+  h.listBlocks = [
+    { ...entry(1), expiresAt: '2026-08-03T12:00:00Z' },
+    { ...entry(2), kind: 'temporary', expiresAt: '2026-08-02T12:00:00Z' },
+  ]
+  const permissions = useCallPermissions(h.ctx)
+  await permissions.initialize()
+  assert.deepEqual(permissions.blocks.value.map((block) => block.userId), [2, 1])
+
+  await permissions.setBlock(2, 'permanent')
+  assert.deepEqual(permissions.blocks.value.map((block) => block.userId), [1, 2])
+  assert.equal(permissions.blocks.value.find((block) => block.userId === 2)?.expiresAt, undefined)
 })
 
 test('removeBlock removes from index, list and search results', async () => {
