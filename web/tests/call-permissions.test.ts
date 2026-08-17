@@ -5,8 +5,6 @@ import type { CallBlock, CallBlockCandidate, CallBlockEntry } from '../src/types
 
 interface Harness {
   ctx: CallPermissionsContext
-  patchedReceiving: boolean[]
-  patchError: Error | null
   listBlocks: CallBlockEntry[]
   listCalls: number
   listError: Error | null
@@ -21,8 +19,6 @@ interface Harness {
 function makeHarness(): Harness {
   const harness: Harness = {
     ctx: {} as CallPermissionsContext,
-    patchedReceiving: [],
-    patchError: null,
     listBlocks: [],
     listCalls: 0,
     listError: null,
@@ -34,10 +30,6 @@ function makeHarness(): Harness {
     deleteCalls: [],
   }
   harness.ctx = {
-    patchCallReceiving: async (enabled) => {
-      harness.patchedReceiving.push(enabled)
-      if (harness.patchError) throw harness.patchError
-    },
     listBlocks: async () => {
       harness.listCalls += 1
       if (harness.listError) throw harness.listError
@@ -79,20 +71,6 @@ const entry = (userId: number, kind: 'temporary' | 'permanent' = 'permanent'): C
   avatarVersion: 0,
   hasAvatar: false,
   kind,
-})
-
-test('setCallReceiving updates optimistically and reverts on failure', async () => {
-  const h = makeHarness()
-  const permissions = useCallPermissions(h.ctx)
-  permissions.callReceiving.value = true
-
-  await permissions.setCallReceiving(false)
-  assert.equal(permissions.callReceiving.value, false)
-  assert.deepEqual(h.patchedReceiving, [false])
-
-  h.patchError = new Error('network')
-  await assert.rejects(() => permissions.setCallReceiving(true))
-  assert.equal(permissions.callReceiving.value, false, '失败后应回滚到旧值')
 })
 
 test('initialize always refreshes the block list on settings entry', async () => {
@@ -210,4 +188,69 @@ test('search strips a leading @ and treats a bare @ as empty', async () => {
   assert.equal(h.searches.length, 1, '仅 @ 视为空查询，不发起请求')
   assert.deepEqual(permissions.searchResults.value, [])
   assert.equal(permissions.searchQuery.value, '')
+})
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
+test('late card reads cannot restore an invalidated card projection', async () => {
+  const h = makeHarness()
+  const pending = deferred<CallBlock | null>()
+  h.ctx.getBlock = async () => pending.promise
+  const permissions = useCallPermissions(h.ctx)
+
+  const read = permissions.fetchBlock(7)
+  permissions.clearBlockLocally(7)
+  pending.resolve({ kind: 'permanent' })
+  await read
+
+  assert.equal(permissions.blockState(7), null, '卡片关闭后晚到响应不得恢复状态')
+  assert.equal(permissions.blocks.value.length, 0, '卡片读取不应创建设置页列表项')
+})
+
+test('late search results cannot replace the newest query', async () => {
+  const h = makeHarness()
+  const first = deferred<CallBlockCandidate[]>()
+  const second = deferred<CallBlockCandidate[]>()
+  h.ctx.searchCandidates = async (query) => query === 'a' ? first.promise : second.promise
+  const permissions = useCallPermissions(h.ctx)
+
+  const oldSearch = permissions.search('a')
+  const newSearch = permissions.search('ab')
+  second.resolve([{ userId: 2, username: 'user2', displayName: '用户2', avatarVersion: 0, hasAvatar: false, block: null }])
+  await newSearch
+  first.resolve([{ userId: 3, username: 'user3', displayName: '用户3', avatarVersion: 0, hasAvatar: false, block: null }])
+  await oldSearch
+
+  assert.equal(permissions.searchQuery.value, 'ab')
+  assert.deepEqual(permissions.searchResults.value.map((candidate) => candidate.userId), [2])
+  assert.equal(permissions.searching.value, false)
+})
+
+test('a list response started before a write cannot overwrite the write', async () => {
+  const h = makeHarness()
+  const stale = deferred<CallBlockEntry[]>()
+  const fresh = deferred<CallBlockEntry[]>()
+  const responses = [stale, fresh]
+  h.ctx.listBlocks = async () => responses.shift()!.promise
+  const permissions = useCallPermissions(h.ctx)
+
+  const initialLoad = permissions.initialize()
+  await Promise.resolve()
+  const write = permissions.setBlock(2, 'permanent')
+  await Promise.resolve()
+  stale.resolve([])
+  await initialLoad
+  fresh.resolve([entry(2)])
+  await write
+
+  assert.equal(permissions.blockState(2)?.kind, 'permanent')
+  assert.deepEqual(permissions.blocks.value.map((block) => block.userId), [2])
 })
