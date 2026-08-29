@@ -8,7 +8,7 @@ import { useApplicationSoundStore } from './application-sounds.ts'
 import { SpeechDetectionEngine } from '../audio/SpeechDetectionEngine.ts'
 import { SpeechDetectionLifecycle } from '../audio/SpeechDetectionLifecycle.ts'
 import { preloadRnnoiseWasm } from '../audio/rnnoise.ts'
-import { useVoiceDevices } from './voice-devices.ts'
+import { useVoiceDevices, type VoiceLiveConnection } from './voice-devices.ts'
 import { getSavedAutoVoiceBalance, saveAutoVoiceBalance } from './voice-auto-balance-state.ts'
 import { useParticipantVolume } from './voice-participant-volume.ts'
 import { useApplicationAudio } from './voice-application-audio.ts'
@@ -83,6 +83,7 @@ export const useVoiceStore = defineStore('voice', () => {
   const devicesRef: { current: ReturnType<typeof useVoiceDevices> | null } = { current: null }
   const appAudioRef: { current: ReturnType<typeof useApplicationAudio> | null } = { current: null }
   const participantVolumeRef: { current: ReturnType<typeof useParticipantVolume> | null } = { current: null }
+  const callRef: { current: ReturnType<typeof useVoiceCall> | null } = { current: null }
 
   const sounds = useApplicationSoundStore()
   const toast = useToastStore()
@@ -218,10 +219,29 @@ export const useVoiceStore = defineStore('voice', () => {
   })
 
   const devices = useVoiceDevices({
-    room: session.room,
-    voiceSession: session.voiceSession,
-    status: session.statusValue,
-    joined: session.joinedValue,
+    liveConnections: () => {
+      const connections: VoiceLiveConnection[] = []
+      const channelRoom = session.room()
+      if (channelRoom) {
+        connections.push({
+          room: channelRoom,
+          session: session.voiceSession(),
+          ready: session.statusValue() !== 'connecting',
+        })
+      }
+      const call = callRef.current
+      if (call && call.connectedAt.value != null) {
+        const callRoom = call.room()
+        if (callRoom) {
+          connections.push({
+            room: callRoom,
+            session: call.callSession(),
+            ready: true,
+          })
+        }
+      }
+      return connections
+    },
     requestMicPermission: async () => {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持麦克风访问')
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -234,7 +254,7 @@ export const useVoiceStore = defineStore('voice', () => {
     },
     supportsOutputSelection: () => supportsAudioOutputSelection(),
     applyOutputSink: (deviceId) => {
-      document.querySelectorAll<HTMLAudioElement>('#voice-audio-root audio').forEach((element) => {
+      document.querySelectorAll<HTMLAudioElement>('#voice-audio-root audio, #call-audio-root audio').forEach((element) => {
         void setAudioSink(element, deviceId)
       })
     },
@@ -316,6 +336,7 @@ export const useVoiceStore = defineStore('voice', () => {
     }),
     applyAudioSink: (element, deviceId) => void setAudioSink(element, deviceId),
   })
+  callRef.current = call
 
   // 频道作用域耳机静音接线（ticket 04 / ADR-0032）：发起通话（outgoing）与
   // 接听进入通话（active）时自动静音频道；来电振铃（ringing）期间频道保持原样；

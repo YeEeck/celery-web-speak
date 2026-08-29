@@ -276,6 +276,7 @@ test('startCall sets outgoing state and records the call id', async () => {
   assert.deepEqual(h.call.peer.value, PEER)
   assert.deepEqual(h.startRequests, [{ calleeUserId: 2 }])
   assert.equal(h.room.connectCalls, 0, '呼出中尚未加入房间')
+  assert.equal(h.call.room(), null)
 })
 
 test('startCall reaching a terminal state clears the session immediately', async () => {
@@ -370,11 +371,14 @@ test('hangup disconnects the room and clears the session', async () => {
   const h = makeHarness()
   await h.call.startCall(PEER)
   await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  assert.equal(h.call.room(), h.room)
+  assert.ok(h.call.callSession() > 0)
   await h.call.hangup()
   assert.equal(h.hangupCalls, 1)
   assert.equal(h.call.status.value, 'idle')
   assert.equal(h.room.disconnectCalls, 1)
   assert.equal(h.call.endedReason.value, 'ended')
+  assert.equal(h.call.room(), null)
 })
 
 test('terminal signals clear the session', async () => {

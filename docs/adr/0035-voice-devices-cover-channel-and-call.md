@@ -4,7 +4,7 @@ ADR-0032 让用户同时占频道房间与通话房间。语音设备管理的 s
 
 ## 决策 1：一个设备模块，应用目标是活动连接列表
 
-偏好、枚举、权限、回滚是浏览器级一份状态。模块仍一个实例；ctx 用 `liveConnections(): { room, session }[]` 替换 `room()` / `voiceSession()` / `status()` / `joined()`。`voice.ts` 组装列表：频道在 `status !== 'connecting'` 时入列，通话在 `connectedAt != null` 时入列；reconnecting 入列。呼出/振铃没有 Room。否决两个 VoiceDevices 实例（偏好会分叉）和两套平行 getter（「有两个房间」会漏进设备模块 interface）。
+偏好、枚举、权限、回滚是浏览器级一份状态。模块仍一个实例；ctx 用 `liveConnections(): { room, session, ready }[]` 替换 `room()` / `voiceSession()` / `status()` / `joined()`。`voice.ts` 组装列表：频道房间一出现就入列（`connecting` 时 `ready: false`，否则 `true`），通话在 `connectedAt != null` 时入列且 `ready: true`；reconnecting 入列。点选只打 `ready` 的连接——频道 join 仍在 `connecting` 时就要 `applyPreferredDevicesToRoom`，身份守卫必须认得尚未 ready 的那一项。呼出/振铃没有 Room。否决两个 VoiceDevices 实例（偏好会分叉）和两套平行 getter（「有两个房间」会漏进设备模块 interface）。
 
 ## 决策 2：输入热切换保持 `switchActiveDevice`，不走编排器重发布
 

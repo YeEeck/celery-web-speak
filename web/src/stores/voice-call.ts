@@ -425,6 +425,8 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     hangup,
     toggleMicrophoneMute,
     handleSignal,
+    room: () => room,
+    callSession: () => callSession,
     applyMicrophoneGain: (volume: number) => {
       microphoneOrchestrator.setGain(volume)
     },

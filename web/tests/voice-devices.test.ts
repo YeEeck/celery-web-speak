@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ref, shallowRef, type Ref } from 'vue'
-import { useVoiceDevices, type DeviceKind, type VoiceDevicesContext } from '../src/stores/voice-devices.ts'
+import { useVoiceDevices, type VoiceDevicesContext, type VoiceLiveConnection } from '../src/stores/voice-devices.ts'
 import type { VoiceStatus } from '../src/stores/voice-mute-deafen.ts'
 
 const PREFERRED_INPUT_DEVICE_KEY = 'cws.preferredInputDevice'
@@ -63,7 +63,7 @@ interface Harness {
   roomRef: Ref<FakeRoom | null>
   voiceSessionRef: Ref<number>
   statusRef: Ref<VoiceStatus>
-  joinedRef: Ref<boolean>
+  extraConnections: Ref<VoiceLiveConnection[]>
   inputDevicesRef: Ref<MediaDeviceInfo[]>
   outputDevicesRef: Ref<MediaDeviceInfo[]>
   permissionResult: { current: (() => boolean) | null }
@@ -77,7 +77,6 @@ function makeHarness(initial: {
   preseeInput?: { deviceId: string, label: string }
   preseeOutput?: { deviceId: string, label: string }
   status?: VoiceStatus
-  joined?: boolean
 } = {}): Harness {
   memoryStore.clear()
   if (initial.preseeInput) memoryStore.set(PREFERRED_INPUT_DEVICE_KEY, JSON.stringify(initial.preseeInput))
@@ -91,16 +90,25 @@ function makeHarness(initial: {
   const roomRef = shallowRef<FakeRoom | null>(null)
   const voiceSessionRef = ref(0)
   const statusRef = ref<VoiceStatus>(initial.status ?? 'idle')
-  const joinedRef = ref(initial.joined ?? false)
+  const extraConnections = ref<VoiceLiveConnection[]>([])
   const inputDevicesRef = ref<MediaDeviceInfo[]>([])
   const outputDevicesRef = ref<MediaDeviceInfo[]>([])
   const listeners: Array<() => void> = []
 
   const ctx: VoiceDevicesContext = {
-    room: () => roomRef.value,
-    voiceSession: () => voiceSessionRef.value,
-    status: () => statusRef.value,
-    joined: () => joinedRef.value,
+    liveConnections: () => {
+      const extras = extraConnections.value
+      const room = roomRef.value
+      if (!room) return extras
+      return [
+        {
+          room: room as unknown as VoiceLiveConnection['room'],
+          session: voiceSessionRef.value,
+          ready: statusRef.value !== 'connecting',
+        },
+        ...extras,
+      ]
+    },
     requestMicPermission: async () => {
       permissionRequests.count += 1
       if (permissionResult.current && !permissionResult.current()) throw new Error('麦克风权限被拒绝')
@@ -131,7 +139,7 @@ function makeHarness(initial: {
     roomRef,
     voiceSessionRef,
     statusRef,
-    joinedRef,
+    extraConnections,
     inputDevicesRef,
     outputDevicesRef,
     permissionResult,
@@ -153,7 +161,6 @@ test('switch success applies device, saves preference and returns true', async (
   room.active.audioinput = 'mic-1'
   h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput'), device('mic-2', '麦克风 2', 'audioinput')]
   h.roomRef.value = room
-  h.joinedRef.value = true
   await h.module.refreshDevices(false)
 
   const result = await h.module.switchInput('mic-2')
@@ -172,7 +179,6 @@ test('switch failure rolls back to the previous device and sets the error channe
   room.active.audioinput = 'mic-1'
   h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput'), device('mic-2', '麦克风 2', 'audioinput')]
   h.roomRef.value = room
-  h.joinedRef.value = true
   await h.module.refreshDevices(false)
   room.switchResult = (kind, id) => {
     if (id === 'mic-2') throw new Error('切换失败')
@@ -198,7 +204,6 @@ test('switch rejected while another switch is in flight', async () => {
   const room = makeRoom()
   h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput'), device('mic-2', '麦克风 2', 'audioinput')]
   h.roomRef.value = room
-  h.joinedRef.value = true
   await h.module.refreshDevices(false)
 
   const first = h.module.switchInput('mic-1')
@@ -220,7 +225,7 @@ test('output switch without output selection support is a no-op', async () => {
   assert.equal(h.roomRef.value, null)
 })
 
-test('switch without a room or while connecting only saves the preference', async () => {
+test('switch without live connections or while connecting only saves the preference', async () => {
   const h = makeHarness()
   h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput')]
   await h.module.refreshDevices(false)
@@ -233,13 +238,16 @@ test('switch without a room or while connecting only saves the preference', asyn
   assert.equal(h.module.activeInputId.value, '')
 
   const h2 = makeHarness({ status: 'connecting' })
+  const connectingRoom = makeRoom()
   h2.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput')]
+  h2.roomRef.value = connectingRoom
   await h2.module.refreshDevices(false)
   const result2 = await h2.module.switchInput('mic-1')
   assert.equal(result2, true)
   const stored2 = storedPreference(PREFERRED_INPUT_DEVICE_KEY)!
   assert.equal(stored2.deviceId, 'mic-1')
   assert.equal(stored2.label, '麦克风 1')
+  assert.deepEqual(connectingRoom.switchCalls, [])
 })
 
 test('switch to an unavailable option is rejected', async () => {
@@ -258,7 +266,6 @@ test('session race mid-switch leaves no state written and no error set', async (
   room.active.audioinput = 'mic-1'
   h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput'), device('mic-2', '麦克风 2', 'audioinput')]
   h.roomRef.value = room
-  h.joinedRef.value = true
   await h.module.refreshDevices(false)
 
   const pendingSwitch = h.module.switchInput('mic-2')
@@ -284,7 +291,6 @@ test('refresh falls back to default when the active device disappeared', async (
   h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput')]
   h.outputDevicesRef.value = [device('spk-1', '扬声器 1', 'audiooutput')]
   room.active.audiooutput = 'spk-1'
-  h.joinedRef.value = true
 
   await h.module.refreshDevices(false)
   assert.equal(h.module.activeInputId.value, DEFAULT_DEVICE_ID)
@@ -299,11 +305,31 @@ test('refresh keeps the active device when it is still available', async () => {
   h.roomRef.value = room
   h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput')]
   h.outputDevicesRef.value = [device('spk-1', '扬声器 1', 'audiooutput')]
-  h.joinedRef.value = true
 
   await h.module.refreshDevices(false)
   assert.equal(h.module.activeInputId.value, 'mic-1')
   assert.deepEqual(room.switchCalls, [])
+})
+
+test('applyPreferredDevicesToRoom applies while the connection is not yet ready', async () => {
+  const h = makeHarness({
+    status: 'connecting',
+    preseeInput: { deviceId: 'mic-1', label: '麦克风 1' },
+    preseeOutput: { deviceId: 'spk-1', label: '扬声器 1' },
+  })
+  const room = makeRoom()
+  h.roomRef.value = room
+  h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput')]
+  h.outputDevicesRef.value = [device('spk-1', '扬声器 1', 'audiooutput')]
+  await h.module.refreshDevices(false)
+
+  await h.module.applyPreferredDevicesToRoom(room as never, h.voiceSessionRef.value)
+  assert.equal(h.module.activeInputId.value, 'mic-1')
+  assert.equal(h.module.activeOutputId.value, 'spk-1')
+  assert.deepEqual(room.switchCalls, [
+    { kind: 'audioinput', id: 'mic-1' },
+    { kind: 'audiooutput', id: 'spk-1' },
+  ])
 })
 
 test('applyPreferredDevicesToRoom applies the preferred input and output', async () => {
@@ -377,7 +403,6 @@ test('output switch applies the sink and re-syncs sound playback', async () => {
   const room = makeRoom()
   h.outputDevicesRef.value = [device('spk-1', '扬声器 1', 'audiooutput')]
   h.roomRef.value = room
-  h.joinedRef.value = true
   await h.module.refreshDevices(false)
 
   const result = await h.module.switchOutput('spk-1')
@@ -396,4 +421,113 @@ test('resolvedPreferredDeviceId falls back to default when the preference is una
   h.inputDevicesRef.value = [device('gone-mic', '已拔出', 'audioinput')]
   await h.module.refreshDevices(false)
   assert.equal(h.module.resolvedPreferredDeviceId('input'), 'gone-mic')
+})
+
+function extraConnection(room: FakeRoom, session: number): VoiceLiveConnection {
+  return { room: room as unknown as VoiceLiveConnection['room'], session, ready: true }
+}
+
+test('switch applies the device to every ready live connection', async () => {
+  const h = makeHarness()
+  const channel = makeRoom()
+  const call = makeRoom()
+  channel.active.audioinput = 'mic-1'
+  call.active.audioinput = 'mic-1'
+  h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput'), device('mic-2', '麦克风 2', 'audioinput')]
+  h.roomRef.value = channel
+  h.extraConnections.value = [extraConnection(call, 7)]
+  await h.module.refreshDevices(false)
+
+  const result = await h.module.switchInput('mic-2')
+  assert.equal(result, true)
+  assert.deepEqual(channel.switchCalls, [{ kind: 'audioinput', id: 'mic-2' }])
+  assert.deepEqual(call.switchCalls, [{ kind: 'audioinput', id: 'mic-2' }])
+  assert.equal(h.module.activeInputId.value, 'mic-2')
+  assert.equal(storedPreference(PREFERRED_INPUT_DEVICE_KEY)?.deviceId, 'mic-2')
+})
+
+test('switch rolls back every still-live connection when one ready room fails', async () => {
+  const h = makeHarness()
+  const channel = makeRoom()
+  const call = makeRoom()
+  channel.active.audioinput = 'mic-1'
+  call.active.audioinput = 'mic-1'
+  h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput'), device('mic-2', '麦克风 2', 'audioinput')]
+  h.roomRef.value = channel
+  h.extraConnections.value = [extraConnection(call, 7)]
+  await h.module.refreshDevices(false)
+  call.switchResult = (_kind, id) => {
+    if (id === 'mic-2') throw new Error('通话切换失败')
+    return true
+  }
+
+  const result = await h.module.switchInput('mic-2')
+  assert.equal(result, false)
+  assert.equal(h.module.activeInputId.value, 'mic-1')
+  assert.equal(h.module.deviceChangeError.value, '通话切换失败')
+  assert.equal(storedPreference(PREFERRED_INPUT_DEVICE_KEY), null)
+  assert.deepEqual(channel.switchCalls, [
+    { kind: 'audioinput', id: 'mic-2' },
+    { kind: 'audioinput', id: 'mic-1' },
+  ])
+  assert.deepEqual(call.switchCalls, [
+    { kind: 'audioinput', id: 'mic-2' },
+    { kind: 'audioinput', id: 'mic-1' },
+  ])
+})
+
+test('switch keeps the other room when one connection leaves mid-switch', async () => {
+  const h = makeHarness()
+  const channel = makeRoom()
+  const call = makeRoom()
+  channel.active.audioinput = 'mic-1'
+  call.active.audioinput = 'mic-1'
+  h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput'), device('mic-2', '麦克风 2', 'audioinput')]
+  h.roomRef.value = channel
+  h.extraConnections.value = [extraConnection(call, 7)]
+  await h.module.refreshDevices(false)
+
+  const pendingSwitch = h.module.switchInput('mic-2')
+  h.extraConnections.value = []
+  await pendingSwitch
+  assert.equal(h.module.activeInputId.value, 'mic-2')
+  assert.equal(h.module.deviceChangeError.value, '')
+  assert.equal(storedPreference(PREFERRED_INPUT_DEVICE_KEY)?.deviceId, 'mic-2')
+  assert.deepEqual(channel.switchCalls, [{ kind: 'audioinput', id: 'mic-2' }])
+})
+
+test('refresh falls back missing devices on every ready connection', async () => {
+  const h = makeHarness()
+  const channel = makeRoom()
+  const call = makeRoom()
+  channel.active.audioinput = 'gone-mic'
+  call.active.audioinput = 'gone-mic'
+  channel.active.audiooutput = 'spk-1'
+  call.active.audiooutput = 'spk-1'
+  h.roomRef.value = channel
+  h.extraConnections.value = [extraConnection(call, 7)]
+  h.inputDevicesRef.value = [device('mic-1', '麦克风 1', 'audioinput')]
+  h.outputDevicesRef.value = [device('spk-1', '扬声器 1', 'audiooutput')]
+
+  await h.module.refreshDevices(false)
+  assert.equal(h.module.activeInputId.value, DEFAULT_DEVICE_ID)
+  assert.deepEqual(channel.switchCalls, [{ kind: 'audioinput', id: DEFAULT_DEVICE_ID }])
+  assert.deepEqual(call.switchCalls, [{ kind: 'audioinput', id: DEFAULT_DEVICE_ID }])
+  assert.equal(h.module.activeOutputId.value, 'spk-1')
+})
+
+test('output switch applies sink once while switching every ready connection', async () => {
+  const h = makeHarness()
+  const channel = makeRoom()
+  const call = makeRoom()
+  h.outputDevicesRef.value = [device('spk-1', '扬声器 1', 'audiooutput'), device('spk-2', '扬声器 2', 'audiooutput')]
+  h.roomRef.value = channel
+  h.extraConnections.value = [extraConnection(call, 7)]
+  await h.module.refreshDevices(false)
+
+  const result = await h.module.switchOutput('spk-2')
+  assert.equal(result, true)
+  assert.deepEqual(channel.switchCalls, [{ kind: 'audiooutput', id: 'spk-2' }])
+  assert.deepEqual(call.switchCalls, [{ kind: 'audiooutput', id: 'spk-2' }])
+  assert.deepEqual(h.sinks, ['spk-2'])
 })

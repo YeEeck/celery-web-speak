@@ -1,6 +1,5 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import type { Room } from 'livekit-client'
-import type { VoiceStatus } from './voice-mute-deafen.ts'
 import {
   DEFAULT_DEVICE_ID,
   PREFERRED_INPUT_DEVICE_KEY,
@@ -15,12 +14,14 @@ import {
 export type DevicePermissionState = 'idle' | 'requesting' | 'granted' | 'denied'
 export type DeviceKind = 'input' | 'output'
 
+export interface VoiceLiveConnection {
+  room: Room
+  session: number
+  ready: boolean
+}
+
 export interface VoiceDevicesContext {
-  // Race-guard getters（race idiom 在 module 内部消费）
-  room: () => Room | null
-  voiceSession: () => number
-  status: () => VoiceStatus
-  joined: () => boolean
+  liveConnections: () => VoiceLiveConnection[]
 
   // 浏览器 seam（ADR 0010/0011 模式：生产接浏览器 adapter，测试用假实现）
   requestMicPermission: () => Promise<boolean>
@@ -98,7 +99,7 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
     'input',
     { deviceId: preferredInputId.value, label: preferredInputLabel.value },
     activeInputId.value,
-    ctx.joined(),
+    ctx.liveConnections().length > 0,
   ))
   const outputDeviceOptions = computed(() => buildVoiceDeviceOptions(
     outputDeviceSelectionSupported ? outputDevices.value : [],
@@ -107,8 +108,20 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
       ? { deviceId: preferredOutputId.value, label: preferredOutputLabel.value }
       : { deviceId: DEFAULT_DEVICE_ID, label: '系统默认' },
     activeOutputId.value,
-    ctx.joined(),
+    ctx.liveConnections().length > 0,
   ))
+
+  function isCurrent(target: Room, session: number) {
+    return ctx.liveConnections().some((connection) => connection.room === target && connection.session === session)
+  }
+
+  function switchableConnections() {
+    return ctx.liveConnections().filter((connection) => connection.ready)
+  }
+
+  function mediaKind(kind: DeviceKind): 'audioinput' | 'audiooutput' {
+    return kind === 'input' ? 'audioinput' : 'audiooutput'
+  }
 
   function devicePreference(kind: DeviceKind): VoiceDevicePreference {
     return kind === 'input'
@@ -191,44 +204,65 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
     }
     deviceChangeError.value = ''
     deviceChangeErrorKind.value = null
-    const target = ctx.room()
-    if (!target || ctx.status() === 'connecting') {
+    const switchable = switchableConnections()
+    if (switchable.length === 0) {
       setPreferredDevice(kind, option)
       return true
     }
-    const session = ctx.voiceSession()
-    const mediaDeviceKind = kind === 'input' ? 'audioinput' : 'audiooutput'
+    const kindId = mediaKind(kind)
     const previousDeviceId = kind === 'input'
-      ? activeInputId.value || target.getActiveDevice(mediaDeviceKind) || DEFAULT_DEVICE_ID
-      : activeOutputId.value || target.getActiveDevice(mediaDeviceKind) || DEFAULT_DEVICE_ID
+      ? activeInputId.value || switchable[0]!.room.getActiveDevice(kindId) || DEFAULT_DEVICE_ID
+      : activeOutputId.value || switchable[0]!.room.getActiveDevice(kindId) || DEFAULT_DEVICE_ID
     deviceChangingKind.value = kind
     deviceChangingId.value = deviceId
+    const applied: VoiceLiveConnection[] = []
     try {
-      const changed = await target.switchActiveDevice(mediaDeviceKind, deviceId, true)
-      if (!changed) throw new Error('设备切换未生效')
-      if (session !== ctx.voiceSession() || ctx.room() !== target) return false
+      for (const connection of switchable) {
+        if (!isCurrent(connection.room, connection.session)) continue
+        try {
+          const changed = await connection.room.switchActiveDevice(kindId, deviceId, true)
+          if (!changed) throw new Error('设备切换未生效')
+          if (isCurrent(connection.room, connection.session)) applied.push(connection)
+        } catch (error) {
+          if (!isCurrent(connection.room, connection.session)) continue
+          if (previousDeviceId !== deviceId) {
+            for (const target of [...applied, connection]) {
+              if (!isCurrent(target.room, target.session)) continue
+              await target.room.switchActiveDevice(kindId, previousDeviceId, true).catch(() => false)
+            }
+          }
+          if (kind === 'input') activeInputId.value = previousDeviceId
+          else applyOutputDeviceSelection(previousDeviceId)
+          deviceChangeError.value = error instanceof Error ? error.message : '设备切换失败'
+          deviceChangeErrorKind.value = kind
+          return false
+        }
+      }
+      if (!applied.some((connection) => isCurrent(connection.room, connection.session))) return false
       if (kind === 'input') activeInputId.value = deviceId
       else applyOutputDeviceSelection(deviceId)
       setPreferredDevice(kind, option)
       return true
-    } catch (error) {
-      if (session === ctx.voiceSession() && ctx.room() === target) {
-        if (previousDeviceId !== deviceId) {
-          await target.switchActiveDevice(mediaDeviceKind, previousDeviceId, true).catch(() => false)
-        }
-        if (session !== ctx.voiceSession() || ctx.room() !== target) return false
-        if (kind === 'input') activeInputId.value = previousDeviceId
-        else applyOutputDeviceSelection(previousDeviceId)
-        deviceChangeError.value = error instanceof Error ? error.message : '设备切换失败'
-        deviceChangeErrorKind.value = kind
-      }
-      return false
     } finally {
       if (deviceChangingKind.value === kind && deviceChangingId.value === deviceId) {
         deviceChangingKind.value = null
         deviceChangingId.value = ''
       }
     }
+  }
+
+  function settleActiveId(kind: DeviceKind) {
+    const listed = switchableConnections()
+    if (listed.length === 0) return
+    const kindId = mediaKind(kind)
+    const enumerated = kind === 'input' ? inputDevices.value : outputDevices.value
+    const current = kind === 'input' ? activeInputId.value : activeOutputId.value
+    const inEnum = (id: string) => id === DEFAULT_DEVICE_ID || enumerated.some((device) => device.deviceId === id)
+    if (current && inEnum(current)) return
+    const fromRoom = listed[0]!.room.getActiveDevice(kindId) || DEFAULT_DEVICE_ID
+    const next = inEnum(fromRoom) ? fromRoom : DEFAULT_DEVICE_ID
+    if (kind === 'input') activeInputId.value = next
+    else activeOutputId.value = next
   }
 
   async function refreshDevices(requestPermissions = false) {
@@ -244,40 +278,42 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
       ])
       inputDevices.value = inputResult.status === 'fulfilled' ? inputResult.value : []
       outputDevices.value = outputResult.status === 'fulfilled' ? outputResult.value : []
-      const target = ctx.room()
-      if (!target) {
+      const listed = switchableConnections()
+      if (listed.length === 0) {
         ctx.syncSoundPlayback()
         return
       }
-      const nextInput = target.getActiveDevice('audioinput') ?? activeInputId.value
-      const nextOutput = target.getActiveDevice('audiooutput') ?? activeOutputId.value
-      activeInputId.value = nextInput || DEFAULT_DEVICE_ID
-      activeOutputId.value = nextOutput || DEFAULT_DEVICE_ID
-      await fallbackMissingActiveDevice(target, 'input')
-      await fallbackMissingActiveDevice(target, 'output')
+      let outputFellBack = false
+      for (const connection of listed) {
+        await fallbackMissingActiveDevice(connection, 'input')
+        if (await fallbackMissingActiveDevice(connection, 'output')) outputFellBack = true
+      }
+      settleActiveId('input')
+      settleActiveId('output')
+      if (outputFellBack) applyOutputDeviceSelection(DEFAULT_DEVICE_ID)
     })().finally(() => {
       deviceRefreshPromise = null
     })
     return deviceRefreshPromise
   }
 
-  async function fallbackMissingActiveDevice(target: Room, kind: DeviceKind) {
-    if (ctx.room() !== target) return
+  async function fallbackMissingActiveDevice(connection: VoiceLiveConnection, kind: DeviceKind): Promise<boolean> {
+    if (!isCurrent(connection.room, connection.session)) return false
     if (kind === 'output' && !outputDeviceSelectionSupported) {
       activeOutputId.value = DEFAULT_DEVICE_ID
-      return
+      return false
     }
-    const activeId = kind === 'input' ? activeInputId.value : activeOutputId.value
-    if (!activeId || activeId === DEFAULT_DEVICE_ID) return
-    const available = (kind === 'input' ? inputDevices.value : outputDevices.value).some((device) => device.deviceId === activeId)
-    if (available) return
+    const kindId = mediaKind(kind)
+    const roomActive = connection.room.getActiveDevice(kindId)
+    if (!roomActive || roomActive === DEFAULT_DEVICE_ID) return false
+    const enumerated = kind === 'input' ? inputDevices.value : outputDevices.value
+    if (enumerated.some((device) => device.deviceId === roomActive)) return false
     try {
-      await target.switchActiveDevice(kind === 'input' ? 'audioinput' : 'audiooutput', DEFAULT_DEVICE_ID, true)
-      if (ctx.room() !== target) return
-      if (kind === 'input') activeInputId.value = DEFAULT_DEVICE_ID
-      else applyOutputDeviceSelection(DEFAULT_DEVICE_ID)
+      await connection.room.switchActiveDevice(kindId, DEFAULT_DEVICE_ID, true)
+      return kind === 'output'
     } catch {
       // The browser or LiveKit keeps its own fallback when an explicit switch is unavailable.
+      return false
     }
   }
 
@@ -285,14 +321,14 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
     const inputId = resolvedPreferredDeviceId('input')
     try {
       const changed = await target.switchActiveDevice('audioinput', inputId, true)
-      if (session === ctx.voiceSession() && ctx.room() === target && changed) activeInputId.value = inputId
+      if (isCurrent(target, session) && changed) activeInputId.value = inputId
     } catch {
       if (inputId !== DEFAULT_DEVICE_ID) {
         await target.switchActiveDevice('audioinput', DEFAULT_DEVICE_ID, true).catch(() => false)
       }
-      if (session === ctx.voiceSession() && ctx.room() === target) activeInputId.value = DEFAULT_DEVICE_ID
+      if (isCurrent(target, session)) activeInputId.value = DEFAULT_DEVICE_ID
     }
-    if (session !== ctx.voiceSession() || ctx.room() !== target) return
+    if (!isCurrent(target, session)) return
     if (!outputDeviceSelectionSupported) {
       applyOutputDeviceSelection(DEFAULT_DEVICE_ID)
       return
@@ -300,12 +336,12 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
     const outputId = resolvedPreferredDeviceId('output')
     try {
       const changed = await target.switchActiveDevice('audiooutput', outputId, true)
-      if (session === ctx.voiceSession() && ctx.room() === target && changed) applyOutputDeviceSelection(outputId)
+      if (isCurrent(target, session) && changed) applyOutputDeviceSelection(outputId)
     } catch {
       if (outputId !== DEFAULT_DEVICE_ID) {
         await target.switchActiveDevice('audiooutput', DEFAULT_DEVICE_ID, true).catch(() => false)
       }
-      if (session === ctx.voiceSession() && ctx.room() === target) applyOutputDeviceSelection(DEFAULT_DEVICE_ID)
+      if (isCurrent(target, session)) applyOutputDeviceSelection(DEFAULT_DEVICE_ID)
     }
   }
 
