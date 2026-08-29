@@ -6,6 +6,8 @@ import { ApiError } from '../src/api.ts'
 import type { CallPeer } from '../src/stores/call-signal.ts'
 import { useVoiceCall, type VoiceCallContext } from '../src/stores/voice-call.ts'
 import type { VoiceCredentials } from '../src/types.ts'
+import type { NoiseSuppressionOption, VoiceTransmissionMode } from '../src/stores/voice-utils.ts'
+import type { RoomOptions } from 'livekit-client'
 
 const memoryStore = new Map<string, string>()
 Object.defineProperty(globalThis, 'localStorage', {
@@ -21,6 +23,27 @@ Object.defineProperty(globalThis, 'localStorage', {
   writable: true,
 })
 
+class FakeTrack {
+  constraints: MediaTrackConstraints = { noiseSuppression: true }
+  processor: unknown = null
+
+  getProcessor() {
+    return this.processor
+  }
+
+  async setProcessor(processor: unknown) {
+    this.processor = processor
+  }
+
+  async stopProcessor() {
+    this.processor = null
+  }
+
+  async restartTrack(options: unknown) {
+    this.constraints = options as MediaTrackConstraints
+  }
+}
+
 class FakeParticipant {
   identity = 'me'
   name = '本地用户'
@@ -28,6 +51,12 @@ class FakeParticipant {
   setMicrophoneCalls: boolean[] = []
   captureOptions: unknown = undefined
   publishOptions: unknown = undefined
+  microphoneTrack: FakeTrack | null = null
+
+  getTrackPublication() {
+    if (!this.microphoneTrack) return undefined
+    return { audioTrack: this.microphoneTrack, options: this.publishOptions }
+  }
 
   async setMicrophoneEnabled(enabled: boolean, captureOptions?: unknown, publishOptions?: unknown) {
     this.setMicrophoneCalls.push(enabled)
@@ -35,6 +64,14 @@ class FakeParticipant {
     this.captureOptions = captureOptions
     this.publishOptions = publishOptions
     return { audioTrack: null, options: publishOptions }
+  }
+
+  async unpublishTrack() {
+    this.isMicrophoneEnabled = false
+  }
+
+  async publishTrack() {
+    this.isMicrophoneEnabled = true
   }
 }
 
@@ -76,8 +113,26 @@ class FakeRoom {
     return this
   }
 
+  startAudioCalls = 0
+
   disconnect() {
     this.disconnectCalls += 1
+  }
+
+  async startAudio() {
+    this.startAudioCalls += 1
+  }
+}
+
+class FakeAudioContext extends EventTarget {
+  state: AudioContextState = 'running'
+  closeCalls = 0
+  sampleRate = 48_000
+
+  async close() {
+    this.closeCalls += 1
+    this.state = 'closed'
+    this.dispatchEvent(new Event('statechange'))
   }
 }
 
@@ -89,11 +144,14 @@ interface Harness {
     inputDeviceId: string
     outputDeviceId: string
     echoCancellation: boolean
-    noiseSuppression: boolean
+    noiseSuppressionOption: NoiseSuppressionOption
+    transmissionMode: VoiceTransmissionMode
   }
   ctx: VoiceCallContext
   call: ReturnType<typeof useVoiceCall>
   room: FakeRoom
+  roomOptions: RoomOptions | null
+  audioContext: FakeAudioContext | null
   startRequests: Array<{ calleeUserId: number }>
   startResult: { callId: string; state: string; reason?: string }
   pendingStart: { resolve: (value: Harness['startResult']) => void } | null
@@ -120,12 +178,15 @@ function makeHarness(): Harness {
     inputDeviceId: 'default',
     outputDeviceId: 'default',
     echoCancellation: true,
-    noiseSuppression: true,
+    noiseSuppressionOption: 'rnnoise',
+    transmissionMode: 'voice-activity',
   }
   const room = new FakeRoom()
   const harness: Harness = {
     state,
     room,
+    roomOptions: null,
+    audioContext: null,
     startRequests: [],
     startResult: { callId: '100', state: 'ringing' },
     pendingStart: null,
@@ -146,7 +207,20 @@ function makeHarness(): Harness {
   }
   harness.ctx = {
     currentUser: () => state.user,
-    createRoom: () => room as never,
+    createRoom: (options) => {
+      harness.roomOptions = options
+      return room as never
+    },
+    createAudioContext: () => {
+      const context = new FakeAudioContext()
+      harness.audioContext = context
+      return context as unknown as AudioContext
+    },
+    audioInteractionTarget: () => new EventTarget(),
+    loadRnnoiseBinary: async () => null,
+    microphoneGainInitial: () => 1,
+    transmissionMode: () => state.transmissionMode,
+    noiseSuppressionOption: () => state.noiseSuppressionOption,
     fetchCallToken: async () => {
       harness.tokenCalls += 1
       if (harness.pendingToken) {
@@ -174,7 +248,6 @@ function makeHarness(): Harness {
     resolvedPreferredInputDeviceId: () => state.inputDeviceId,
     resolvedPreferredOutputDeviceId: () => state.outputDeviceId,
     echoCancellation: () => state.echoCancellation,
-    noiseSuppression: () => state.noiseSuppression,
     microphoneEnabledPreference: () => state.microphoneEnabledPreference.value,
     toggleMicrophonePreference: async () => {
       state.microphoneEnabledPreference.value = !state.microphoneEnabledPreference.value
@@ -190,9 +263,7 @@ function makeHarness(): Harness {
 }
 
 async function flushPromises() {
-  await Promise.resolve()
-  await Promise.resolve()
-  await Promise.resolve()
+  for (let i = 0; i < 16; i += 1) await Promise.resolve()
 }
 
 const PEER: CallPeer = { userId: 2, username: 'alice', displayName: '爱丽丝' }
@@ -240,6 +311,7 @@ test('caller receiving call_accept joins the room and reaches active', async () 
   const h = makeHarness()
   await h.call.startCall(PEER)
   await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  await flushPromises()
   assert.equal(h.call.status.value, 'active')
   assert.equal(h.tokenCalls, 1)
   assert.equal(h.room.connectCalls, 1)
@@ -336,6 +408,7 @@ test('Reconnecting keeps the call active with a reconnecting flag', async () => 
   const h = makeHarness()
   await h.call.startCall(PEER)
   await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  await flushPromises()
   h.room.emit(RoomEvent.Reconnecting)
   assert.equal(h.call.status.value, 'active')
   assert.equal(h.call.reconnecting.value, true)
@@ -349,6 +422,7 @@ test('Disconnected ends the session and clears the overlay state', async () => {
   const h = makeHarness()
   await h.call.startCall(PEER)
   await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  await flushPromises()
   h.room.emit(RoomEvent.Disconnected)
   await flushPromises()
   assert.equal(h.call.status.value, 'idle')
@@ -362,6 +436,7 @@ test('microphone publishing honors the global mute preference', async () => {
   h.state.microphoneEnabledPreference.value = false
   await h.call.startCall(PEER)
   await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  await flushPromises()
   assert.equal(h.room.localParticipant.setMicrophoneCalls.includes(true), false, '全局静音时不应开启麦克风')
 })
 
@@ -447,4 +522,61 @@ test('global deafen preference mutes and unmutes call remote audio', async () =>
   h.state.deafenedPreference.value = false
   await flushPromises()
   assert.deepEqual(h.remoteMutedCalls, [true, false])
+})
+
+test('join with 增强降噪 and 48kHz context publishes without WebRTC noiseSuppression', async () => {
+  const h = makeHarness()
+  await h.call.startCall(PEER)
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  await flushPromises()
+  const capture = h.room.localParticipant.captureOptions as { noiseSuppression?: boolean }
+  assert.equal(capture.noiseSuppression, false, '增强降噪且 48kHz 可用时由 RNNoise 管线承担降噪')
+  const mix = h.roomOptions?.webAudioMix
+  assert.ok(mix && typeof mix === 'object' && 'audioContext' in mix)
+  assert.equal((mix as { audioContext: FakeAudioContext }).audioContext, h.audioContext)
+})
+
+test('join while globally deafened does not publish the call microphone', async () => {
+  const h = makeHarness()
+  h.state.deafenedPreference.value = true
+  await h.call.startCall(PEER)
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  await flushPromises()
+  assert.equal(h.room.localParticipant.setMicrophoneCalls.includes(true), false)
+  assert.equal(h.call.microphoneMuted.value, true)
+})
+
+test('toggling global deafen during an active call stops the call microphone', async () => {
+  const h = makeHarness()
+  await h.call.startCall(PEER)
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  await flushPromises()
+  h.room.localParticipant.setMicrophoneCalls = []
+  h.state.deafenedPreference.value = true
+  await flushPromises()
+  assert.equal(h.room.localParticipant.setMicrophoneCalls[0], false)
+  assert.equal(h.call.microphoneMuted.value, true)
+})
+
+test('applyNoiseSuppressionOption to webrtc republishes with WebRTC noiseSuppression', async () => {
+  const h = makeHarness()
+  await h.call.startCall(PEER)
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  await flushPromises()
+  h.state.noiseSuppressionOption = 'webrtc'
+  h.call.applyNoiseSuppressionOption('webrtc')
+  await flushPromises()
+  const capture = h.room.localParticipant.captureOptions as { noiseSuppression?: boolean }
+  assert.equal(capture.noiseSuppression, true)
+})
+
+test('hangup closes the call AudioContext', async () => {
+  const h = makeHarness()
+  await h.call.startCall(PEER)
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  await flushPromises()
+  assert.ok(h.audioContext)
+  await h.call.hangup()
+  await flushPromises()
+  assert.equal(h.audioContext.closeCalls, 1)
 })

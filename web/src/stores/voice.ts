@@ -43,6 +43,23 @@ import {
   type VoiceTransmissionMode,
 } from './voice-utils.ts'
 
+function createInteractiveAudioContext(): AudioContext | null {
+  const AudioContextConstructor = window.AudioContext
+    || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!AudioContextConstructor) return null
+  try {
+    return new AudioContextConstructor({ latencyHint: 'interactive', sampleRate: 48_000 })
+  } catch {
+    // Some browsers reject an explicit rate; retain the WebRTC fallback
+    // path with their default context instead of failing voice join.
+    try {
+      return new AudioContextConstructor({ latencyHint: 'interactive' })
+    } catch {
+      return null
+    }
+  }
+}
+
 export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils.ts'
 
 export const useVoiceStore = defineStore('voice', () => {
@@ -155,24 +172,7 @@ export const useVoiceStore = defineStore('voice', () => {
     postVoiceLeave: (guildId) => request<void>(`/api/guilds/${guildId}/voice/leave`, { method: 'POST' }),
     createRoom: (options) => markRaw(new Room(options)),
     createAudioContext: () => {
-      const AudioContextConstructor = window.AudioContext
-        || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-      if (!AudioContextConstructor) {
-        voiceContextRef.current = null
-        return null
-      }
-      let context: AudioContext | null
-      try {
-        context = new AudioContextConstructor({ latencyHint: 'interactive', sampleRate: 48_000 })
-      } catch {
-        // Some browsers reject an explicit rate; retain the WebRTC fallback
-        // path with their default context instead of failing voice join.
-        try {
-          context = new AudioContextConstructor({ latencyHint: 'interactive' })
-        } catch {
-          context = null
-        }
-      }
+      const context = createInteractiveAudioContext()
       voiceContextRef.current = context
       return context
     },
@@ -298,13 +298,12 @@ export const useVoiceStore = defineStore('voice', () => {
     resolvedPreferredInputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('input') ?? '',
     resolvedPreferredOutputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('output') ?? '',
     echoCancellation: () => echoCancellation.value,
-    noiseSuppression: () => {
-      const context = voiceContextRef.current
-      return resolveNoiseSuppression(
-        noiseSuppressionOption.value,
-        context !== null && context.state !== 'closed' && context.sampleRate === 48_000,
-      )
-    },
+    microphoneGainInitial: () => microphoneGain.value,
+    transmissionMode: () => session.transmissionMode.value,
+    noiseSuppressionOption: () => noiseSuppressionOption.value,
+    loadRnnoiseBinary: () => preloadRnnoiseWasm(),
+    createAudioContext: createInteractiveAudioContext,
+    audioInteractionTarget: () => document,
     microphoneEnabledPreference: () => muteDeafenRef.current?.microphoneEnabledPreference.value ?? false,
     toggleMicrophonePreference: () => muteDeafenRef.current ? muteDeafenRef.current.userToggledMute() : Promise.resolve(),
     deafenedPreference: () => muteDeafenRef.current?.deafenedPreference.value ?? false,
@@ -403,6 +402,7 @@ export const useVoiceStore = defineStore('voice', () => {
     microphoneGain.value = normalized
     localStorage.setItem(MICROPHONE_GAIN_KEY, String(normalized))
     session.applyMicrophoneGain(normalized)
+    call.applyMicrophoneGain(normalized)
   }
 
   function setOutputVolume(volume: number) {
@@ -423,6 +423,7 @@ export const useVoiceStore = defineStore('voice', () => {
     saveNoiseSuppressionOption(option)
     if (option !== 'off') saveLastNoiseSuppressionOption(option)
     session.applyNoiseSuppressionOption(option)
+    call.applyNoiseSuppressionOption(option)
   }
 
   // 降噪快控左键：非关闭与关闭之间切换，关闭时恢复上次使用的非关闭方法。
@@ -510,7 +511,10 @@ export const useVoiceStore = defineStore('voice', () => {
     toggleNoiseSuppression,
     setAutoVoiceBalance,
     setMutedSpeakingReminderEnabled: session.setMutedSpeakingReminderEnabled,
-    toggleTransmissionMode: session.toggleTransmissionMode,
+    toggleTransmissionMode: async () => {
+      await session.toggleTransmissionMode()
+      call.applyTransmissionMode()
+    },
     initializeApplicationAudio: appAudio.initializeApplicationAudio,
     overlaySupported: overlay.supported,
     overlayEnabled: overlay.enabled,

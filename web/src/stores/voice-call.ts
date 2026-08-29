@@ -10,7 +10,8 @@ import {
   type RoomOptions,
 } from 'livekit-client'
 import { ApiError } from '../api.ts'
-import { buildMicrophoneCaptureOptions } from '../audio/microphoneCaptureOptions.ts'
+import { MicrophonePublishOrchestrator } from '../audio/MicrophonePublishOrchestrator.ts'
+import { VoiceAudioContextController } from '../audio/VoiceAudioContextController.ts'
 import type { VoiceCredentials } from '../types.ts'
 import {
   type CallEndReason,
@@ -19,7 +20,13 @@ import {
   type CallStatus,
   normalizeCallEndReason,
 } from './call-signal.ts'
-import { participantUserId } from './voice-utils.ts'
+import {
+  DEFAULT_AUDIO_BITRATE_KBPS,
+  participantUserId,
+  resolveNoiseSuppression,
+  type NoiseSuppressionOption,
+  type VoiceTransmissionMode,
+} from './voice-utils.ts'
 
 // 1:1 临时语音通话的会话状态机（spec 04/05）。与 voice-session 并列：两者各
 // 自持有一条 LiveKit Room 连接（频道房间与通话房间并存，ADR-0032），互不侵入。
@@ -35,6 +42,12 @@ export interface StartCallResult {
 export interface VoiceCallContext {
   currentUser(): { id: number } | null
   createRoom(options: RoomOptions): Room
+  createAudioContext(): AudioContext | null
+  audioInteractionTarget(): EventTarget
+  loadRnnoiseBinary(): Promise<ArrayBuffer | null>
+  microphoneGainInitial(): number
+  transmissionMode(): VoiceTransmissionMode
+  noiseSuppressionOption(): NoiseSuppressionOption
 
   // HTTP 信令动作（后端仲裁，见 spec 05）。
   startCallRequest(calleeUserId: number): Promise<StartCallResult>
@@ -46,11 +59,10 @@ export interface VoiceCallContext {
   hangupRequest(callId: string): Promise<void>
   fetchCallToken(callId: string): Promise<VoiceCredentials>
 
-  // 设备/采集偏好（复用 voice-devices 与既有偏好，不重造降噪链；spec 07）。
+  // 设备/采集偏好。麦克风发布走本会话的编排器实例（ADR-0034）。
   resolvedPreferredInputDeviceId(): string
   resolvedPreferredOutputDeviceId(): string
   echoCancellation(): boolean
-  noiseSuppression(): boolean
   microphoneEnabledPreference(): boolean
   // 切换全局麦克风静音偏好（通话中麦克风静音与快捷键共用同一偏好，spec 07/08）。
   toggleMicrophonePreference(): Promise<void>
@@ -75,40 +87,70 @@ export function useVoiceCall(ctx: VoiceCallContext) {
 
   let room: Room | null = null
   let callSession = 0
+  let callAudioContext: AudioContext | null = null
+  let callAudioContextController: VoiceAudioContextController | null = null
   // 发起 HTTP 请求尚未返回期间，WS 信令（对方秒接/秒拒等）可能先到；先缓存，
   // 拿到 callId 后再按序回放（HTTP 与 WS 是两条连接，无到达顺序保证）。
   let startCallInFlight = false
   const pendingSignals: CallSignal[] = []
 
+  const microphoneOrchestrator = new MicrophonePublishOrchestrator({
+    gain: ctx.microphoneGainInitial(),
+    noiseSuppressionOption: () => ctx.noiseSuppressionOption(),
+    webRtcNoiseSuppression: () => resolveNoiseSuppression(
+      ctx.noiseSuppressionOption(),
+      callAudioContext !== null && callAudioContext.state !== 'closed' && callAudioContext.sampleRate === 48_000,
+    ),
+    resolvedPreferredInputDeviceId: () => ctx.resolvedPreferredInputDeviceId(),
+    echoCancellation: () => ctx.echoCancellation(),
+    publishSettings: () => ({ audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS, audioRedEnabled: true }),
+    isAudioContextAvailable: () => callAudioContext !== null && callAudioContext.state !== 'closed',
+    transmissionMode: () => ctx.transmissionMode(),
+    isSessionLive: () => status.value === 'active',
+    loadRnnoiseBinary: () => ctx.loadRnnoiseBinary(),
+  })
+
   // 浮层三形态：outgoing=呼出中、ringing=来电、active=通话中；idle 表示浮层关闭。
   const overlayOpen = computed(() => status.value !== 'idle')
 
-  // 全局耳机静音联动通话远端音频（spec 07：通话中主动耳机静音会静音通话）。
-  watch(() => ctx.deafenedPreference(), (deafened) => {
-    ctx.setRemoteAudioMuted(deafened)
-  })
+  function callMicrophoneEnabled() {
+    return ctx.microphoneEnabledPreference() && !ctx.deafenedPreference()
+  }
 
-  // 全局麦克风静音偏好联动通话麦克风：入口按偏好发布，通话中切换（按钮或
-  // Ctrl+Shift+M 快捷键）同步到通话房间（spec 07/08 同一偏好）。
-  watch(() => ctx.microphoneEnabledPreference(), (enabled) => {
-    void applyMicrophonePreference(enabled)
-  })
-
-  async function applyMicrophonePreference(enabled: boolean) {
+  async function syncCallMicrophone() {
     const target = room
     if (!target || status.value !== 'active') return
     const session = callSession
+    const enabled = callMicrophoneEnabled()
     try {
-      if (enabled) {
-        await target.localParticipant.setMicrophoneEnabled(true, buildCaptureOptions())
-      } else {
-        await target.localParticipant.setMicrophoneEnabled(false)
-      }
+      await microphoneOrchestrator.applyMicrophoneState({
+        enabled,
+        transmissionMode: ctx.transmissionMode(),
+      })
       if (session === callSession && room === target) microphoneMuted.value = !enabled
     } catch {
       // 静音切换失败保留当前状态；下一次偏好变化会重试。
     }
   }
+
+  async function destroyCallAudioContext() {
+    const controller = callAudioContextController
+    callAudioContextController = null
+    callAudioContext = null
+    if (controller) await controller.destroy()
+  }
+
+  // 全局耳机静音联动通话远端音频（spec 07：通话中主动耳机静音会静音通话）。
+  watch(() => ctx.deafenedPreference(), (deafened) => {
+    ctx.setRemoteAudioMuted(deafened)
+    void syncCallMicrophone()
+  })
+
+  // 全局麦克风静音偏好联动通话麦克风：入口按偏好发布，通话中切换（按钮或
+  // Ctrl+Shift+M 快捷键）同步到通话房间（spec 07/08 同一偏好）。
+  watch(() => ctx.microphoneEnabledPreference(), () => {
+    void syncCallMicrophone()
+  })
 
   function resetLocalState() {
     status.value = 'idle'
@@ -122,6 +164,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
   function endSession(reason: CallEndReason) {
     callSession += 1
     endedReason.value = reason
+    microphoneOrchestrator.endSession()
     const target = room
     if (target) {
       target.disconnect()
@@ -129,6 +172,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     }
     ctx.removeAudioElements()
     resetLocalState()
+    void destroyCallAudioContext()
   }
 
   // 发起通话：POST /api/calls，进入呼出中或即时终态（busy/unreachable）。
@@ -222,47 +266,54 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     await ctx.toggleMicrophonePreference()
   }
 
-  function buildCaptureOptions() {
-    return buildMicrophoneCaptureOptions({
-      deviceId: ctx.resolvedPreferredInputDeviceId(),
-      echoCancellation: ctx.echoCancellation(),
-      noiseSuppression: ctx.noiseSuppression(),
-    })
-  }
-
   // 加入通话房间：双方在 accept 后各自取 token 并 connect 到 call-<callID>。
+  // 麦克风发布经本会话的编排器（ADR-0034）。
   async function joinRoom(): Promise<void> {
     const id = callId.value
     if (id === null) return
     callSession += 1
     const session = callSession
+    microphoneOrchestrator.invalidate()
+    if (callAudioContextController || callAudioContext) await destroyCallAudioContext()
     try {
       const credentials = await ctx.fetchCallToken(id)
       if (session !== callSession || status.value !== 'active') return
+      callAudioContext = ctx.createAudioContext()
       const nextRoom = markRaw(ctx.createRoom({
         adaptiveStream: true,
         dynacast: true,
-        audioCaptureDefaults: buildCaptureOptions(),
+        webAudioMix: callAudioContext ? { audioContext: callAudioContext } : true,
+        audioCaptureDefaults: microphoneOrchestrator.buildCaptureOptions(),
         publishDefaults: {
-          audioPreset: { maxBitrate: 64_000 },
-          dtx: true,
+          audioPreset: { maxBitrate: DEFAULT_AUDIO_BITRATE_KBPS * 1000 },
+          dtx: ctx.transmissionMode() === 'voice-activity',
           red: true,
           forceStereo: false,
         },
         audioOutput: { deviceId: ctx.resolvedPreferredOutputDeviceId() },
       }))
       room = nextRoom
+      microphoneOrchestrator.beginSession(nextRoom)
+      if (callAudioContext) {
+        callAudioContextController = new VoiceAudioContextController(callAudioContext, {
+          startAudio: () => nextRoom.startAudio(),
+          shouldResume: () => room === nextRoom && status.value === 'active' && !ctx.deafenedPreference(),
+          interactionTarget: ctx.audioInteractionTarget(),
+          onError: (error) => console.warn('通话音频自动恢复失败', error),
+        })
+      }
       bindRoom(nextRoom)
       await nextRoom.connect(credentials.url, credentials.token)
       if (session !== callSession || room !== nextRoom) return
       connectedAt.value = Date.now()
-      // 尊重全局麦克风静音偏好：全局静音时不发布麦克风。
-      if (ctx.microphoneEnabledPreference()) {
-        await nextRoom.localParticipant.setMicrophoneEnabled(true, buildCaptureOptions())
-        if (session !== callSession || room !== nextRoom) return
-      } else {
-        microphoneMuted.value = true
-      }
+      const enabled = callMicrophoneEnabled()
+      await microphoneOrchestrator.applyMicrophoneState({
+        enabled,
+        transmissionMode: ctx.transmissionMode(),
+      })
+      if (session !== callSession || room !== nextRoom) return
+      microphoneMuted.value = !enabled
+      callAudioContextController?.resumeIfNeeded()
     } catch {
       if (session !== callSession) return
       // 取 token / 建房失败时先向后端挂断，让对端收到终态信令而不是被留在
@@ -371,6 +422,14 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     hangup,
     toggleMicrophoneMute,
     handleSignal,
-    buildCaptureOptions,
+    applyMicrophoneGain: (volume: number) => {
+      microphoneOrchestrator.setGain(volume)
+    },
+    applyNoiseSuppressionOption: (option: NoiseSuppressionOption) => {
+      void microphoneOrchestrator.applyMicrophoneState({ noiseSuppression: option })
+    },
+    applyTransmissionMode: () => {
+      void microphoneOrchestrator.applyMicrophoneState({ transmissionMode: ctx.transmissionMode() })
+    },
   }
 }
