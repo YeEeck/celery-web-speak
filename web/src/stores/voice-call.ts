@@ -144,6 +144,9 @@ export function useVoiceCall(ctx: VoiceCallContext) {
   watch(() => ctx.deafenedPreference(), (deafened) => {
     ctx.setRemoteAudioMuted(deafened)
     void syncCallMicrophone()
+    // ADR-0005 / ADR-0031：解除全局耳机静音时对通话房间走门控 startAudio，
+    // 不经过频道 mute-deafen 的 startAudio（只打频道房间）。
+    if (!deafened) void callAudioContextController?.ensureRunning()
   })
 
   // 全局麦克风静音偏好联动通话麦克风：入口按偏好发布，通话中切换（按钮或

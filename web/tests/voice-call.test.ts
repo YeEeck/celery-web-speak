@@ -580,3 +580,18 @@ test('hangup closes the call AudioContext', async () => {
   await flushPromises()
   assert.equal(h.audioContext.closeCalls, 1)
 })
+
+test('lifting global 耳机静音 resumes the call AudioContext via startAudio', async () => {
+  const h = makeHarness()
+  await h.call.startCall(PEER)
+  await h.call.handleSignal({ type: 'call_accept', callId: '100', peer: PEER, reason: null })
+  await flushPromises()
+  h.state.deafenedPreference.value = true
+  await flushPromises()
+  assert.ok(h.audioContext)
+  h.audioContext.state = 'suspended'
+  h.room.startAudioCalls = 0
+  h.state.deafenedPreference.value = false
+  await flushPromises()
+  assert.ok(h.room.startAudioCalls > 0, '解除全局耳机静音应对通话房间 startAudio')
+})
