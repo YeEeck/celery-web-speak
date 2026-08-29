@@ -22,6 +22,9 @@ var (
 	// ErrCallBusy reports an initiation refused because the initiator is
 	// already a party to a ringing or active call (spec 04: 忙碌 = 已有任一通话).
 	ErrCallBusy = errors.New("caller is already in a call")
+	// ErrCallNotInSharedGuild reports 资格拒绝: the caller and callee share
+	// no guild. No call is created and no signalling is emitted.
+	ErrCallNotInSharedGuild = errors.New("caller and callee do not share a guild")
 )
 
 // CallState is the lifecycle phase of a 1:1 call, per spec 04. The terminal
@@ -142,22 +145,31 @@ type StartCallResult struct {
 	Reason CallEndReason `json:"reason,omitempty"`
 }
 
-// StartCall performs the one-shot initiation arbitration (spec 04/05): a
-// callee that does not accept inbound calls (inboundAllowed=false, decided by
-// httpapi from 可被呼叫设置 and 呼叫屏蔽) ends immediately as unavailable, an
-// unreachable callee ends immediately, a busy callee (already in any ringing
-// or active call) ends as busy, otherwise the call enters ringing and a 30s
-// timeout is armed. The resulting signalling events are delivered to the
-// registered CallSignaler. reachable and inboundAllowed are decided by the
-// caller (httpapi) from store state; busy is decided here from the in-memory
-// call coordination.
+// CallStartFacts are the 通话发起 facts loaded outside media: 同服、呼叫屏蔽、
+// 在线. 可被呼叫设置 is callee.CallReceiving. Busy is read under StartCall's
+// lock, not passed in.
+type CallStartFacts struct {
+	Shared    bool
+	Blocked   bool
+	Reachable bool
+}
+
+// StartCall performs 通话发起 (spec 04/05 / ADR-0036). Priority is frozen:
+// 资格拒绝 (!Shared) and 主叫忙碌 refuse without creating a call; then a call
+// is allocated and ends immediately as 呼叫拒入 (!CallReceiving or Blocked),
+// unreachable, or 被叫忙碌; otherwise it enters ringing and a 30s timeout is
+// armed. 呼叫拒入 beats unreachable. Signalling is delivered to the registered
+// CallSignaler.
 //
-// The initiation is refused with ErrCallBusy when the initiator is already a
-// party to a ringing or active call with someone other than the intended
-// callee (spec 04: 忙碌 = 已有任一通话). The mutual-dial case (the initiator's
-// existing call involves the callee) is excluded: it is judged on the callee
-// side by the busy branch below, per "双方互拨：后到判忙".
-func (s *Service) StartCall(caller, callee store.User, reachable, inboundAllowed bool) (StartCallResult, error) {
+// 主叫忙碌 is ErrCallBusy when the initiator is already a party to a ringing
+// or active call with someone other than the intended callee (spec 04:
+// 忙碌 = 已有任一通话). The mutual-dial case (the initiator's existing call
+// involves the callee) is excluded: it is judged on the callee side by the
+// busy branch below, per "双方互拨：后到判忙".
+func (s *Service) StartCall(caller, callee store.User, facts CallStartFacts) (StartCallResult, error) {
+	if !facts.Shared {
+		return StartCallResult{}, ErrCallNotInSharedGuild
+	}
 	now := s.now()
 	s.mu.Lock()
 	if s.callerBusyElsewhereLocked(caller.ID, callee.ID) {
@@ -168,10 +180,10 @@ func (s *Service) StartCall(caller, callee store.User, reachable, inboundAllowed
 	state := CallRinging
 	var reason CallEndReason
 	switch {
-	case !inboundAllowed:
+	case !callee.CallReceiving || facts.Blocked:
 		state = CallEnded
 		reason = CallEndUnavailable
-	case !reachable:
+	case !facts.Reachable:
 		state = CallEnded
 		reason = CallEndUnreachable
 	case s.busyLocked(callee.ID):

@@ -40,20 +40,16 @@ func (s *Server) handleCallCreate(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, "check shared guild for call", err)
 		return
 	}
-	// 被叫资格与在线判定分开仲裁（spec 02/14）：不同服是资格拒绝，离线才是
-	// unreachable，避免把「不能呼叫」误报成「对方不在线」。
-	if !shared {
-		writeError(w, http.StatusForbidden, "not_in_shared_guild", "只能呼叫与你有共同服务器的成员")
-		return
-	}
 	blocked, err := s.store.CallBlockActive(r.Context(), callee.ID, caller.ID)
 	if err != nil {
 		s.internalError(w, "check call block for call", err)
 		return
 	}
-	inboundAllowed := callee.CallReceiving && !blocked
-	reachable := s.hub.IsOnline(callee.ID)
-	result, err := s.media.StartCall(caller, callee, reachable, inboundAllowed)
+	result, err := s.media.StartCall(caller, callee, media.CallStartFacts{
+		Shared:    shared,
+		Blocked:   blocked,
+		Reachable: s.hub.IsOnline(callee.ID),
+	})
 	if err != nil {
 		s.writeCallError(w, err)
 		return
@@ -130,6 +126,8 @@ func (s *Server) writeCallError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, "call_not_active", "通话已不在通话中状态")
 	case errors.Is(err, media.ErrCallBusy):
 		writeError(w, http.StatusConflict, "call_in_progress", "已有通话在进行中")
+	case errors.Is(err, media.ErrCallNotInSharedGuild):
+		writeError(w, http.StatusForbidden, "not_in_shared_guild", "只能呼叫与你有共同服务器的成员")
 	default:
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 	}

@@ -37,11 +37,50 @@ func newLifecycleService() *Service {
 // mustStart runs StartCall and fails the test on an unexpected refusal.
 func mustStart(t *testing.T, service *Service, caller, callee store.User, reachable bool) StartCallResult {
 	t.Helper()
-	result, err := service.StartCall(caller, callee, reachable, true)
+	callee.CallReceiving = true
+	result, err := service.StartCall(caller, callee, CallStartFacts{Shared: true, Blocked: false, Reachable: reachable})
 	if err != nil {
 		t.Fatalf("start call: %v", err)
 	}
 	return result
+}
+
+func TestStartCallNotSharedReturnsQualificationRefusal(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+
+	want := callee()
+	want.CallReceiving = true
+	if _, err := service.StartCall(caller(), want, CallStartFacts{Shared: false, Blocked: false, Reachable: true}); !errors.Is(err, ErrCallNotInSharedGuild) {
+		t.Fatalf("not-shared start error = %v, want ErrCallNotInSharedGuild", err)
+	}
+	if len(service.calls) != 0 {
+		t.Fatalf("calls tracked = %d, want none (资格拒绝 must not create a call)", len(service.calls))
+	}
+	if len(signaler.signals) != 0 {
+		t.Fatalf("signals = %+v, want none (资格拒绝 must not signal)", signaler.signals)
+	}
+}
+
+func TestStartCallNotSharedBeatsCallerBusy(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+
+	mustStart(t, service, caller(), callee(), true)
+	signaler.signals = nil
+
+	third := store.User{ID: 300, Username: "third", DisplayName: "第三者", CallReceiving: true}
+	if _, err := service.StartCall(caller(), third, CallStartFacts{Shared: false, Blocked: false, Reachable: true}); !errors.Is(err, ErrCallNotInSharedGuild) {
+		t.Fatalf("busy+not-shared error = %v, want ErrCallNotInSharedGuild", err)
+	}
+	if len(service.calls) != 1 {
+		t.Fatalf("calls tracked = %d, want 1", len(service.calls))
+	}
+	if len(signaler.signals) != 0 {
+		t.Fatalf("signals = %+v, want none", signaler.signals)
+	}
 }
 
 func TestStartCallInboundNotAllowedReturnsUnavailable(t *testing.T) {
@@ -49,9 +88,9 @@ func TestStartCallInboundNotAllowedReturnsUnavailable(t *testing.T) {
 	signaler := &recordingSignaler{}
 	service.SetCallSignaler(signaler)
 
-	result, err := service.StartCall(caller(), callee(), true, false)
+	result, err := service.StartCall(caller(), callee(), CallStartFacts{Shared: true, Blocked: false, Reachable: true})
 	if err != nil {
-		t.Fatalf("start call with inbound disallowed: %v", err)
+		t.Fatalf("start call with 可被呼叫设置 off: %v", err)
 	}
 	if result.State != CallEnded || result.Reason != CallEndUnavailable {
 		t.Fatalf("start result = %+v, want ended(unavailable)", result)
@@ -68,6 +107,47 @@ func TestStartCallInboundNotAllowedReturnsUnavailable(t *testing.T) {
 	}
 	if sig.Peer.UserID != 200 {
 		t.Fatalf("signal peer = %+v, want callee", sig.Peer)
+	}
+}
+
+func TestStartCallBlockedReturnsUnavailable(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+
+	want := callee()
+	want.CallReceiving = true
+	result, err := service.StartCall(caller(), want, CallStartFacts{Shared: true, Blocked: true, Reachable: true})
+	if err != nil {
+		t.Fatalf("start call with 呼叫屏蔽: %v", err)
+	}
+	if result.State != CallEnded || result.Reason != CallEndUnavailable {
+		t.Fatalf("start result = %+v, want ended(unavailable)", result)
+	}
+	if len(service.calls) != 0 {
+		t.Fatalf("terminal unavailable call remained tracked: %+v", service.calls)
+	}
+	if len(signaler.signals) != 1 || signaler.signals[0].Type != "call_unavailable" {
+		t.Fatalf("signals = %+v, want 1 call_unavailable", signaler.signals)
+	}
+}
+
+func TestStartCallBlockedBeatsUnreachable(t *testing.T) {
+	service := newLifecycleService()
+	signaler := &recordingSignaler{}
+	service.SetCallSignaler(signaler)
+
+	want := callee()
+	want.CallReceiving = true
+	result, err := service.StartCall(caller(), want, CallStartFacts{Shared: true, Blocked: true, Reachable: false})
+	if err != nil {
+		t.Fatalf("start call blocked+offline: %v", err)
+	}
+	if result.State != CallEnded || result.Reason != CallEndUnavailable {
+		t.Fatalf("blocked+offline result = %+v, want ended(unavailable)", result)
+	}
+	if len(signaler.signals) != 1 || signaler.signals[0].Type != "call_unavailable" {
+		t.Fatalf("signals = %+v, want call_unavailable not call_unreachable", signaler.signals)
 	}
 }
 
@@ -181,7 +261,7 @@ func TestStartCallRefusedWhenCallerBusyElsewhere(t *testing.T) {
 	// A dials a third party C while still in the call with B: refused (spec 04
 	// 忙碌 = 已有任一通话). No call is created and nothing is signalled.
 	third := store.User{ID: 300, Username: "third", DisplayName: "第三者"}
-	if _, err := service.StartCall(caller(), third, true, true); !errors.Is(err, ErrCallBusy) {
+	if _, err := service.StartCall(caller(), third, CallStartFacts{Shared: true, Blocked: false, Reachable: true}); !errors.Is(err, ErrCallBusy) {
 		t.Fatalf("caller-busy start error = %v, want ErrCallBusy", err)
 	}
 	if len(service.calls) != 1 {
