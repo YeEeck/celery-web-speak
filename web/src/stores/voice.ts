@@ -16,7 +16,8 @@ import { useVoiceMuteDeafenModule } from './voice-mute-deafen.ts'
 import { useVoicePresence } from './voice-presence.ts'
 import { useVoiceSession } from './voice-session.ts'
 import { useVoiceCall } from './voice-call.ts'
-import { callTerminalMessage, callTerminalSide, parseCallSignal, type CallPeer } from './call-signal.ts'
+import { parseCallSignal, type CallPeer } from './call-signal.ts'
+import { useCallExperience } from './call-experience.ts'
 import { useCallPermissionsStore } from './call-permissions.ts'
 import { useVoiceOverlay } from './voice-overlay.ts'
 import { useToastStore } from './toast.ts'
@@ -338,45 +339,16 @@ export const useVoiceStore = defineStore('voice', () => {
   })
   callRef.current = call
 
-  // 频道作用域耳机静音接线（ticket 04 / ADR-0032）：发起通话（outgoing）与
-  // 接听进入通话（active）时自动静音频道；来电振铃（ringing）期间频道保持原样；
-  // 任何方式回到 idle（挂断/拒接/取消/超时等）自动解除并恢复通话前偏好。
-  // 语义判定放在接线层，不写进 call 会话（保持 voice-call 对「频道」无感知）。
-  watch(() => call.status.value, (status) => {
-    void muteDeafen.setCallChannelDeafen(status === 'outgoing' || status === 'active')
-  })
-
-  // 通话提示音接线（ticket 05 / spec 09）：呼出中循环回铃、来电循环振铃；进入
-  // active（接听/接通）停止循环并播放接通音；离开 active 或任何回到 idle 的终态
-  // 停止循环并播放结束音（busy/unreachable 等即时终态虽也回到 idle，会先经
-  // outgoing → idle 触发结束音）。
-  watch(() => call.status.value, (status, previous) => {
-    if (status === 'outgoing') {
-      sounds.loop('call-outgoing')
-    } else if (status === 'ringing') {
-      sounds.loop('call-incoming')
-    } else if (status === 'active') {
-      sounds.stopLoop()
-      sounds.signal('call-connected')
-    } else {
-      sounds.stopLoop()
-      if (previous === 'active') sounds.signal('call-ended')
-    }
-  })
-
-  // 终态文案接线（ticket 06 / spec 04 转移表）：任何回到 idle 的终态读一次
-  // endedReason，按侧别映射文案并提示一次。侧别由前一状态判定（outgoing=主叫、
-  // ringing=被叫）；active→idle 不携带侧别（null），掉线 reason=disconnected
-  // 文案不分侧别，其余侧别敏感原因在 null 侧别下静默。自己主动取消（canceled，
-  // 主叫）与主动挂断（ended）无提示——callTerminalMessage 返回 null 即静默跳过。
-  // endedReason 在下一通发起时清空，且 Vue watch 仅在值实际变化时触发，一次终态
-  // 转移恰好触发一次，无重复提示。
-  watch(() => call.status.value, (status, previous) => {
-    if (status !== 'idle') return
-    const reason = call.endedReason.value
-    if (!reason) return
-    const terminal = callTerminalMessage(reason, callTerminalSide(previous))
-    if (terminal) toast.show(terminal.message, terminal.type)
+  // 通话阶段副作用（ADR-0037）：频道作用域耳机静音、提示音、终态 toast。
+  // HTTP 发起失败 toast 仍由下方 startCall 接线呈现。
+  useCallExperience({
+    status: call.status,
+    endedReason: call.endedReason,
+    setCallChannelDeafen: muteDeafen.setCallChannelDeafen,
+    loop: (occurrence) => sounds.loop(occurrence),
+    stopLoop: () => sounds.stopLoop(),
+    signal: (occurrence) => sounds.signal(occurrence),
+    showToast: (message, type) => toast.show(message, type),
   })
 
   // 把 WS 点到点 call_* 事件路由给通话会话。app.ts 在 handleEvent 里按
