@@ -355,6 +355,56 @@ test('exposes call-connect and call-end operation sound slots with defaults and 
   assert.deepEqual(harness.audio.plays, ['preset:rise-duo', 'preset:fall-duo'])
 })
 
+test('exposes a poke operation sound slot distinct from the message default', async () => {
+  const harness = createHarness()
+  await harness.sounds.whenReady()
+
+  const poke = slot(harness, 'poke')
+  const message = slot(harness, 'message')
+  assert.equal(poke.label, '戳一下')
+  assert.equal(poke.enabled, true)
+  assert.equal(poke.selectedChoice, 'preset:tap-pair')
+  assert.notEqual(poke.selectedChoice, message.selectedChoice)
+  assert.equal(message.selectedChoice, 'preset:bright-single')
+
+  harness.sounds.signal('poke-received')
+  await Promise.resolve()
+  assert.deepEqual(harness.audio.plays, ['preset:tap-pair'])
+})
+
+test('global deafen silences poke while channel-scope deafen does not', async () => {
+  const harness = createHarness()
+  await harness.sounds.whenReady()
+
+  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: 'headphones' })
+  harness.sounds.signal('poke-received')
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 0, '全局耳机静音应静音戳一下')
+
+  harness.sounds.followPlayback({ deafened: false, channelDeafened: true, outputDeviceId: 'headphones' })
+  harness.advance(301)
+  harness.sounds.signal('poke-received')
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.at(-1), 'preset:tap-pair', '频道作用域耳机静音不应静音戳一下')
+})
+
+test('master off or poke slot off keeps poke signal silent', async () => {
+  const harness = createHarness()
+  await harness.sounds.whenReady()
+
+  await harness.sounds.settings.master.setEnabled(false)
+  harness.sounds.signal('poke-received')
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 0)
+
+  await harness.sounds.settings.master.setEnabled(true)
+  await slot(harness, 'poke').setEnabled(false)
+  harness.advance(301)
+  harness.sounds.signal('poke-received')
+  await Promise.resolve()
+  assert.equal(harness.audio.plays.length, 0)
+})
+
 test('exposes ringing and ringback slots for customizable call loops', async () => {
   const harness = createHarness()
   await harness.sounds.whenReady()

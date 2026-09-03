@@ -374,6 +374,7 @@ export const useAppStore = defineStore('app', () => {
       const payload = data as { actorUserId?: number; displayName?: string }
       if (typeof payload.actorUserId === 'number' && typeof payload.displayName === 'string') {
         pokePrompts.push(payload.actorUserId, payload.displayName)
+        sounds.signal('poke-received')
       }
       return
     }

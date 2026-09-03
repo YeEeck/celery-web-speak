@@ -24,9 +24,10 @@ export type ApplicationSoundOccurrence =
   | 'call-outgoing'
   | 'call-connected'
   | 'call-ended'
+  | 'poke-received'
 
-// deafened 是全局耳机静音偏好（会静音通话提示音与通话音频）；
-// channelDeafened 是通话期间只施加在频道上的叠加态，只静频道类声音，不静通话提示音。
+// deafened 是全局耳机静音偏好（会静音通话提示音、戳一下与通话音频）；
+// channelDeafened 是通话期间只施加在频道上的叠加态，只静频道类声音，不静通话提示音与戳一下。
 export interface ApplicationSoundPlaybackContext {
   deafened: boolean
   channelDeafened: boolean
@@ -193,12 +194,17 @@ const OPERATION_SOUNDS: readonly { event: OperationSoundEvent; label: string }[]
   { event: 'call-ringback', label: '呼出回铃' },
   { event: 'call-connect', label: '接通' },
   { event: 'call-end', label: '结束' },
+  { event: 'poke', label: '戳一下' },
 ]
 
-// 通话提示音只受全局耳机静音约束；频道作用域耳机静音（通话叠加）只静频道，
-// 不静通话提示音（ADR-0032 / spec 09）。
-function isCallOperationEvent(event: OperationSoundEvent) {
-  return event === 'call-ringing' || event === 'call-ringback' || event === 'call-connect' || event === 'call-end'
+// 通话提示音与戳一下只受全局耳机静音约束；频道作用域耳机静音（通话叠加）只静频道，
+// 不静这些提醒（ADR-0032 / spec 09；戳一下见 CONTEXT.md）。
+function silencedOnlyByGlobalDeafen(event: OperationSoundEvent) {
+  return event === 'call-ringing'
+    || event === 'call-ringback'
+    || event === 'call-connect'
+    || event === 'call-end'
+    || event === 'poke'
 }
 
 export function createApplicationSounds(dependencies: ApplicationSoundDependencies): ApplicationSoundsRuntime {
@@ -211,7 +217,7 @@ export function createApplicationSounds(dependencies: ApplicationSoundDependenci
     const slot = createSlot(definition.event, definition.label, dependencies, () => ({
       enabled: master.enabled,
       volume: master.volume,
-      deafened: isCallOperationEvent(definition.event)
+      deafened: silencedOnlyByGlobalDeafen(definition.event)
         ? playback.deafened
         : playback.deafened || playback.channelDeafened,
     }))
@@ -658,6 +664,9 @@ function operationForOccurrence(occurrence: Exclude<ApplicationSoundOccurrence, 
   }
   if (occurrence === 'call-ended') {
     return { event: 'call-end' as const, bypassRateLimit: false }
+  }
+  if (occurrence === 'poke-received') {
+    return { event: 'poke' as const, bypassRateLimit: false }
   }
   return {
     event: 'leave' as const,

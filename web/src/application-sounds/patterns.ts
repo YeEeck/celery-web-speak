@@ -6,6 +6,7 @@ export type OperationSoundEvent =
   | 'call-ringback'
   | 'call-connect'
   | 'call-end'
+  | 'poke'
 
 export type SoundPresetId =
   | 'rise-duo'
@@ -13,6 +14,7 @@ export type SoundPresetId =
   | 'bright-single'
   | 'low-pulse'
   | 'gentle-triple'
+  | 'tap-pair'
 
 export interface NotePattern {
   delay: number
@@ -60,6 +62,13 @@ export const SOUND_PRESETS: Record<SoundPresetId, SoundPreset> = {
       { delay: 0.16, duration: 0.12, from: 740, to: 780 },
     ],
   },
+  'tap-pair': {
+    name: '轻点双音',
+    notes: [
+      { delay: 0, duration: 0.06, from: 480, to: 520 },
+      { delay: 0.09, duration: 0.08, from: 560, to: 500 },
+    ],
+  },
 }
 
 export const DEFAULT_PRESETS: Record<OperationSoundEvent, SoundPresetId> = {
@@ -70,6 +79,7 @@ export const DEFAULT_PRESETS: Record<OperationSoundEvent, SoundPresetId> = {
   'call-ringback': 'low-pulse',
   'call-connect': 'rise-duo',
   'call-end': 'fall-duo',
+  poke: 'tap-pair',
 }
 
 export const MUTED_SPEAKING_NOTES: readonly NotePattern[] = [
