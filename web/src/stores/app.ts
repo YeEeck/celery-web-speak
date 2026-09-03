@@ -432,7 +432,10 @@ export const useAppStore = defineStore('app', () => {
       const memberIDs = new Set(users.value.map((item) => item.id))
       applyOnlineEntries((data as OnlineClient[]).filter((entry) => memberIDs.has(entry.userId)))
     } else if (type === 'message_created') {
-      const message = data as Message
+      const incoming = data as Message
+      const pokeDispatched = incoming.pokeDispatched === true
+      const message = { ...incoming }
+      delete message.pokeDispatched
       const state = ensureMessageState(message.channelId)
       const readState = ensureReadState(message.channelId)
       if (message.id <= readState.latestMessageId) return
@@ -445,7 +448,7 @@ export const useAppStore = defineStore('app', () => {
         readState.unreadCount = Math.min(readState.unreadCount + 1, retention)
       }
       readState.latestMessageId = message.id
-      if (message.channelId === activeTextChannelId.value && message.userId !== user.value?.id) {
+      if (message.channelId === activeTextChannelId.value && message.userId !== user.value?.id && !pokeDispatched) {
         sounds.signal('text-message-received')
       }
     } else if (type === 'message_deleted') {

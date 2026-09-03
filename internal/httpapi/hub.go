@@ -455,14 +455,28 @@ func (h *Hub) Broadcast(eventType string, data any) {
 }
 
 func (h *Hub) BroadcastGuild(guildID int64, eventType string, data any) {
+	h.BroadcastGuildExcept(guildID, nil, eventType, data)
+}
+
+// BroadcastGuildExcept is BroadcastGuild, skipping connections whose user id
+// is in exceptUserIDs. Used so a guild event can send a customized copy to
+// some members without delivering the public payload twice.
+func (h *Hub) BroadcastGuildExcept(guildID int64, exceptUserIDs []int64, eventType string, data any) {
 	payload, err := json.Marshal(event{Type: eventType, GuildID: guildID, Data: data})
 	if err != nil {
 		return
+	}
+	except := make(map[int64]struct{}, len(exceptUserIDs))
+	for _, id := range exceptUserIDs {
+		except[id] = struct{}{}
 	}
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients {
 		if _, ok := c.guilds[guildID]; !ok {
+			continue
+		}
+		if _, skip := except[c.user.ID]; skip {
 			continue
 		}
 		select {
@@ -497,7 +511,18 @@ func (h *Hub) BroadcastUser(userID int64, eventType string, data any) {
 
 // SendUser sends an event only to the target account's own connections.
 func (h *Hub) SendUser(userID int64, eventType string, data any) {
-	payload, err := json.Marshal(event{Type: eventType, Data: data})
+	h.sendUser(userID, 0, eventType, data)
+}
+
+// SendUserGuild is SendUser with guildId set, still only the target account.
+// Connections that have not subscribed to that guild are skipped, matching
+// BroadcastGuild's audience.
+func (h *Hub) SendUserGuild(userID, guildID int64, eventType string, data any) {
+	h.sendUser(userID, guildID, eventType, data)
+}
+
+func (h *Hub) sendUser(userID, guildID int64, eventType string, data any) {
+	payload, err := json.Marshal(event{Type: eventType, GuildID: guildID, Data: data})
 	if err != nil {
 		return
 	}
@@ -506,6 +531,11 @@ func (h *Hub) SendUser(userID int64, eventType string, data any) {
 	for c := range h.clients {
 		if c.user.ID != userID {
 			continue
+		}
+		if guildID != 0 {
+			if _, ok := c.guilds[guildID]; !ok {
+				continue
+			}
 		}
 		select {
 		case c.send <- payload:

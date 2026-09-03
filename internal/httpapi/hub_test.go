@@ -277,6 +277,72 @@ func TestHubGuildBroadcastIsIsolated(t *testing.T) {
 	}
 }
 
+func TestHubBroadcastGuildExceptAndSendUserGuildCustomizeCopies(t *testing.T) {
+	hub := newHub(15 * time.Second)
+	poked := newClient(store.User{ID: 1})
+	poked.guilds[10] = struct{}{}
+	other := newClient(store.User{ID: 2})
+	other.guilds[10] = struct{}{}
+	unsubscribed := newClient(store.User{ID: 1})
+	hub.register(poked)
+	hub.register(other)
+	hub.register(unsubscribed)
+
+	hub.SendUserGuild(1, 10, "message_created", map[string]any{"id": 1, "pokeDispatched": true})
+	hub.BroadcastGuildExcept(10, []int64{1}, "message_created", map[string]int64{"id": 1})
+
+	select {
+	case payload := <-poked.send:
+		var item event
+		if err := json.Unmarshal(payload, &item); err != nil {
+			t.Fatal(err)
+		}
+		if item.Type != "message_created" || item.GuildID != 10 {
+			t.Fatalf("poked event = %+v", item)
+		}
+		var body struct {
+			ID             int64 `json:"id"`
+			PokeDispatched *bool `json:"pokeDispatched"`
+		}
+		decodeEventData(t, item, &body)
+		if body.ID != 1 || body.PokeDispatched == nil || !*body.PokeDispatched {
+			t.Fatalf("poked data = %+v", body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("poked member did not receive customized copy")
+	}
+	select {
+	case payload := <-other.send:
+		var item event
+		if err := json.Unmarshal(payload, &item); err != nil {
+			t.Fatal(err)
+		}
+		if item.Type != "message_created" || item.GuildID != 10 {
+			t.Fatalf("other event = %+v", item)
+		}
+		var body struct {
+			ID             int64 `json:"id"`
+			PokeDispatched *bool `json:"pokeDispatched"`
+		}
+		decodeEventData(t, item, &body)
+		if body.ID != 1 || body.PokeDispatched != nil {
+			t.Fatalf("other data = %+v", body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("other member did not receive public copy")
+	}
+	select {
+	case payload := <-poked.send:
+		t.Fatalf("poked member received a second message_created: %s", payload)
+	default:
+	}
+	select {
+	case payload := <-unsubscribed.send:
+		t.Fatalf("unsubscribed connection received guild event: %s", payload)
+	default:
+	}
+}
+
 func TestHubGuildBroadcastExcludesClientsWithoutGuildMembership(t *testing.T) {
 	hub := newHub(15 * time.Second)
 	member := newClient(store.User{ID: 1})

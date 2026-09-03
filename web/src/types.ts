@@ -104,6 +104,7 @@ export interface Message {
   content: string
   mentions?: MessageMention[]
   createdAt: string
+  pokeDispatched?: boolean
 }
 
 export interface Channel {

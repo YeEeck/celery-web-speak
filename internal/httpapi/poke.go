@@ -104,3 +104,39 @@ func (s *Server) handlePokeCreate(w http.ResponseWriter, r *http.Request) {
 	})
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type liveGuildMessage struct {
+	store.Message
+	PokeDispatched bool `json:"pokeDispatched,omitempty"`
+}
+
+func (s *Server) dispatchMentionPokes(actor store.User, mentions []store.MessageMention) []int64 {
+	poked := make([]int64, 0)
+	for _, mention := range mentions {
+		if mention.UserID == actor.ID {
+			continue
+		}
+		if !s.hub.IsOnline(mention.UserID) {
+			continue
+		}
+		if !s.pokeLimiter.Allow(actor.ID, mention.UserID) {
+			continue
+		}
+		s.hub.SendUser(mention.UserID, "poke", map[string]any{
+			"actorUserId": actor.ID,
+			"displayName": actor.DisplayName,
+		})
+		poked = append(poked, mention.UserID)
+	}
+	return poked
+}
+
+func (s *Server) broadcastMessageCreated(guildID int64, message store.Message, pokedUserIDs []int64) {
+	for _, userID := range pokedUserIDs {
+		s.hub.SendUserGuild(userID, guildID, "message_created", liveGuildMessage{
+			Message:        message,
+			PokeDispatched: true,
+		})
+	}
+	s.hub.BroadcastGuildExcept(guildID, pokedUserIDs, "message_created", message)
+}

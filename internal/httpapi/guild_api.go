@@ -610,7 +610,9 @@ func (s *Server) handleGuildCreateMessage(w http.ResponseWriter, r *http.Request
 		}
 		return
 	}
-	s.hub.BroadcastGuild(guildMembership(r).GuildID, "message_created", message)
+	guildID := guildMembership(r).GuildID
+	poked := s.dispatchMentionPokes(currentUser(r), message.Mentions)
+	s.broadcastMessageCreated(guildID, message, poked)
 	writeJSON(w, http.StatusCreated, map[string]any{"message": message})
 }
 
