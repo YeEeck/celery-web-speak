@@ -23,6 +23,7 @@ import VoiceChannel from './VoiceChannel.vue'
 import VoiceParticipantActionMenu from './VoiceParticipantActionMenu.vue'
 import { getUserProfile, request } from '../api'
 import { useAppStore } from '../stores/app'
+import { usePokePromptStore } from '../stores/poke-prompt'
 import { useToastStore } from '../stores/toast'
 import { useVoiceStore, type VoiceParticipant } from '../stores/voice'
 import { useVoiceShortcuts } from '../stores/voice-shortcuts'
@@ -33,6 +34,7 @@ const LAST_SEEN_VERSION_KEY = 'cws.lastSeenVersion'
 const app = useAppStore()
 const voice = useVoiceStore()
 const toast = useToastStore()
+const pokePrompts = usePokePromptStore()
 useVoiceShortcuts()
 const channelsOpen = ref(false)
 const membersOpen = ref(false)
@@ -836,6 +838,20 @@ function closeChangelog() {
       <div v-for="item in toast.toasts" :key="item.id" :class="['action-toast', 'motion-toast-static', item.type]" role="status" @mouseenter="toast.pause(item.id)" @mouseleave="toast.resume(item.id)">
         <span>{{ item.message }}</span>
         <button class="action-toast-close" type="button" title="关闭" aria-label="关闭提示" @click="toast.dismiss(item.id)"><X :size="14" /></button>
+      </div>
+    </div>
+    <div class="poke-prompt-stack" role="region" aria-live="polite" aria-label="戳一下提示">
+      <div
+        v-for="item in pokePrompts.prompts"
+        :key="item.id"
+        class="poke-prompt"
+        role="status"
+        :aria-label="`${item.displayName} 戳了你一下`"
+      >
+        <span class="poke-prompt-text" aria-hidden="true">
+          <span class="poke-prompt-name">{{ item.displayName }}</span>
+          <span class="poke-prompt-suffix">戳了你一下</span>
+        </span>
       </div>
     </div>
     <AccountMenu v-if="accountMenuOpen" :trigger="accountTrigger" @close="closeAccountMenu" @settings="openProfile" @logout="openLogoutDialog" />

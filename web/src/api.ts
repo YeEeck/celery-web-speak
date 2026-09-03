@@ -36,3 +36,10 @@ export async function getUserProfile(userId: number, guildId?: number): Promise<
   const result = await request<{ profile: UserProfile }>(`/api/users/${userId}/profile${params}`)
   return result.profile
 }
+
+export async function pokeUser(targetUserId: number): Promise<void> {
+  await request<void>('/api/pokes', {
+    method: 'POST',
+    body: JSON.stringify({ targetUserId }),
+  })
+}

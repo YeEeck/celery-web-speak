@@ -37,16 +37,18 @@ type Server struct {
 	voiceRefreshMu        sync.Mutex
 	voiceRefreshScheduled bool
 	upgrader              websocket.Upgrader
+	pokeLimiter           *pokeLimiter
 }
 
 func New(cfg config.Config, db *store.Store, mediaService *media.Service, logger *slog.Logger) *Server {
 	s := &Server{
-		cfg:    cfg,
-		store:  db,
-		media:  mediaService,
-		hub:    NewHub(db),
-		logger: logger,
-		limits: make(map[int64][]time.Time),
+		cfg:         cfg,
+		store:       db,
+		media:       mediaService,
+		hub:         NewHub(db),
+		logger:      logger,
+		limits:      make(map[int64][]time.Time),
+		pokeLimiter: newPokeLimiter(),
 	}
 	mediaService.SetCallSignaler(hubCallSignaler{hub: s.hub})
 	s.upgrader = websocket.Upgrader{
@@ -152,6 +154,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/messages", s.requireGuildMember(http.HandlerFunc(s.handleGuildCreateMessage)))
 	mux.Handle("GET /api/guilds/{guildID}/channels/{channelID}/stats", s.requireGuildAdmin(http.HandlerFunc(s.handleGuildChannelStats)))
 	mux.Handle("POST /api/guilds/{guildID}/channels/{channelID}/voice/token", s.requireGuildMember(http.HandlerFunc(s.handleGuildVoiceToken)))
+	mux.Handle("POST /api/pokes", s.requireAuth(http.HandlerFunc(s.handlePokeCreate)))
 	mux.Handle("POST /api/calls", s.requireAuth(http.HandlerFunc(s.handleCallCreate)))
 	mux.Handle("POST /api/calls/{callId}/accept", s.requireAuth(http.HandlerFunc(s.handleCallAccept)))
 	mux.Handle("POST /api/calls/{callId}/reject", s.requireAuth(http.HandlerFunc(s.handleCallReject)))

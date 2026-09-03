@@ -6,6 +6,7 @@ import { getSlashSuggestions, submitSlashCommand, type CommandFeedback, type Sla
 import { useApplicationSoundStore } from './application-sounds'
 import { activeChannelKey, emptyMessageState, isCompleteUser, mapGuildMember, savedChannelID, savedGuildID, type MessageState } from './app-utils'
 import { useSocket } from './app-socket'
+import { usePokePromptStore } from './poke-prompt'
 
 type AuthPayload = { user: User }
 
@@ -19,6 +20,7 @@ export function setCallSignalHandler(handler: ((type: string, data: unknown) => 
 
 export const useAppStore = defineStore('app', () => {
   const sounds = useApplicationSoundStore()
+  const pokePrompts = usePokePromptStore()
   const ready = ref(false)
   const user = ref<User | null>(null)
   const users = ref<User[]>([])
@@ -365,6 +367,14 @@ export const useAppStore = defineStore('app', () => {
   function handleEvent(type: string, data: unknown, guildId?: number) {
     if (type.startsWith('call_')) {
       callSignalHandler?.(type, data)
+      return
+    }
+    if (type === 'poke') {
+      if (!user.value) return
+      const payload = data as { actorUserId?: number; displayName?: string }
+      if (typeof payload.actorUserId === 'number' && typeof payload.displayName === 'string') {
+        pokePrompts.push(payload.actorUserId, payload.displayName)
+      }
       return
     }
     if (type === 'voice_disconnected_by_moderator') {

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Crown, ShieldCheck, MicOff, MessageSquareOff, Ban, Phone } from '@lucide/vue'
+import { Crown, ShieldCheck, MicOff, MessageSquareOff, Ban, Phone, Hand } from '@lucide/vue'
 import type { PresenceStatus, User, UserProfile } from '../types'
+import { pokeUser } from '../api'
 import { voiceLevelColorProgressPercent } from '../utils/voice-level'
 import { useAppStore } from '../stores/app'
+import { useToastStore } from '../stores/toast'
 import { useVoiceStore } from '../stores/voice'
 import { presenceStatusFor } from '../utils/presence-status'
 import CallBlockMenu from './CallBlockMenu.vue'
@@ -11,6 +13,7 @@ import UserAvatar from './UserAvatar.vue'
 
 const app = useAppStore()
 const voice = useVoiceStore()
+const toast = useToastStore()
 
 const props = defineProps<{
   userId: number
@@ -73,6 +76,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handlePointerDown, true)
   window.removeEventListener('resize', closeOnViewportChange)
   window.removeEventListener('scroll', closeOnViewportChange, true)
+  if (pokeDoneTimer !== undefined) window.clearTimeout(pokeDoneTimer)
 })
 
 function formatDuration(seconds: number): string {
@@ -115,6 +119,35 @@ const roleLabel = (role: string | undefined) => (role === 'owner' ? '服务器�
 
 // 「语音通话」入口：仅当目标是同服成员（member 非空）且非自己时显示（spec 02）。
 const callable = computed(() => props.member !== null && !props.isSelf)
+
+function guildBanActive(member: User): boolean {
+  if (member.permanentlyBanned) return true
+  if (!member.temporaryBanUntil) return false
+  const until = new Date(member.temporaryBanUntil).getTime()
+  return Number.isFinite(until) && until > Date.now()
+}
+
+const pokeable = computed(() => props.member !== null && !props.isSelf && !guildBanActive(props.member))
+const pokeBusy = ref(false)
+const pokeDone = ref(false)
+let pokeDoneTimer: number | undefined
+
+async function poke() {
+  if (pokeBusy.value || pokeDone.value) return
+  pokeBusy.value = true
+  try {
+    await pokeUser(props.userId)
+    pokeDone.value = true
+    pokeDoneTimer = window.setTimeout(() => {
+      pokeDone.value = false
+      pokeBusy.value = false
+      pokeDoneTimer = undefined
+    }, 10_000)
+  } catch (error) {
+    pokeBusy.value = false
+    toast.showError(error instanceof Error ? error.message : '操作失败')
+  }
+}
 
 function startCall() {
   const member = props.member
@@ -181,6 +214,19 @@ function remainingBan(member: User): string {
           @click="startCall"
         >
           <Phone :size="16" />
+        </button>
+        <button
+          v-if="pokeable"
+          class="profile-card-call-button poke"
+          :class="{ poked: pokeDone }"
+          type="button"
+          :title="pokeDone ? '已戳' : '戳一下'"
+          :aria-label="pokeDone ? '已戳' : '戳一下'"
+          :disabled="pokeBusy || pokeDone"
+          @click="poke"
+        >
+          <span v-if="pokeDone">已戳</span>
+          <Hand v-else :size="16" />
         </button>
         <CallBlockMenu :user-id="props.userId" />
       </div>

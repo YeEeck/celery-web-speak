@@ -142,3 +142,29 @@ WHERE a.user_id = ? AND b.user_id = ?`, userID, otherUserID).Scan(&count)
 	}
 	return count > 0, nil
 }
+
+// SharedActiveGuild reports whether two users share at least one guild where
+// both are 活跃成员. Guild bans, platform bans, suspension and deleted
+// accounts all fail the check. Platform admin is not a bypass.
+func (s *Store) SharedActiveGuild(ctx context.Context, userID, otherUserID int64) (bool, error) {
+	now := formatTime(s.now())
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+SELECT COUNT(*)
+FROM guild_members a
+JOIN guild_members b ON a.guild_id = b.guild_id
+JOIN users ua ON ua.id = a.user_id AND ua.deleted_at IS NULL
+JOIN users ub ON ub.id = b.user_id AND ub.deleted_at IS NULL
+WHERE a.user_id = ? AND b.user_id = ?
+  AND a.permanently_banned = 0 AND b.permanently_banned = 0
+  AND ua.permanently_banned = 0 AND ub.permanently_banned = 0
+  AND ua.suspended_at IS NULL AND ub.suspended_at IS NULL
+  AND (a.temporary_ban_until IS NULL OR a.temporary_ban_until <= ?)
+  AND (b.temporary_ban_until IS NULL OR b.temporary_ban_until <= ?)`,
+		userID, otherUserID, now, now,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("check shared active guild: %w", err)
+	}
+	return count > 0, nil
+}
