@@ -5,6 +5,7 @@ import { ArrowDown, ChevronUp, Hash, Menu, Send, Users } from '@lucide/vue'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
+import { useVoiceStore } from '../stores/voice'
 import {
   findMentionTrigger,
   insertMention,
@@ -26,6 +27,7 @@ const fullDateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', mo
 defineProps<{ membersVisible: boolean }>()
 const emit = defineEmits<{ channels: []; members: []; messageMenu: [message: Message, trigger: HTMLElement | null, x: number, y: number]; openProfile: [userId: number, trigger: HTMLElement | null, x: number, y: number] }>()
 const app = useAppStore()
+const voice = useVoiceStore()
 const toast = useToastStore()
 const content = ref('')
 const sending = ref(false)
@@ -143,6 +145,10 @@ watch(() => [app.activeTextChannelId, timelineItems.value.at(-1)?.key] as const,
     await nextTick()
     await scrollToLatestStable()
   }
+})
+
+watch(() => voice.callOverlayOpen, (open) => {
+  if (open) closeSuggestions()
 })
 
 onBeforeUnmount(() => {
@@ -650,6 +656,7 @@ function roleLabel(role: string) {
                         @pointerup="onMentionPointerUp(segment.userId, $event)"
                         @pointercancel="onMentionPointerCancel"
                         @dblclick="onMentionPointerCancel"
+                        @contextmenu.stop
                       >{{ segment.text }}</span>
                       <template v-else>{{ segment.text }}</template>
                     </template>
