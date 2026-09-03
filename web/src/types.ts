@@ -89,6 +89,11 @@ export interface UserProfile {
   createdAt: string
 }
 
+export interface MessageMention {
+  userId: number
+  username: string
+}
+
 export interface Message {
 	id: number
 	channelId: number
@@ -97,6 +102,7 @@ export interface Message {
   displayName: string
   role: GuildRole
   content: string
+  mentions?: MessageMention[]
   createdAt: string
 }
 

@@ -111,15 +111,21 @@ type ChannelReadState struct {
 	UnreadCount       int   `json:"unreadCount"`
 }
 
+type MessageMention struct {
+	UserID   int64  `json:"userId"`
+	Username string `json:"username"`
+}
+
 type Message struct {
-	ID          int64     `json:"id"`
-	ChannelID   int64     `json:"channelId"`
-	UserID      int64     `json:"userId"`
-	Username    string    `json:"username"`
-	DisplayName string    `json:"displayName"`
-	Role        GuildRole `json:"role"`
-	Content     string    `json:"content"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID          int64            `json:"id"`
+	ChannelID   int64            `json:"channelId"`
+	UserID      int64            `json:"userId"`
+	Username    string           `json:"username"`
+	DisplayName string           `json:"displayName"`
+	Role        GuildRole        `json:"role"`
+	Content     string           `json:"content"`
+	Mentions    []MessageMention `json:"mentions"`
+	CreatedAt   time.Time        `json:"createdAt"`
 }
 
 type ChannelMessageStats struct {

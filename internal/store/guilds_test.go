@@ -179,11 +179,11 @@ func TestGuildMessagesUseEffectiveGuildRoles(t *testing.T) {
 			break
 		}
 	}
-	ownerMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, owner, "所有者消息")
+	ownerMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, owner, "所有者消息", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, platformAdmin, "管理员消息")
+	adminMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, platformAdmin, "管理员消息", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,15 +405,15 @@ func TestDeleteGuildChannelMessagePermissions(t *testing.T) {
 			break
 		}
 	}
-	memberMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, member, "成员消息")
+	memberMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, member, "成员消息", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, other, "其他消息")
+	otherMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, other, "其他消息", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ownerMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, owner, "所有者消息")
+	ownerMessage, err := db.CreateGuildChannelMessage(ctx, guild.ID, textChannel.ID, owner, "所有者消息", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

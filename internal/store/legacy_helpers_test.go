@@ -66,7 +66,7 @@ func (s *Store) CreateMessage(ctx context.Context, user User, content string) (M
 	if err != nil {
 		return Message{}, err
 	}
-	return s.CreateGuildChannelMessage(ctx, channel.GuildID, channel.ID, user, content)
+	return s.CreateGuildChannelMessage(ctx, channel.GuildID, channel.ID, user, content, nil)
 }
 
 func (s *Store) CreateChannelMessage(ctx context.Context, channelID int64, user User, content string) (Message, error) {
@@ -74,7 +74,7 @@ func (s *Store) CreateChannelMessage(ctx context.Context, channelID int64, user 
 	if err != nil {
 		return Message{}, err
 	}
-	return s.CreateGuildChannelMessage(ctx, channel.GuildID, channelID, user, content)
+	return s.CreateGuildChannelMessage(ctx, channel.GuildID, channelID, user, content, nil)
 }
 
 func (s *Store) DeleteChannelMessage(ctx context.Context, actorID, channelID, messageID int64) error {

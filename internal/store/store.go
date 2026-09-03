@@ -178,7 +178,23 @@ CREATE INDEX IF NOT EXISTS call_blocks_owner ON call_blocks(owner_user_id);
 	if err := s.ensureUserCallReceivingColumn(ctx); err != nil {
 		return fmt.Errorf("migrate user call receiving setting: %w", err)
 	}
+	if err := s.ensureMessageMentionsTable(ctx); err != nil {
+		return fmt.Errorf("migrate message mentions: %w", err)
+	}
 	return nil
+}
+
+func (s *Store) ensureMessageMentionsTable(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS message_mentions (
+  message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL,
+  username TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  PRIMARY KEY (message_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS message_mentions_message_id_position ON message_mentions(message_id, position);`)
+	return err
 }
 
 func (s *Store) ensureUserCallReceivingColumn(ctx context.Context) error {

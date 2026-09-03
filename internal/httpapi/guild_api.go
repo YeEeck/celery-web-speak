@@ -595,12 +595,13 @@ func (s *Server) handleGuildCreateMessage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var input struct {
-		Content string `json:"content"`
+		Content          string  `json:"content"`
+		MentionedUserIDs []int64 `json:"mentionedUserIds"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
 	}
-	message, err := s.store.CreateGuildChannelMessage(r.Context(), guildMembership(r).GuildID, channelID, currentUser(r), input.Content)
+	message, err := s.store.CreateGuildChannelMessage(r.Context(), guildMembership(r).GuildID, channelID, currentUser(r), input.Content, input.MentionedUserIDs)
 	if err != nil {
 		if err.Error() == "text muted" {
 			writeError(w, http.StatusForbidden, "text_muted", "你已被文字禁言")

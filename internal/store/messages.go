@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 func (s *Store) ListGuildChannelMessages(ctx context.Context, guildID, channelID, beforeID int64, limit int) ([]Message, bool, error) {
@@ -57,6 +58,7 @@ WHERE m.channel_id = ?`
 			return nil, false, err
 		}
 		message.CreatedAt, _ = parseTime(createdAt)
+		message.Mentions = []MessageMention{}
 		reversed = append(reversed, message)
 	}
 	if err := rows.Err(); err != nil {
@@ -70,10 +72,13 @@ WHERE m.channel_id = ?`
 	for i := range reversed {
 		messages[len(reversed)-1-i] = reversed[i]
 	}
+	if err := s.attachMessageMentions(ctx, messages); err != nil {
+		return nil, false, err
+	}
 	return messages, hasMore, nil
 }
 
-func (s *Store) CreateGuildChannelMessage(ctx context.Context, guildID, channelID int64, user User, content string) (Message, error) {
+func (s *Store) CreateGuildChannelMessage(ctx context.Context, guildID, channelID int64, user User, content string, mentionedUserIDs []int64) (Message, error) {
 	channel, err := s.GuildChannelByID(ctx, guildID, channelID)
 	if err != nil {
 		return Message{}, err
@@ -85,15 +90,19 @@ func (s *Store) CreateGuildChannelMessage(ctx context.Context, guildID, channelI
 	if member.TextMuted {
 		return Message{}, errors.New("text muted")
 	}
-	message, err := s.createChannelMessage(ctx, channel, user, content)
+	message, err := s.createChannelMessage(ctx, channel, user, content, mentionedUserIDs)
 	message.Role = member.Role
 	return message, err
 }
 
-func (s *Store) createChannelMessage(ctx context.Context, channel Channel, user User, content string) (Message, error) {
+func (s *Store) createChannelMessage(ctx context.Context, channel Channel, user User, content string, mentionedUserIDs []int64) (Message, error) {
 	content = strings.TrimSpace(content)
 	if content == "" || len([]rune(content)) > 2000 {
 		return Message{}, errors.New("message must contain 1 to 2000 characters")
+	}
+	mentions, err := s.validateMessageMentions(ctx, channel.GuildID, user.ID, content, mentionedUserIDs)
+	if err != nil {
+		return Message{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -111,14 +120,142 @@ func (s *Store) createChannelMessage(ctx context.Context, channel Channel, user 
 	if err != nil {
 		return Message{}, err
 	}
+	id, _ := result.LastInsertId()
+	for i, mention := range mentions {
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO message_mentions (message_id, user_id, username, position)
+VALUES (?, ?, ?, ?)`, id, mention.UserID, mention.Username, i); err != nil {
+			return Message{}, err
+		}
+	}
 	if err := trimChannelMessages(ctx, tx, channel.ID, retention); err != nil {
 		return Message{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Message{}, err
 	}
-	id, _ := result.LastInsertId()
-	return Message{ID: id, ChannelID: channel.ID, UserID: user.ID, Username: user.Username, DisplayName: user.DisplayName, Role: GuildRoleMember, Content: content, CreatedAt: now}, nil
+	if mentions == nil {
+		mentions = []MessageMention{}
+	}
+	return Message{ID: id, ChannelID: channel.ID, UserID: user.ID, Username: user.Username, DisplayName: user.DisplayName, Role: GuildRoleMember, Content: content, Mentions: mentions, CreatedAt: now}, nil
+}
+
+const maxMessageMentions = 10
+
+func (s *Store) validateMessageMentions(ctx context.Context, guildID, authorID int64, content string, mentionedUserIDs []int64) ([]MessageMention, error) {
+	mentions := make([]MessageMention, 0)
+	seen := make(map[int64]struct{})
+	for _, userID := range mentionedUserIDs {
+		if userID == authorID {
+			continue
+		}
+		if _, ok := seen[userID]; ok {
+			continue
+		}
+		seen[userID] = struct{}{}
+		active, err := s.GuildMemberActive(ctx, guildID, userID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		if !active {
+			continue
+		}
+		target, err := s.UserByID(ctx, userID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		if !contentHasMentionToken(content, target.Username) {
+			continue
+		}
+		mentions = append(mentions, MessageMention{UserID: target.ID, Username: target.Username})
+		if len(mentions) == maxMessageMentions {
+			break
+		}
+	}
+	return mentions, nil
+}
+
+func contentHasMentionToken(content, username string) bool {
+	if username == "" {
+		return false
+	}
+	needle := "@" + strings.ToLower(username)
+	i := 0
+	for i < len(content) {
+		at := strings.Index(strings.ToLower(content[i:]), needle)
+		if at < 0 {
+			return false
+		}
+		at += i
+		if at > 0 {
+			prev, _ := utf8.DecodeLastRuneInString(content[:at])
+			if isUsernameRune(prev) {
+				i = at + 1
+				continue
+			}
+		}
+		end := at + len(needle)
+		if end < len(content) {
+			next, _ := utf8.DecodeRuneInString(content[end:])
+			if isUsernameRune(next) {
+				i = at + 1
+				continue
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func isUsernameRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-'
+}
+
+func (s *Store) attachMessageMentions(ctx context.Context, messages []Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	ids := make([]any, 0, len(messages))
+	index := make(map[int64]int, len(messages))
+	for i, message := range messages {
+		ids = append(ids, message.ID)
+		index[message.ID] = i
+		if messages[i].Mentions == nil {
+			messages[i].Mentions = []MessageMention{}
+		}
+	}
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	query := fmt.Sprintf(`
+SELECT mm.message_id, mm.user_id, mm.username
+FROM message_mentions mm
+JOIN users u ON u.id = mm.user_id AND u.deleted_at IS NULL
+WHERE mm.message_id IN (%s)
+ORDER BY mm.message_id, mm.position`, placeholders)
+	rows, err := s.db.QueryContext(ctx, query, ids...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var messageID int64
+		var mention MessageMention
+		if err := rows.Scan(&messageID, &mention.UserID, &mention.Username); err != nil {
+			return err
+		}
+		i, ok := index[messageID]
+		if !ok {
+			continue
+		}
+		messages[i].Mentions = append(messages[i].Mentions, mention)
+	}
+	return rows.Err()
 }
 
 func (s *Store) DeleteGuildChannelMessage(ctx context.Context, guildID, actorID, channelID, messageID int64, actorRole GuildRole) error {
