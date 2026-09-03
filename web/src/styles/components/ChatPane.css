@@ -43,6 +43,8 @@
 .command-suggestion { width: 100%; min-height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; border: 0; border-radius: 4px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
 .command-suggestion small { min-width: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
 .command-suggestion:hover, .command-suggestion.active { background: var(--hover); }
+.command-suggestion.mention-cap-hint { color: var(--muted); cursor: default; }
+.command-suggestion.mention-cap-hint:hover { background: transparent; }
 .composer { min-height: 84px; display: grid; grid-template-rows: auto 38px; background: var(--elevated); border-radius: 6px; padding: 2px 4px 2px 12px; }
 .composer.disabled { opacity: .62; }
 .composer textarea { width: 100%; resize: none; overflow-y: auto; scrollbar-gutter: stable; border: 0; background: transparent; padding: 10px 0; line-height: 22px; max-height: 144px; outline: none; }

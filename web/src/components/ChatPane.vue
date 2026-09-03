@@ -5,6 +5,15 @@ import { ArrowDown, ChevronUp, Hash, Menu, Send, Users } from '@lucide/vue'
 import UserAvatar from './UserAvatar.vue'
 import { useAppStore } from '../stores/app'
 import { useToastStore } from '../stores/toast'
+import {
+  findMentionTrigger,
+  insertMention,
+  listMentionCandidates,
+  realignPendingMentions,
+  retainDismissedMentionTrigger,
+  type MentionTrigger,
+  type PendingMention,
+} from '../mention-autocomplete'
 import { isSlashInput, type CommandFeedback, type SlashSuggestion } from '../slash-commands'
 import type { Message } from '../types'
 
@@ -20,8 +29,18 @@ const sending = ref(false)
 const suggestions = ref<SlashSuggestion[]>([])
 const activeSuggestion = ref(0)
 const suggestionsDismissed = ref(false)
+const pendingMentions = ref<PendingMention[]>([])
+const dismissedMentionTrigger = ref<MentionTrigger | null>(null)
+const mentionCapped = ref(false)
+const suggestionKind = ref<'slash' | 'mention'>('slash')
+const composing = ref(false)
+const composerCaret = ref(0)
+const composerSelectionEnd = ref(0)
+const ignoreContentWatch = ref(false)
 const list = ref<HTMLElement | null>(null)
 const composer = ref<HTMLTextAreaElement | null>(null)
+const suggestionList = ref<HTMLElement | null>(null)
+let textBeforeComposition = ''
 const atBottom = ref(true)
 const dateLabelReference = ref(new Date())
 const liveMessageIds = ref<ReadonlySet<number>>(new Set())
@@ -72,11 +91,19 @@ const totalSize = computed(() => virtualizer.value.getTotalSize())
 onMounted(scheduleDateLabelRefresh)
 
 watch(() => app.activeTextChannelId, async (channelId, previousChannelId) => {
+  restoringChannel = true
   if (typeof previousChannelId === 'number' && list.value) app.setChannelScroll(previousChannelId, list.value.scrollTop, atBottom.value)
   content.value = channelId === null ? '' : app.getChannelDraft(channelId)
+  pendingMentions.value = channelId === null ? [] : app.getChannelDraftMentions(channelId, content.value)
+  if (channelId !== null) persistDraftMentions()
+  closeSuggestions()
+  dismissedMentionTrigger.value = null
+  suggestionsDismissed.value = false
   resizeComposer()
-  if (channelId === null) return
-  restoringChannel = true
+  if (channelId === null) {
+    restoringChannel = false
+    return
+  }
   try {
     await app.loadChannelMessages(channelId)
     await restoreChannelPosition(channelId)
@@ -86,8 +113,15 @@ watch(() => app.activeTextChannelId, async (channelId, previousChannelId) => {
   }
 }, { immediate: true })
 
-watch(content, (value) => {
+watch(content, (value, previous) => {
   if (app.activeTextChannelId !== null) app.setChannelDraft(app.activeTextChannelId, value)
+  if (ignoreContentWatch.value) {
+    ignoreContentWatch.value = false
+    return
+  }
+  if (restoringChannel || composing.value) return
+  if (previous !== undefined) pendingMentions.value = realignPendingMentions(value, previous, pendingMentions.value)
+  persistDraftMentions()
   suggestionsDismissed.value = false
   refreshSuggestions()
 })
@@ -127,23 +161,126 @@ function markLiveMessage(messageID: number) {
   }, 220))
 }
 
+function persistDraftMentions() {
+  if (app.activeTextChannelId === null) return
+  app.setChannelDraftMentions(app.activeTextChannelId, pendingMentions.value)
+}
+
+function closeSuggestions() {
+  suggestions.value = []
+  activeSuggestion.value = 0
+  mentionCapped.value = false
+}
+
+function captureComposerCaret() {
+  const el = composer.value
+  if (!el) return
+  composerCaret.value = el.selectionStart
+  composerSelectionEnd.value = el.selectionEnd
+}
+
+function onComposerCaretMove() {
+  captureComposerCaret()
+  if (!composing.value) refreshSuggestions()
+}
+
 function refreshSuggestions() {
-  if (suggestionsDismissed.value || !isSlashInput(content.value)) {
+  if (composing.value) return
+  captureComposerCaret()
+  if (isSlashInput(content.value)) {
+    dismissedMentionTrigger.value = null
+    suggestionKind.value = 'slash'
+    mentionCapped.value = false
+    if (suggestionsDismissed.value) {
+      closeSuggestions()
+      return
+    }
+    suggestions.value = app.getSlashCommandSuggestions(content.value)
+    if (activeSuggestion.value >= suggestions.value.length) activeSuggestion.value = 0
+    return
+  }
+  suggestionsDismissed.value = false
+  const trigger = findMentionTrigger(content.value, composerCaret.value, {
+    selectionEnd: composerSelectionEnd.value,
+    pending: pendingMentions.value,
+    dismissed: dismissedMentionTrigger.value,
+  })
+  dismissedMentionTrigger.value = retainDismissedMentionTrigger(trigger, dismissedMentionTrigger.value)
+  if (!trigger) {
+    suggestionKind.value = 'slash'
+    closeSuggestions()
+    return
+  }
+  suggestionKind.value = 'mention'
+  const listed = listMentionCandidates({
+    query: trigger.query,
+    members: app.users,
+    selfId: app.user?.id ?? null,
+    pendingUserIds: pendingMentions.value.map((mention) => mention.userId),
+  })
+  if (listed.kind === 'capped') {
+    mentionCapped.value = true
     suggestions.value = []
     activeSuggestion.value = 0
     return
   }
-  suggestions.value = app.getSlashCommandSuggestions(content.value)
+  mentionCapped.value = false
+  if (!listed.members.length) {
+    closeSuggestions()
+    return
+  }
+  suggestions.value = listed.members.map((member) => ({
+    id: `mention-${member.id}`,
+    label: `@${member.username}`,
+    description: member.displayName,
+    value: member.username,
+    mentionUserId: member.id,
+  }))
   if (activeSuggestion.value >= suggestions.value.length) activeSuggestion.value = 0
 }
 
 function acceptSuggestion(suggestion = suggestions.value[activeSuggestion.value]) {
   if (!suggestion) return
+  if (suggestionKind.value === 'mention' && suggestion.mentionUserId !== undefined) {
+    acceptMention(suggestion)
+    return
+  }
+  ignoreContentWatch.value = true
   content.value = suggestion.value
   suggestionsDismissed.value = false
-  activeSuggestion.value = 0
+  dismissedMentionTrigger.value = null
+  closeSuggestions()
   resizeComposer()
-  void nextTick(() => composer.value?.focus())
+  void nextTick(() => {
+    composer.value?.focus()
+    const caret = suggestion.value.length
+    composer.value?.setSelectionRange(caret, caret)
+    captureComposerCaret()
+  })
+}
+
+function acceptMention(suggestion: SlashSuggestion) {
+  const trigger = findMentionTrigger(content.value, composerCaret.value, {
+    selectionEnd: composerSelectionEnd.value,
+    pending: pendingMentions.value,
+  })
+  if (!trigger || suggestion.mentionUserId === undefined) return
+  const member = app.users.find((item) => item.id === suggestion.mentionUserId)
+  if (!member) return
+  const previous = content.value
+  const inserted = insertMention(previous, trigger, member, pendingMentions.value)
+  pendingMentions.value = inserted.pending
+  ignoreContentWatch.value = true
+  content.value = inserted.text
+  persistDraftMentions()
+  dismissedMentionTrigger.value = null
+  closeSuggestions()
+  resizeComposer()
+  void nextTick(() => {
+    composer.value?.focus()
+    composer.value?.setSelectionRange(inserted.caret, inserted.caret)
+    captureComposerCaret()
+  })
 }
 
 async function send() {
@@ -164,7 +301,7 @@ async function send() {
         focusComposer()
       }
     } else {
-      await app.sendMessage(value, channelId, guildId)
+      await app.sendMessage(value, channelId, guildId, pendingMentions.value.map((mention) => mention.userId))
       clearCurrentInput(channelId, guildId)
     }
   } catch (error) {
@@ -178,8 +315,14 @@ async function send() {
 
 function clearCurrentInput(channelId: number, guildId: number) {
   app.setChannelDraft(channelId, '', guildId)
+  app.setChannelDraftMentions(channelId, [], guildId)
   if (app.activeGuildId !== guildId || app.activeTextChannelId !== channelId) return
+  pendingMentions.value = []
+  ignoreContentWatch.value = true
   content.value = ''
+  dismissedMentionTrigger.value = null
+  suggestionsDismissed.value = false
+  closeSuggestions()
   resizeComposer()
 }
 
@@ -187,17 +330,47 @@ function focusComposer() {
   void nextTick(() => composer.value?.focus())
 }
 
+function onComposerBlur() {
+  closeSuggestions()
+}
+
+function onCompositionStart() {
+  composing.value = true
+  textBeforeComposition = content.value
+  closeSuggestions()
+}
+
+function onCompositionEnd() {
+  composing.value = false
+  if (textBeforeComposition !== content.value) {
+    pendingMentions.value = realignPendingMentions(content.value, textBeforeComposition, pendingMentions.value)
+    persistDraftMentions()
+  }
+  captureComposerCaret()
+  refreshSuggestions()
+}
+
 function keydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && suggestions.value.length) {
+  if (composing.value) return
+  const suggestionOpen = mentionCapped.value || suggestions.value.length > 0
+  if (event.key === 'Escape' && suggestionOpen) {
     event.preventDefault()
-    suggestionsDismissed.value = true
-    suggestions.value = []
+    if (suggestionKind.value === 'mention') {
+      dismissedMentionTrigger.value = findMentionTrigger(content.value, composerCaret.value, {
+        selectionEnd: composerSelectionEnd.value,
+        pending: pendingMentions.value,
+      })
+    } else {
+      suggestionsDismissed.value = true
+    }
+    closeSuggestions()
     return
   }
   if (suggestions.value.length && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
     event.preventDefault()
     const delta = event.key === 'ArrowDown' ? 1 : -1
     activeSuggestion.value = (activeSuggestion.value + delta + suggestions.value.length) % suggestions.value.length
+    void nextTick(scrollActiveSuggestionIntoView)
     return
   }
   if (suggestions.value.length && (event.key === 'Tab' || event.key === 'Enter')) {
@@ -209,6 +382,11 @@ function keydown(event: KeyboardEvent) {
     event.preventDefault()
     void send()
   }
+}
+
+function scrollActiveSuggestionIntoView() {
+  const item = suggestionList.value?.querySelector<HTMLElement>('.command-suggestion.active')
+  item?.scrollIntoView({ block: 'nearest' })
 }
 
 function resizeComposer() {
@@ -449,7 +627,16 @@ function roleLabel(role: string) {
     </div>
 
     <footer class="composer-area">
-      <div v-if="suggestions.length" class="command-suggestions" role="listbox" aria-label="指令建议">
+      <div
+        v-if="mentionCapped || suggestions.length"
+        ref="suggestionList"
+        class="command-suggestions"
+        role="listbox"
+        :aria-label="suggestionKind === 'mention' ? '提及建议' : '指令建议'"
+      >
+        <div v-if="mentionCapped" class="command-suggestion mention-cap-hint" role="option" aria-disabled="true">
+          一条最多 @ 10 人
+        </div>
         <button
           v-for="(suggestion, index) in suggestions"
           :key="suggestion.id"
@@ -474,6 +661,12 @@ function roleLabel(role: string) {
           rows="1"
           @input="resizeComposer"
           @keydown="keydown"
+          @keyup="onComposerCaretMove"
+          @click="onComposerCaretMove"
+          @select="onComposerCaretMove"
+          @blur="onComposerBlur"
+          @compositionstart="onCompositionStart"
+          @compositionend="onCompositionEnd"
         />
         <div class="composer-actions">
           <span class="character-count" :class="{ near: content.length > 1800 }">{{ content.length }}/2000</span>

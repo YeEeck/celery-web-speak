@@ -18,6 +18,7 @@ export interface SlashSuggestion {
   label: string
   description: string
   value: string
+  mentionUserId?: number
 }
 
 export interface SlashCommandContext {

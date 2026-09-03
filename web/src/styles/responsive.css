@@ -33,6 +33,7 @@
   .message-row { grid-template-columns: 36px minmax(0,1fr) 30px; padding-left: 10px; column-gap: 9px; }
   .message-row .avatar-wrap { width: 36px !important; height: 36px !important; }
   .channel-intro { min-height: 170px; }.composer-area { padding-left: 8px; padding-right: 8px; }
+  .command-suggestions { max-height: min(224px, 40vh); }
   .character-count { display: none; }
   .modal-backdrop { padding: 0; align-items: stretch; }
   .settings-panel, .admin-panel { width: 100%; max-height: 100%; border: 0; border-radius: 0; }

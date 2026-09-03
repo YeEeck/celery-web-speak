@@ -2,6 +2,12 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { ApiError, getUserProfile as apiGetUserProfile, request } from '../api'
 import type { BootstrapData, Channel, ChannelReadState, ClientType, GuildBootstrapData, GuildMemberPayload, GuildSummary, Message, OnlineClient, PresenceStatus, User, UserProfile, VoiceRoom } from '../types'
+import {
+  channelDraftMentionsKey,
+  parseDraftMentions,
+  serializeDraftMentions,
+  type PendingMention,
+} from '../mention-autocomplete'
 import { getSlashSuggestions, submitSlashCommand, type CommandFeedback, type SlashCommandActions, type SlashSubmitResult, type SlashCommandContext, type VoiceXPSetResponse } from '../slash-commands'
 import { useApplicationSoundStore } from './application-sounds'
 import { activeChannelKey, emptyMessageState, isCompleteUser, mapGuildMember, savedChannelID, savedGuildID, type MessageState } from './app-utils'
@@ -193,10 +199,12 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  async function sendMessage(content: string, channelId = activeTextChannelId.value, guildId = activeGuildId.value) {
+  async function sendMessage(content: string, channelId = activeTextChannelId.value, guildId = activeGuildId.value, mentionedUserIds: number[] = []) {
     if (channelId === null || guildId === null) return
+    const body: { content: string; mentionedUserIds?: number[] } = { content }
+    if (mentionedUserIds.length) body.mentionedUserIds = mentionedUserIds
     await request<{ message: Message }>(`/api/guilds/${guildId}/channels/${channelId}/messages`, {
-      method: 'POST', body: JSON.stringify({ content }),
+      method: 'POST', body: JSON.stringify(body),
     })
   }
 
@@ -348,6 +356,16 @@ export const useAppStore = defineStore('app', () => {
   function setChannelDraft(channelId: number, value: string, guildId = activeGuildId.value) {
     const key = `cws.guild.${guildId ?? 0}.channelDraft.${channelId}`
     if (value) localStorage.setItem(key, value)
+    else localStorage.removeItem(key)
+  }
+
+  function getChannelDraftMentions(channelId: number, text: string, guildId = activeGuildId.value) {
+    return parseDraftMentions(localStorage.getItem(channelDraftMentionsKey(guildId ?? 0, channelId)), text)
+  }
+
+  function setChannelDraftMentions(channelId: number, pending: readonly PendingMention[], guildId = activeGuildId.value) {
+    const key = channelDraftMentionsKey(guildId ?? 0, channelId)
+    if (pending.length) localStorage.setItem(key, serializeDraftMentions(pending))
     else localStorage.removeItem(key)
   }
 
@@ -599,7 +617,7 @@ export const useAppStore = defineStore('app', () => {
     voiceRooms, messages, commandFeedbacks, hasEarlierMessages, loadingEarlierMessages, activeUnreadCount,
     channelReadStates, onlineClients, presenceStatuses, socketStatus, moderatorVoiceDisconnect, isGuildAdmin, isPlatformAdmin,
     initialize, bootstrap, loadGuildBootstrap, selectGuild, login, register, logout, selectTextChannel, loadChannelMessages, requestVoiceRoomsRefresh: socket.requestVoiceRoomsRefresh,
-    sendMessage, executeSlashCommand, getSlashCommandSuggestions, addCommandFeedback, getUserProfile, setGuildMemberVoiceXP, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, setMyStatusSetting, setMyCallReceiving, sendSocketMessage, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft,
+    sendMessage, executeSlashCommand, getSlashCommandSuggestions, addCommandFeedback, getUserProfile, setGuildMemberVoiceXP, loadEarlier, markChannelRead, markActiveChannelRead, updateProfile, setMyStatusSetting, setMyCallReceiving, sendSocketMessage, updateAvatar, deleteAvatar, getChannelDraft, setChannelDraft, getChannelDraftMentions, setChannelDraftMentions,
     getChannelScroll, setChannelScroll, removeUser,
   }
 })
