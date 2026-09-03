@@ -14,8 +14,11 @@ import {
   type MentionTrigger,
   type PendingMention,
 } from '../mention-autocomplete'
+import { mentionSegments } from '../message-mentions'
 import { isSlashInput, type CommandFeedback, type SlashSuggestion } from '../slash-commands'
 import type { Message } from '../types'
+
+const MENTION_CLICK_SLOP_PX = 4
 
 const monthDayFormatter = new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' })
 const fullDateFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -410,6 +413,40 @@ function openMessageAuthorProfile(message: Message, event: MouseEvent) {
   emit('openProfile', message.userId, trigger, event.clientX || (bounds?.left ?? 0), event.clientY || (bounds?.top ?? 0))
 }
 
+function messageMentionSegments(message: Message) {
+  return mentionSegments(message.content, message.mentions, {
+    currentUserId: app.user?.id ?? null,
+    authorUserId: message.userId,
+  })
+}
+
+let mentionPointer: { x: number; y: number; pointerId: number } | null = null
+
+function onMentionPointerDown(event: PointerEvent) {
+  if (event.button !== 0) {
+    mentionPointer = null
+    return
+  }
+  mentionPointer = { x: event.clientX, y: event.clientY, pointerId: event.pointerId }
+}
+
+function onMentionPointerCancel() {
+  mentionPointer = null
+}
+
+function onMentionPointerUp(userId: number, event: PointerEvent) {
+  const start = mentionPointer
+  mentionPointer = null
+  if (!start || start.pointerId !== event.pointerId || event.button !== 0) return
+  const dx = event.clientX - start.x
+  const dy = event.clientY - start.y
+  if ((dx * dx) + (dy * dy) > MENTION_CLICK_SLOP_PX * MENTION_CLICK_SLOP_PX) return
+  const selection = window.getSelection()
+  if (selection && !selection.isCollapsed && selection.toString() !== '') return
+  const trigger = event.currentTarget as HTMLElement | null
+  emit('openProfile', userId, trigger, event.clientX, event.clientY)
+}
+
 async function loadEarlierMessages() {
   const anchorID = app.messages[0]?.id
   const anchorOffset = anchorID === undefined ? null : messageOffset(anchorID)
@@ -604,7 +641,19 @@ function roleLabel(role: string) {
                     <span v-if="roleLabel(row.message.role)" :class="['role-chip', row.message.role]">{{ roleLabel(row.message.role) }}</span>
                     <time><span class="time-short">{{ formatTime(row.message.createdAt) }}</span><span class="time-full">{{ formatFullTime(row.message.createdAt) }}</span></time>
                   </header>
-                  <p>{{ row.message.content }}</p>
+                  <p>
+                    <template v-for="(segment, index) in messageMentionSegments(row.message)" :key="index">
+                      <span
+                        v-if="segment.kind === 'mention'"
+                        :class="['message-mention', { 'message-mention-self': segment.self }]"
+                        @pointerdown="onMentionPointerDown"
+                        @pointerup="onMentionPointerUp(segment.userId, $event)"
+                        @pointercancel="onMentionPointerCancel"
+                        @dblclick="onMentionPointerCancel"
+                      >{{ segment.text }}</span>
+                      <template v-else>{{ segment.text }}</template>
+                    </template>
+                  </p>
                 </div>
               </article>
             </template>
