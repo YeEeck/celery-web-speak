@@ -6,9 +6,11 @@ import {
   type DesktopVoiceOverlayBridge,
   type VoiceOverlayConfig,
   type VoiceOverlayParticipant,
+  type VoiceOverlayPokePrompt,
   type VoiceOverlayState,
 } from '../audio/voiceOverlayBridge.ts'
 import type { User } from '../types.ts'
+import { usePokePromptStore } from './poke-prompt.ts'
 import type { VoiceParticipant } from './voice-utils.ts'
 import { getSavedBoolean, saveBoolean } from './voice-utils.ts'
 
@@ -28,6 +30,7 @@ export interface VoiceOverlayContext {
 }
 
 export function useVoiceOverlay(ctx: VoiceOverlayContext) {
+  const pokePrompts = usePokePromptStore()
   const supported = ref(false)
   const enabled = ref(getSavedBoolean(VOICE_OVERLAY_ENABLED_KEY, false))
   const shortcutEnabled = ref(getSavedBoolean(VOICE_OVERLAY_SHORTCUT_KEY, true))
@@ -38,6 +41,8 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
   let pendingTimer: ReturnType<typeof setTimeout> | null = null
   let configTimer: ReturnType<typeof setTimeout> | null = null
   let lastUrgentSignature: string | null = null
+  // 已送给浮层的最新一句 id；该句消失后不把 store 里剩下的上一条再抬出来。
+  let pokePromptFloorId = 0
 
   async function initializeVoiceOverlay() {
     if (initialized) return
@@ -72,6 +77,10 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
     )
     watch(
       () => [ctx.status(), ctx.connectedChannelName()],
+      () => pushNow(),
+    )
+    watch(
+      () => pokePrompts.prompts[0]?.id ?? null,
       () => pushNow(),
     )
   }
@@ -131,14 +140,27 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
     }
   }
 
+  function currentPokePrompt(): VoiceOverlayPokePrompt | undefined {
+    const latest = pokePrompts.prompts[0]
+    if (!latest || latest.id < pokePromptFloorId) return undefined
+    pokePromptFloorId = latest.id
+    return { displayName: latest.displayName }
+  }
+
   function buildState(): VoiceOverlayState {
     const connected = ctx.status() === 'connected' || ctx.status() === 'reconnecting'
     const channelName = ctx.connectedChannelName()
-    if (!connected || !channelName) return { channel: null, participants: [] }
+    const pokePrompt = currentPokePrompt()
+    if (!connected || !channelName) {
+      return pokePrompt
+        ? { channel: null, participants: [], pokePrompt }
+        : { channel: null, participants: [] }
+    }
     const users = new Map(ctx.connectedUsers().map((user) => [user.id, user]))
     return {
       channel: { name: channelName },
       participants: ctx.participants().map((participant) => toOverlayParticipant(participant, users)),
+      ...(pokePrompt ? { pokePrompt } : {}),
     }
   }
 
@@ -158,7 +180,7 @@ export function useVoiceOverlay(ctx: VoiceOverlayContext) {
 // Vue 的 ref 对对象值做深响应式（reactive proxy），Electron IPC 结构化克隆无法
 // 克隆 Proxy，发送前必须剥离为纯普通对象。
 function toPlainState(state: VoiceOverlayState): VoiceOverlayState {
-  return {
+  const plain: VoiceOverlayState = {
     channel: state.channel ? { name: state.channel.name } : null,
     participants: state.participants.map((participant) => ({
       identity: participant.identity,
@@ -170,6 +192,10 @@ function toPlainState(state: VoiceOverlayState): VoiceOverlayState {
       deafened: participant.deafened,
     })),
   }
+  if (state.pokePrompt) {
+    plain.pokePrompt = { displayName: state.pokePrompt.displayName }
+  }
+  return plain
 }
 
 function loadSavedConfig(): VoiceOverlayConfig {

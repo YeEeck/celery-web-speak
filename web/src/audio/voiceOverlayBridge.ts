@@ -17,9 +17,15 @@ export interface VoiceOverlayParticipant {
   deafened: boolean
 }
 
+export interface VoiceOverlayPokePrompt {
+  displayName: string
+}
+
 export interface VoiceOverlayState {
   channel: { name: string } | null
   participants: VoiceOverlayParticipant[]
+  /** 当前最新一句戳一下提示；缺省时旧浮层页忽略。不升桌面壳协议。 */
+  pokePrompt?: VoiceOverlayPokePrompt
 }
 
 export interface VoiceOverlayConfig {

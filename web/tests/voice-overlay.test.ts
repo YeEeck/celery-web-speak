@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createPinia, setActivePinia } from 'pinia'
 import { nextTick, ref } from 'vue'
 import {
   DEFAULT_VOICE_OVERLAY_CONFIG,
@@ -8,6 +9,7 @@ import {
   VOICE_OVERLAY_SHORTCUT_KEY,
   useVoiceOverlay,
 } from '../src/stores/voice-overlay.ts'
+import { usePokePromptStore } from '../src/stores/poke-prompt.ts'
 import type { DesktopVoiceOverlayBridge, VoiceOverlayConfig, VoiceOverlayState } from '../src/audio/voiceOverlayBridge.ts'
 import type { VoiceParticipant } from '../src/stores/voice-utils.ts'
 import type { User } from '../src/types.ts'
@@ -71,10 +73,23 @@ function installBridge(bridge: FakeBridge): void {
     value: {
       location: { origin: 'https://voice.example.com' },
       desktopVoiceOverlay,
+      setTimeout: (handler: TimerHandler, timeout?: number) => globalThis.setTimeout(handler, timeout),
+      clearTimeout: (id?: ReturnType<typeof setTimeout>) => globalThis.clearTimeout(id),
     },
     configurable: true,
     writable: true,
   })
+}
+
+function lastPushedState(bridge: FakeBridge): VoiceOverlayState {
+  const push = bridge.calls.findLast((call) => call.type === 'push') as { state: VoiceOverlayState } | undefined
+  assert.ok(push, 'expected a pushState call')
+  return push.state
+}
+
+function clearPokePrompts() {
+  const store = usePokePromptStore()
+  for (const item of [...store.prompts]) store.dismiss(item.id)
 }
 
 function user(id: number, hasAvatar = false): User {
@@ -117,6 +132,7 @@ function participant(identity: string, name: string, overrides: Partial<VoicePar
 
 function createFixture(prefEnabled = false, protocol = 3, preseedConfig?: VoiceOverlayConfig) {
   memoryStore.clear()
+  setActivePinia(createPinia())
   if (prefEnabled) memoryStore.set(VOICE_OVERLAY_ENABLED_KEY, 'true')
   if (preseedConfig) memoryStore.set(VOICE_OVERLAY_CONFIG_KEY, JSON.stringify(preseedConfig))
   const bridge = fakeBridge()
@@ -172,6 +188,7 @@ test('voice overlay: 快捷键偏好默认开启并持久化开关', async () =>
 })
 
 test('voice overlay: 无桥环境不暴露能力且不推送', async () => {
+  setActivePinia(createPinia())
   Object.defineProperty(globalThis, 'window', { value: {}, configurable: true, writable: true })
   const status = ref<'idle' | 'connecting' | 'connected' | 'reconnecting' | 'error'>('connected')
   const channelName = ref('大厅')
@@ -413,4 +430,68 @@ test('voice overlay config: 旧协议壳（<3）整体不可用，损坏存储�
   t.mock.timers.tick(100)
   assert.equal(bridge.calls.some((call) => call.type === 'setConfig'), false)
   t.mock.timers.reset()
+})
+
+test('voice overlay: 戳一下提示把最新一句作为可选字段推给浮层', async () => {
+  const { bridge, overlay } = createFixture(true)
+  const pokePrompts = usePokePromptStore()
+  pokePrompts.push(10, '甲')
+  pokePrompts.push(20, '乙')
+  await overlay.initializeVoiceOverlay()
+  const state = lastPushedState(bridge)
+  assert.deepEqual(state.pokePrompt, { displayName: '乙' })
+  assert.equal(state.channel, null)
+  assert.deepEqual(state.participants, [])
+  assert.equal(Object.getPrototypeOf(state.pokePrompt), Object.prototype)
+  clearPokePrompts()
+})
+
+test('voice overlay: 没有戳一下提示时不带 pokePrompt 字段', async () => {
+  const { bridge, overlay } = createFixture(true)
+  await overlay.initializeVoiceOverlay()
+  const state = lastPushedState(bridge)
+  assert.deepEqual(state, { channel: null, participants: [] })
+  assert.equal('pokePrompt' in state, false)
+})
+
+test('voice overlay: 已开启的空白浮层在提示出现时立刻推送最新一句', async () => {
+  const { bridge, overlay } = createFixture(true)
+  await overlay.initializeVoiceOverlay()
+  const before = bridge.calls.filter((call) => call.type === 'push').length
+  usePokePromptStore().push(10, '甲')
+  await nextTick()
+  assert.equal(bridge.calls.filter((call) => call.type === 'push').length, before + 1)
+  const state = lastPushedState(bridge)
+  assert.equal(state.channel, null)
+  assert.deepEqual(state.participants, [])
+  assert.deepEqual(state.pokePrompt, { displayName: '甲' })
+  clearPokePrompts()
+})
+
+test('voice overlay: 提示到期后下一推不带 pokePrompt，也不把上一条再抬出来', async () => {
+  const { bridge, overlay } = createFixture(true)
+  const pokePrompts = usePokePromptStore()
+  pokePrompts.push(10, '甲')
+  pokePrompts.push(20, '乙')
+  await overlay.initializeVoiceOverlay()
+  assert.deepEqual(lastPushedState(bridge).pokePrompt, { displayName: '乙' })
+  const latestId = pokePrompts.prompts[0]!.id
+  pokePrompts.dismiss(latestId)
+  await nextTick()
+  assert.equal(pokePrompts.prompts[0]?.displayName, '甲')
+  const state = lastPushedState(bridge)
+  assert.equal('pokePrompt' in state, false)
+  assert.deepEqual(state, { channel: null, participants: [] })
+  clearPokePrompts()
+})
+
+test('voice overlay: 加入语音时仍只带最新一句戳一下提示', async () => {
+  const { bridge } = await joinFixture()
+  usePokePromptStore().push(10, '甲')
+  await nextTick()
+  const state = lastPushedState(bridge)
+  assert.equal(state.channel?.name, '大厅')
+  assert.equal(state.participants.length, 3)
+  assert.deepEqual(state.pokePrompt, { displayName: '甲' })
+  clearPokePrompts()
 })

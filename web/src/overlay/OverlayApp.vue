@@ -87,6 +87,18 @@ function avatarColor(name: string): string {
     :style="{ zoom: config.scalePercent / 100 }"
   >
     <li
+      v-if="state.pokePrompt"
+      class="poke-prompt"
+      role="status"
+      aria-live="polite"
+      :aria-label="`${state.pokePrompt.displayName} 戳了你一下`"
+    >
+      <span class="poke-prompt-text" aria-hidden="true">
+        <span class="poke-prompt-name">{{ state.pokePrompt.displayName }}</span>
+        <span class="poke-prompt-suffix">戳了你一下</span>
+      </span>
+    </li>
+    <li
       v-for="participant in state.participants"
       :key="participant.identity"
       class="participant"
@@ -140,6 +152,43 @@ html, body {
   padding: 0;
   list-style: none;
   width: 280px;
+  max-width: 280px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.poke-prompt {
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--overlay-row-bg);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-size: 13px;
+}
+
+.poke-prompt-text {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.poke-prompt-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poke-prompt-suffix {
+  flex: 0 0 auto;
+  margin-left: 0.25em;
 }
 
 .participant {
