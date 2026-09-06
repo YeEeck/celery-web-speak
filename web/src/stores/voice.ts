@@ -134,8 +134,7 @@ export const useVoiceStore = defineStore('voice', () => {
     connectionReset: () => muteDeafenRef.current?.connectionReset(),
     transportRecovered: () => muteDeafenRef.current ? muteDeafenRef.current.transportRecovered() : Promise.resolve(),
     notifyPreferenceChange: () => muteDeafenRef.current?.notifyPreferenceChange(),
-    // 编排器采集跟会话输入（有活动连接时），避免会话中首选重现时跳回首选。
-    resolvedPreferredInputDeviceId: () => devicesRef.current?.followInputDeviceId.value ?? '',
+    followInputDeviceId: () => devicesRef.current?.followInputDeviceId.value ?? '',
     resolvedPreferredOutputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('output') ?? '',
     followOutputDeviceId: () => devicesRef.current?.followOutputDeviceId.value ?? '',
     activeOutputDeviceId: () => devicesRef.current?.activeOutputId.value ?? null,
@@ -358,8 +357,7 @@ export const useVoiceStore = defineStore('voice', () => {
     cancelRequest: (callId) => request<void>(`/api/calls/${callId}/cancel`, { method: 'POST' }),
     hangupRequest: (callId) => request<void>(`/api/calls/${callId}/hangup`, { method: 'POST' }),
     fetchCallToken: (callId) => request<VoiceCredentials>(`/api/calls/${callId}/token`, { method: 'POST' }),
-    // 通话编排器采集同样跟会话输入，与频道侧同一跟随语义。
-    resolvedPreferredInputDeviceId: () => devicesRef.current?.followInputDeviceId.value ?? '',
+    followInputDeviceId: () => devicesRef.current?.followInputDeviceId.value ?? '',
     resolvedPreferredOutputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('output') ?? '',
     echoCancellation: () => echoCancellation.value,
     microphoneGainInitial: () => microphoneGain.value,

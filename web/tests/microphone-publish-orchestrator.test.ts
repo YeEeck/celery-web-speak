@@ -141,7 +141,7 @@ function makeOrchestrator(initial: {
     gain: 1,
     noiseSuppressionOption: options.noiseSuppressionOption,
     webRtcNoiseSuppression: options.webRtcNoiseSuppression,
-    resolvedPreferredInputDeviceId: () => 'default',
+    inputDeviceId: () => 'default',
     echoCancellation: () => true,
     publishSettings: options.publishSettings,
     isAudioContextAvailable: options.isAudioContextAvailable,

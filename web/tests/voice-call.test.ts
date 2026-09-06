@@ -245,7 +245,7 @@ function makeHarness(): Harness {
     setTemporaryBlockRequest: async (userId) => { harness.blockRequests.push({ userId }) },
     cancelRequest: async () => { harness.cancelCalls += 1 },
     hangupRequest: async () => { harness.hangupCalls += 1 },
-    resolvedPreferredInputDeviceId: () => state.inputDeviceId,
+    followInputDeviceId: () => state.inputDeviceId,
     resolvedPreferredOutputDeviceId: () => state.outputDeviceId,
     echoCancellation: () => state.echoCancellation,
     microphoneEnabledPreference: () => state.microphoneEnabledPreference.value,

@@ -389,7 +389,7 @@ function makeHarness(): Harness {
     connectionReset: () => { state.connectionResetCalls += 1 },
     transportRecovered: async () => { state.transportRecoveredCalls += 1 },
     notifyPreferenceChange: () => { state.notifyPreferenceChangeCalls += 1 },
-    resolvedPreferredInputDeviceId: () => state.inputDeviceId,
+    followInputDeviceId: () => state.inputDeviceId,
     resolvedPreferredOutputDeviceId: () => state.outputDeviceId,
     followOutputDeviceId: () => state.followOutputDeviceId,
     activeOutputDeviceId: () => state.activeOutputDeviceId,

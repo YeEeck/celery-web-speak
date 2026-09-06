@@ -83,7 +83,8 @@ export interface VoiceSessionContext {
   transportRecovered(): Promise<void>
   notifyPreferenceChange(): void
 
-  resolvedPreferredInputDeviceId(): string
+  // 当前应跟随的输入：有活动语音连接时为会话输入，否则为解析后的首选。
+  followInputDeviceId(): string
   resolvedPreferredOutputDeviceId(): string
   // 当前应跟随的输出：有活动语音连接时为会话输出，否则为解析后的首选。
   followOutputDeviceId(): string
@@ -154,7 +155,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     gain: ctx.microphoneGainInitial(),
     noiseSuppressionOption: () => ctx.noiseSuppressionOption(),
     webRtcNoiseSuppression: () => ctx.noiseSuppression(),
-    resolvedPreferredInputDeviceId: () => ctx.resolvedPreferredInputDeviceId(),
+    inputDeviceId: () => ctx.followInputDeviceId(),
     beginCaptureSelfStop: () => ctx.beginCaptureSelfStop(),
     endCaptureSelfStop: () => ctx.endCaptureSelfStop(),
     echoCancellation: () => ctx.echoCancellation(),

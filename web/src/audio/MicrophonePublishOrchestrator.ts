@@ -50,7 +50,7 @@ export interface MicrophonePublishOrchestratorOptions {
   gain: number
   noiseSuppressionOption(): NoiseSuppressionOption
   webRtcNoiseSuppression(): boolean
-  resolvedPreferredInputDeviceId(): string
+  inputDeviceId(): string
   echoCancellation(): boolean
   publishSettings(): { audioBitrateKbps: number; audioRedEnabled: boolean }
   isAudioContextAvailable(): boolean
@@ -125,7 +125,7 @@ export class MicrophonePublishOrchestrator {
     const noiseSuppression = noiseSuppressionOverride
       ?? (option === 'rnnoise' && this.rnnoiseFallback ? true : this.options.webRtcNoiseSuppression())
     return buildMicrophoneCaptureOptions({
-      deviceId: this.options.resolvedPreferredInputDeviceId(),
+      deviceId: this.options.inputDeviceId(),
       echoCancellation: this.options.echoCancellation(),
       noiseSuppression,
     })

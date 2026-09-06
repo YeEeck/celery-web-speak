@@ -61,7 +61,8 @@ export interface VoiceCallContext {
   fetchCallToken(callId: string): Promise<VoiceCredentials>
 
   // 设备/采集偏好。麦克风发布走本会话的编排器实例（ADR-0034）。
-  resolvedPreferredInputDeviceId(): string
+  // 当前应跟随的输入：有活动语音连接时为会话输入，否则为解析后的首选。
+  followInputDeviceId(): string
   resolvedPreferredOutputDeviceId(): string
   echoCancellation(): boolean
   microphoneEnabledPreference(): boolean
@@ -106,7 +107,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
       ctx.noiseSuppressionOption(),
       callAudioContext !== null && callAudioContext.state !== 'closed' && callAudioContext.sampleRate === 48_000,
     ),
-    resolvedPreferredInputDeviceId: () => ctx.resolvedPreferredInputDeviceId(),
+    inputDeviceId: () => ctx.followInputDeviceId(),
     beginCaptureSelfStop: () => ctx.beginCaptureSelfStop(),
     endCaptureSelfStop: () => ctx.endCaptureSelfStop(),
     echoCancellation: () => ctx.echoCancellation(),
