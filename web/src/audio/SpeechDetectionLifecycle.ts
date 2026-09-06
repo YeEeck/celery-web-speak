@@ -4,10 +4,10 @@ export interface SpeechDetectionLifecycleOptions {
   engine: SpeechDetectionEngine
   // 生命周期存活：登录且浏览器已授予麦克风权限。
   isActive: () => boolean
-  // 当前应跟随的输入设备（空串表示浏览器默认设备）。
+  // 当前应跟随的输入设备（空串表示系统默认设备）。
   inputDeviceId: () => string
   // 输入路由世代：真正重绑（含系统默认强制重建）时递增；名单刷新不递增。
-  inputRoutingGeneration?: () => number
+  inputRoutingGeneration: () => number
   // 订阅环境事件（标签页可见、设备变化），返回退订函数。
   subscribeRetryEvents: (listener: () => void) => () => void
 }
@@ -37,7 +37,7 @@ export class SpeechDetectionLifecycle {
     return {
       active: this.options.isActive(),
       deviceId: this.options.inputDeviceId(),
-      routingGeneration: this.options.inputRoutingGeneration?.() ?? 0,
+      routingGeneration: this.options.inputRoutingGeneration(),
     }
   }
 
@@ -53,7 +53,7 @@ export class SpeechDetectionLifecycle {
       return
     }
     const deviceId = this.options.inputDeviceId()
-    const generation = this.options.inputRoutingGeneration?.() ?? 0
+    const generation = this.options.inputRoutingGeneration()
     if (this.lastSyncedGeneration !== null && generation !== this.lastSyncedGeneration) {
       this.lastSyncedGeneration = generation
       void this.engine.restart(deviceId)

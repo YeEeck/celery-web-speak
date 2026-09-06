@@ -258,6 +258,8 @@ function makeHarness(): Harness {
     removeAudioElements: () => { harness.removeAllCalls += 1 },
     applyAudioSink: (_element, deviceId) => { harness.audioSinks.push(deviceId) },
     notifyCaptureTrackEnded: () => undefined,
+    beginCaptureSelfStop: () => undefined,
+    endCaptureSelfStop: () => undefined,
   }
   harness.call = useVoiceCall(harness.ctx)
   return harness

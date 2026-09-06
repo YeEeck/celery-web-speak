@@ -60,6 +60,9 @@ export interface MicrophonePublishOrchestratorOptions {
   loadRnnoiseBinary(): Promise<ArrayBuffer | null>
   createRnnoiseNode?: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
   onError?(message: string, error?: unknown): void
+  // 重建采集会停掉旧 MediaStreamTrack；通知语音设备管理忽略随后的 ended，避免当成设备世界变了。
+  beginCaptureSelfStop?: () => void
+  endCaptureSelfStop?: () => void
 }
 
 const MICROPHONE_SOURCE = 'microphone'
@@ -104,6 +107,16 @@ export class MicrophonePublishOrchestrator {
 
   setGain(gain: number) {
     this.processor.setGain(gain)
+  }
+
+  private async restartCaptureTrack(track: MicrophoneTrackPort, options?: unknown) {
+    this.options.beginCaptureSelfStop?.()
+    try {
+      await track.restartTrack(options)
+    } finally {
+      const end = this.options.endCaptureSelfStop
+      if (end) void Promise.resolve().then(end)
+    }
   }
 
   // 初始采集约束（加入会话时创建 Room 的 audioCaptureDefaults 用）。
@@ -188,7 +201,7 @@ export class MicrophonePublishOrchestrator {
       await this.detachPipelineForUnavailableAudioContext(existingTrack)
       if (!this.isCurrent(revision, session, target)) return
       if (existingTrack.constraints.noiseSuppression !== captureOptions.noiseSuppression) {
-        await existingTrack.restartTrack(captureOptions)
+        await this.restartCaptureTrack(existingTrack, captureOptions)
         if (!this.isCurrent(revision, session, target)) return
       }
     }
@@ -222,7 +235,7 @@ export class MicrophonePublishOrchestrator {
         // setMicrophoneEnabled(false/true) only mutes an existing publication and
         // ignores publishOptions. Reacquire the source first, then explicitly
         // republish the same track so DTX/bitrate/RED changes reach LiveKit.
-        await microphoneTrack.restartTrack(captureOptions)
+        await this.restartCaptureTrack(microphoneTrack, captureOptions)
         if (!this.isCurrent(revision, session, target)) return
         await this.attachPath(revision, session, target)
         if (!this.isCurrent(revision, session, target)) return
@@ -271,7 +284,7 @@ export class MicrophonePublishOrchestrator {
         if (!this.isCurrent(revision, session, target)) return
         const captureOptions = this.buildCaptureOptions()
         if (track.constraints.noiseSuppression !== captureOptions.noiseSuppression) {
-          await track.restartTrack(captureOptions)
+          await this.restartCaptureTrack(track, captureOptions)
           if (!this.isCurrent(revision, session, target)) return
         }
       }

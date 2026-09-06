@@ -399,6 +399,8 @@ function makeHarness(): Harness {
     refreshDevices: async () => { state.refreshDevicesCalls += 1 },
     applyPreferredDevicesToRoom: async () => { state.applyPreferredDevicesCalls += 1 },
     notifyCaptureTrackEnded: () => undefined,
+    beginCaptureSelfStop: () => undefined,
+    endCaptureSelfStop: () => undefined,
     stopApplicationAudio: async () => undefined,
     republishBackgroundAudio: async () => undefined,
     applicationAudioHasActiveTrack: () => false,

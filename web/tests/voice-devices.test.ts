@@ -934,6 +934,42 @@ test('点选进行中到来的自动信号等点选结束后再解析', async ()
   assert.ok(!room.switchCalls.some((call) => call.id === DEFAULT_DEVICE_ID))
 })
 
+test('点选进行中到来的 ended 等点选结束后再解析', async () => {
+  const h = makeHarness({ preseeInput: { deviceId: 'mic-1', label: '麦克风 1' } })
+  const room = makeRoom()
+  room.active.audioinput = 'mic-1'
+  h.roomRef.value = room
+  h.inputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Mic', 'audioinput', 'group-a'),
+    device('mic-1', '麦克风 1', 'audioinput'),
+    device('mic-2', '麦克风 2', 'audioinput'),
+  ]
+  h.outputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Spk', 'audiooutput', 'group-a'),
+  ]
+  await h.module.refreshDevices(false)
+  room.switchCalls = []
+  h.restarts.length = 0
+  const generation = h.module.inputRoutingGeneration.value
+
+  room.pending.push({
+    resolve: (resolve) => {
+      void h.module.notifyDeviceWorldMayHaveChanged('ended')
+      assert.deepEqual(room.switchCalls, [{ kind: 'audioinput', id: 'mic-2' }])
+      assert.deepEqual(h.restarts, [])
+      resolve(true)
+    },
+  })
+
+  const switched = await h.module.switchInput('mic-2')
+  assert.equal(switched, true)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(h.module.activeInputId.value, 'mic-2')
+  assert.ok(room.switchCalls.filter((call) => call.id === 'mic-2').length >= 2)
+  assert.ok(h.module.inputRoutingGeneration.value > generation)
+  assert.equal(h.module.deviceChangeError.value, '')
+})
+
 test('ended 即使身份未变也全局重绑', async () => {
   const h = makeHarness()
   const room = makeRoom()

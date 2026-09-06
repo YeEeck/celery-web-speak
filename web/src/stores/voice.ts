@@ -149,6 +149,8 @@ export const useVoiceStore = defineStore('voice', () => {
     notifyCaptureTrackEnded: () => {
       void devicesRef.current?.notifyDeviceWorldMayHaveChanged('ended')
     },
+    beginCaptureSelfStop: () => devicesRef.current?.beginCaptureSelfStop(),
+    endCaptureSelfStop: () => devicesRef.current?.endCaptureSelfStop(),
     stopApplicationAudio: () => appAudioRef.current ? appAudioRef.current.stopApplicationAudio() : Promise.resolve(),
     republishBackgroundAudio: () => appAudioRef.current ? appAudioRef.current.republishBackgroundAudio() : Promise.resolve(),
     applicationAudioHasActiveTrack: () => appAudioRef.current?.hasActiveTrack() ?? false,
@@ -380,6 +382,8 @@ export const useVoiceStore = defineStore('voice', () => {
     notifyCaptureTrackEnded: () => {
       void devicesRef.current?.notifyDeviceWorldMayHaveChanged('ended')
     },
+    beginCaptureSelfStop: () => devicesRef.current?.beginCaptureSelfStop(),
+    endCaptureSelfStop: () => devicesRef.current?.endCaptureSelfStop(),
   })
   callRef.current = call
 

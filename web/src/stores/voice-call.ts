@@ -75,8 +75,10 @@ export interface VoiceCallContext {
   appendAudioElement(element: HTMLAudioElement): void
   removeAudioElements(): void
   applyAudioSink(element: HTMLAudioElement, deviceId: string): void
-  // 本机麦克风发布轨 ended → 语音设备管理全局入口（设备模块自己不抓轨）
+  // 本机麦克风发布轨 ended → 语音设备管理全局入口（模块自己不抓轨）
   notifyCaptureTrackEnded(): void
+  beginCaptureSelfStop(): void
+  endCaptureSelfStop(): void
 }
 
 export function useVoiceCall(ctx: VoiceCallContext) {
@@ -105,6 +107,8 @@ export function useVoiceCall(ctx: VoiceCallContext) {
       callAudioContext !== null && callAudioContext.state !== 'closed' && callAudioContext.sampleRate === 48_000,
     ),
     resolvedPreferredInputDeviceId: () => ctx.resolvedPreferredInputDeviceId(),
+    beginCaptureSelfStop: () => ctx.beginCaptureSelfStop(),
+    endCaptureSelfStop: () => ctx.endCaptureSelfStop(),
     echoCancellation: () => ctx.echoCancellation(),
     publishSettings: () => ({ audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS, audioRedEnabled: true }),
     isAudioContextAvailable: () => callAudioContext !== null && callAudioContext.state !== 'closed',
@@ -335,24 +339,25 @@ export function useVoiceCall(ctx: VoiceCallContext) {
 
   const watchedCaptureTracks = new WeakSet<MediaStreamTrack>()
 
-  function watchLocalMicCaptureEnded(publication: LocalTrackPublication) {
+  function watchLocalMicCaptureEnded(publication: LocalTrackPublication, target: Room) {
     if (publication.source !== Track.Source.Microphone) return
     const mediaTrack = publication.track?.mediaStreamTrack
     if (!mediaTrack || watchedCaptureTracks.has(mediaTrack)) return
     watchedCaptureTracks.add(mediaTrack)
     mediaTrack.addEventListener('ended', () => {
+      if (room !== target) return
       ctx.notifyCaptureTrackEnded()
     })
   }
 
   function bindRoom(target: Room) {
     const existingMic = target.localParticipant.getTrackPublication(Track.Source.Microphone)
-    if (existingMic) watchLocalMicCaptureEnded(existingMic)
+    if (existingMic) watchLocalMicCaptureEnded(existingMic, target)
     target
       .on(RoomEvent.TrackSubscribed, attachTrack)
       .on(RoomEvent.TrackUnsubscribed, detachTrack)
       .on(RoomEvent.LocalTrackPublished, (publication) => {
-        watchLocalMicCaptureEnded(publication)
+        watchLocalMicCaptureEnded(publication, target)
       })
       .on(RoomEvent.Reconnecting, () => {
         if (room !== target) return

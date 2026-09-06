@@ -248,7 +248,9 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
   }
 
   function shouldIgnoreEnded() {
-    return captureSelfStopDepth > 0 || deviceRefreshPromise !== null || deviceChangingKind.value !== null
+    // 自停与重绑进行中的 ended 是旧轨被停。点选进行中的 ended 仍要排队，
+    // 等点选结束后再解析（与 devicechange/freeze 同一规则）。
+    return captureSelfStopDepth > 0 || deviceRefreshPromise !== null
   }
 
   async function initializeDevices() {

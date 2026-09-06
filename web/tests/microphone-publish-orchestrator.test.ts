@@ -122,6 +122,8 @@ function makeOrchestrator(initial: {
   publishSettings?: () => { audioBitrateKbps: number; audioRedEnabled: boolean }
   isSessionLive?: () => boolean
   onError?: (message: string, error?: unknown) => void
+  beginCaptureSelfStop?: () => void
+  endCaptureSelfStop?: () => void
 } = {}) {
   const defaults = {
     noiseSuppressionOption: () => 'rnnoise' as NoiseSuppressionOption,
@@ -131,6 +133,8 @@ function makeOrchestrator(initial: {
     loadRnnoiseBinary: async () => null as ArrayBuffer | null,
     publishSettings: () => ({ audioBitrateKbps: 96, audioRedEnabled: true }),
     isSessionLive: () => true,
+    beginCaptureSelfStop: undefined as (() => void) | undefined,
+    endCaptureSelfStop: undefined as (() => void) | undefined,
   }
   const options = { ...defaults, ...initial }
   const orchestrator = new MicrophonePublishOrchestrator({
@@ -145,6 +149,8 @@ function makeOrchestrator(initial: {
     isSessionLive: options.isSessionLive,
     loadRnnoiseBinary: options.loadRnnoiseBinary,
     onError: options.onError,
+    beginCaptureSelfStop: options.beginCaptureSelfStop,
+    endCaptureSelfStop: options.endCaptureSelfStop,
   })
   const target: MicrophonePublishTarget = {
     localParticipant: new FakeParticipant(),
@@ -181,6 +187,27 @@ test('解除静音且约束未变时不 restartTrack', async () => {
   assert.deepEqual(track.restartCalls, [])
   assert.deepEqual(participant.calls, ['setMicrophoneEnabled:true'])
   assert.equal(participant.isMicrophoneEnabled, true)
+})
+
+test('restartTrack 前后通知采集自停，避免 ended 被当成设备世界变化', async () => {
+  const selfStop: string[] = []
+  const { orchestrator, target } = makeOrchestrator({
+    noiseSuppressionOption: () => 'rnnoise',
+    webRtcNoiseSuppression: () => false,
+    beginCaptureSelfStop: () => selfStop.push('begin'),
+    endCaptureSelfStop: () => selfStop.push('end'),
+  })
+  const participant = target.localParticipant as unknown as FakeParticipant
+  const track = attachTrack(participant)
+  participant.isMicrophoneEnabled = false
+  orchestrator.beginSession(target)
+  await orchestrator.applyMicrophoneState({ enabled: true })
+  assert.ok(track.restartCalls.length >= 1)
+  await tick()
+  const begins = selfStop.filter((item) => item === 'begin')
+  const ends = selfStop.filter((item) => item === 'end')
+  assert.ok(begins.length >= 1)
+  assert.equal(begins.length, ends.length)
 })
 
 test('解除静音且约束过期时先 restartTrack 再 setMicrophoneEnabled', async () => {
