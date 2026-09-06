@@ -76,6 +76,9 @@ interface Harness {
   sinks: string[]
   restarts: Array<{ room: FakeRoom, deviceId: string }>
   permissionRequests: { count: number }
+  deviceChangeListeners: Array<() => void>
+  freezeResumeListeners: Array<() => void>
+  freezeInstall: { current: 'record' | 'noop' }
 }
 
 function makeHarness(initial: {
@@ -100,7 +103,9 @@ function makeHarness(initial: {
   const extraConnections = ref<VoiceLiveConnection[]>([])
   const inputDevicesRef = ref<MediaDeviceInfo[]>([])
   const outputDevicesRef = ref<MediaDeviceInfo[]>([])
-  const listeners: Array<() => void> = []
+  const deviceChangeListeners: Array<() => void> = []
+  const freezeResumeListeners: Array<() => void> = []
+  const freezeInstall: Harness['freezeInstall'] = { current: 'record' }
 
   const ctx: VoiceDevicesContext = {
     liveConnections: () => {
@@ -125,7 +130,11 @@ function makeHarness(initial: {
       kind === 'audioinput' ? inputDevicesRef.value : outputDevicesRef.value,
     ),
     listenDeviceChange: (callback) => {
-      listeners.push(callback)
+      deviceChangeListeners.push(callback)
+    },
+    listenPageFreezeResume: (callback) => {
+      if (freezeInstall.current === 'noop') return
+      freezeResumeListeners.push(callback)
     },
     supportsOutputSelection: () => supportsOutput.current,
     applyOutputSink: (deviceId) => {
@@ -157,6 +166,9 @@ function makeHarness(initial: {
     sinks,
     restarts,
     permissionRequests,
+    deviceChangeListeners,
+    freezeResumeListeners,
+    freezeInstall,
   } as unknown as Harness
 }
 
@@ -947,4 +959,141 @@ test('ended 即使身份未变也全局重绑', async () => {
   assert.equal(h.module.inputRoutingGeneration.value, generation + 1)
   assert.equal(h.module.preferredInputId.value, DEFAULT_DEVICE_ID)
   assert.equal(h.module.deviceChangeError.value, '')
+})
+
+test('freeze 占用与默认身份未变时不切流只更新名单', async () => {
+  const h = makeHarness()
+  const room = makeRoom()
+  room.active.audioinput = DEFAULT_DEVICE_ID
+  h.roomRef.value = room
+  h.inputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Mic', 'audioinput', 'group-a'),
+    device('mic-1', '麦克风 1', 'audioinput'),
+  ]
+  h.outputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Spk', 'audiooutput', 'group-a'),
+  ]
+  await h.module.refreshDevices(false)
+  room.switchCalls = []
+  h.restarts.length = 0
+  const generation = h.module.inputRoutingGeneration.value
+
+  h.inputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Mic', 'audioinput', 'group-a'),
+    device('mic-1', '麦克风 1', 'audioinput'),
+    device('mic-usb', 'USB 声卡', 'audioinput'),
+  ]
+  await h.module.notifyDeviceWorldMayHaveChanged('freeze')
+
+  assert.deepEqual(room.switchCalls, [])
+  assert.deepEqual(h.restarts, [])
+  assert.equal(h.module.activeInputId.value, DEFAULT_DEVICE_ID)
+  assert.equal(h.module.inputRoutingGeneration.value, generation)
+  assert.equal(h.module.inputDevices.value.length, 3)
+})
+
+test('freeze 首选系统默认且默认身份变化时重绑', async () => {
+  const h = makeHarness()
+  const room = makeRoom()
+  room.active.audioinput = DEFAULT_DEVICE_ID
+  room.switchResult = () => false
+  h.roomRef.value = room
+  h.inputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Mic', 'audioinput', 'group-a'),
+    device('mic-1', '麦克风 1', 'audioinput'),
+  ]
+  h.outputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Spk', 'audiooutput', 'group-a'),
+  ]
+  await h.module.refreshDevices(false)
+  room.switchCalls = []
+  h.restarts.length = 0
+  const generation = h.module.inputRoutingGeneration.value
+
+  h.inputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Mic', 'audioinput', 'group-b'),
+    device('mic-1', '麦克风 1', 'audioinput'),
+  ]
+  await h.module.notifyDeviceWorldMayHaveChanged('freeze')
+
+  assert.deepEqual(room.switchCalls, [{ kind: 'audioinput', id: DEFAULT_DEVICE_ID }])
+  assert.deepEqual(h.restarts, [{ room, deviceId: DEFAULT_DEVICE_ID }])
+  assert.equal(h.module.inputRoutingGeneration.value, generation + 1)
+  assert.equal(h.module.preferredInputId.value, DEFAULT_DEVICE_ID)
+})
+
+test('initializeDevices 安装 freeze 适配器一次；无 freeze API 时仍可用 devicechange 与 ended', async () => {
+  const withFreeze = makeHarness()
+  await withFreeze.module.initializeDevices()
+  await withFreeze.module.initializeDevices()
+  assert.equal(withFreeze.deviceChangeListeners.length, 1)
+  assert.equal(withFreeze.freezeResumeListeners.length, 1)
+  assert.equal(withFreeze.permissionRequests.count, 1)
+
+  const withoutFreeze = makeHarness()
+  withoutFreeze.freezeInstall.current = 'noop'
+  withoutFreeze.inputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Mic', 'audioinput', 'group-a'),
+  ]
+  withoutFreeze.outputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Spk', 'audiooutput', 'group-a'),
+  ]
+  await withoutFreeze.module.initializeDevices()
+  assert.equal(withoutFreeze.freezeResumeListeners.length, 0)
+  assert.equal(withoutFreeze.deviceChangeListeners.length, 1)
+
+  const room = makeRoom()
+  room.active.audioinput = DEFAULT_DEVICE_ID
+  room.switchResult = () => false
+  withoutFreeze.roomRef.value = room
+  await withoutFreeze.module.refreshDevices(false)
+  room.switchCalls = []
+  withoutFreeze.restarts.length = 0
+  const generation = withoutFreeze.module.inputRoutingGeneration.value
+
+  withoutFreeze.deviceChangeListeners[0]!()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  assert.equal(withoutFreeze.module.inputRoutingGeneration.value, generation)
+
+  await withoutFreeze.module.notifyDeviceWorldMayHaveChanged('ended')
+  assert.ok(room.switchCalls.some((call) => call.kind === 'audioinput' && call.id === DEFAULT_DEVICE_ID))
+  assert.deepEqual(withoutFreeze.restarts, [{ room, deviceId: DEFAULT_DEVICE_ID }])
+  assert.equal(withoutFreeze.module.inputRoutingGeneration.value, generation + 1)
+})
+
+test('重绑进行中到来的 ended 不排队成第二次 always-rebind', async () => {
+  const h = makeHarness()
+  const room = makeRoom()
+  room.active.audioinput = DEFAULT_DEVICE_ID
+  room.switchResult = () => false
+  h.roomRef.value = room
+  h.inputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Mic', 'audioinput', 'group-a'),
+    device('mic-1', '麦克风 1', 'audioinput'),
+  ]
+  h.outputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Spk', 'audiooutput', 'group-a'),
+  ]
+  await h.module.refreshDevices(false)
+  room.switchCalls = []
+  h.restarts.length = 0
+  const generation = h.module.inputRoutingGeneration.value
+
+  h.inputDevicesRef.value = [
+    device(DEFAULT_DEVICE_ID, 'Default Mic', 'audioinput', 'group-b'),
+    device('mic-1', '麦克风 1', 'audioinput'),
+  ]
+  room.pending.push({
+    resolve: (resolve) => {
+      void h.module.notifyDeviceWorldMayHaveChanged('ended')
+      resolve(false)
+    },
+  })
+
+  await h.module.notifyDeviceWorldMayHaveChanged('devicechange')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  assert.deepEqual(room.switchCalls, [{ kind: 'audioinput', id: DEFAULT_DEVICE_ID }])
+  assert.deepEqual(h.restarts, [{ room, deviceId: DEFAULT_DEVICE_ID }])
+  assert.equal(h.module.inputRoutingGeneration.value, generation + 1)
 })

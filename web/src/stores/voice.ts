@@ -94,6 +94,9 @@ export const useVoiceStore = defineStore('voice', () => {
   // 见 detectionLifecycle，消费方只订阅不参与启停。
   const speechDetection = new SpeechDetectionEngine({
     onError: (error) => console.warn('说话检测已停用', error),
+    onCaptureEnded: () => {
+      void devicesRef.current?.notifyDeviceWorldMayHaveChanged('ended')
+    },
   })
 
   const session = useVoiceSession({
@@ -143,6 +146,9 @@ export const useVoiceStore = defineStore('voice', () => {
     applyPreferredDevicesToRoom: (room, voiceSession) => devicesRef.current
       ? devicesRef.current.applyPreferredDevicesToRoom(room, voiceSession)
       : Promise.resolve(),
+    notifyCaptureTrackEnded: () => {
+      void devicesRef.current?.notifyDeviceWorldMayHaveChanged('ended')
+    },
     stopApplicationAudio: () => appAudioRef.current ? appAudioRef.current.stopApplicationAudio() : Promise.resolve(),
     republishBackgroundAudio: () => appAudioRef.current ? appAudioRef.current.republishBackgroundAudio() : Promise.resolve(),
     applicationAudioHasActiveTrack: () => appAudioRef.current?.hasActiveTrack() ?? false,
@@ -255,6 +261,18 @@ export const useVoiceStore = defineStore('voice', () => {
     listenDeviceChange: (callback) => {
       navigator.mediaDevices?.addEventListener('devicechange', callback)
     },
+    listenPageFreezeResume: (callback) => {
+      if (!('onfreeze' in document)) return
+      let frozen = false
+      document.addEventListener('freeze', () => {
+        frozen = true
+      })
+      document.addEventListener('resume', () => {
+        if (!frozen) return
+        frozen = false
+        callback()
+      })
+    },
     supportsOutputSelection: () => supportsAudioOutputSelection(),
     applyOutputSink: (deviceId) => {
       document.querySelectorAll<HTMLAudioElement>('#voice-audio-root audio, #call-audio-root audio').forEach((element) => {
@@ -265,12 +283,21 @@ export const useVoiceStore = defineStore('voice', () => {
       })
     },
     restartRoomInput: async (room, deviceId) => {
-      const publication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
-      const track = publication?.track
-      if (!track || !('restartTrack' in track)) return
-      await (track as { restartTrack: (options?: unknown) => Promise<void> }).restartTrack({
-        deviceId: { exact: deviceId },
-      })
+      const devicesModule = devicesRef.current
+      devicesModule?.beginCaptureSelfStop()
+      try {
+        const publication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
+        const track = publication?.track
+        if (!track || !('restartTrack' in track)) return
+        await (track as { restartTrack: (options?: unknown) => Promise<void> }).restartTrack({
+          deviceId: { exact: deviceId },
+        })
+      } finally {
+        // ended 可能在 stop 后的微任务到达；延后一拍解除自停忽略
+        void Promise.resolve().then(() => {
+          devicesModule?.endCaptureSelfStop()
+        })
+      }
     },
     syncSoundPlayback: session.syncApplicationSoundPlayback,
     notifyPreferenceChange: muteDeafen.notifyPreferenceChange,
@@ -350,6 +377,9 @@ export const useVoiceStore = defineStore('voice', () => {
       element.muted = muted
     }),
     applyAudioSink: (element, deviceId) => void setAudioSink(element, deviceId),
+    notifyCaptureTrackEnded: () => {
+      void devicesRef.current?.notifyDeviceWorldMayHaveChanged('ended')
+    },
   })
   callRef.current = call
 

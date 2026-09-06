@@ -3,6 +3,7 @@ import {
   Room,
   RoomEvent,
   Track,
+  type LocalTrackPublication,
   type Participant,
   RemoteAudioTrack,
   type RemoteParticipant,
@@ -92,6 +93,8 @@ export interface VoiceSessionContext {
   initializeDevices(): Promise<boolean>
   refreshDevices(force: boolean): Promise<void>
   applyPreferredDevicesToRoom(room: Room, voiceSession: number): Promise<void>
+  // 本机麦克风发布轨 ended → 语音设备管理全局入口（设备模块自己不抓轨）
+  notifyCaptureTrackEnded(): void
 
   stopApplicationAudio(): Promise<void>
   republishBackgroundAudio(): Promise<void>
@@ -467,7 +470,21 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     })
   }
 
+  const watchedCaptureTracks = new WeakSet<MediaStreamTrack>()
+
+  function watchLocalMicCaptureEnded(publication: LocalTrackPublication) {
+    if (publication.source !== Track.Source.Microphone) return
+    const mediaTrack = publication.track?.mediaStreamTrack
+    if (!mediaTrack || watchedCaptureTracks.has(mediaTrack)) return
+    watchedCaptureTracks.add(mediaTrack)
+    mediaTrack.addEventListener('ended', () => {
+      ctx.notifyCaptureTrackEnded()
+    })
+  }
+
   function bindRoom(target: Room) {
+    const existingMic = target.localParticipant.getTrackPublication(Track.Source.Microphone)
+    if (existingMic) watchLocalMicCaptureEnded(existingMic)
     target
       .on(RoomEvent.TrackSubscribed, attachTrack)
       .on(RoomEvent.TrackUnsubscribed, detachTrack)
@@ -478,7 +495,10 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
       .on(RoomEvent.TrackUnpublished, syncParticipants)
       .on(RoomEvent.TrackMuted, syncParticipants)
       .on(RoomEvent.TrackUnmuted, syncParticipants)
-      .on(RoomEvent.LocalTrackPublished, syncParticipants)
+      .on(RoomEvent.LocalTrackPublished, (publication) => {
+        watchLocalMicCaptureEnded(publication)
+        syncParticipants()
+      })
       .on(RoomEvent.LocalTrackUnpublished, syncParticipants)
       .on(RoomEvent.ParticipantAttributesChanged, syncParticipants)
       .on(RoomEvent.ConnectionQualityChanged, syncParticipants)

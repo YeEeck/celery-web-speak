@@ -28,6 +28,8 @@ export interface VoiceDevicesContext {
   requestMicPermission: () => Promise<boolean>
   getLocalDevices: (kind: MediaDeviceKind) => Promise<MediaDeviceInfo[]>
   listenDeviceChange: (callback: () => void) => void
+  // 有 Page Lifecycle freeze 时订 freeze→resume；没有则 adapter 应为 no-op
+  listenPageFreezeResume: (callback: () => void) => void
   supportsOutputSelection: () => boolean
   applyOutputSink: (deviceId: string) => void
   restartRoomInput: (room: Room, deviceId: string) => Promise<void>
@@ -66,6 +68,9 @@ export interface VoiceDevicesModule {
   switchOutput: (deviceId: string) => Promise<boolean>
   refreshDevices: (requestPermissions?: boolean) => Promise<void>
   notifyDeviceWorldMayHaveChanged: (reason: DeviceWorldChangeReason) => Promise<void>
+  // restartTrack / 自停采集会同步触发轨 ended；忽略期间到来的 ended，避免重绑环
+  beginCaptureSelfStop: () => void
+  endCaptureSelfStop: () => void
   initializeDevices: () => Promise<boolean>
   requestMicrophonePermission: () => Promise<boolean>
   resolvedPreferredDeviceId: (kind: DeviceKind) => string
@@ -117,6 +122,7 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
   let permissionRequestPromise: Promise<boolean> | null = null
   let deviceRefreshPromise: Promise<void> | null = null
   let queuedWorldChange: DeviceWorldChangeReason | null = null
+  let captureSelfStopDepth = 0
   let inputDefaultIdentity: DefaultIdentitySnapshot | undefined
   let outputDefaultIdentity: DefaultIdentitySnapshot | undefined
 
@@ -229,10 +235,27 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
     void notifyDeviceWorldMayHaveChanged('devicechange')
   }
 
+  function handlePageFreezeResume() {
+    void notifyDeviceWorldMayHaveChanged('freeze')
+  }
+
+  function beginCaptureSelfStop() {
+    captureSelfStopDepth += 1
+  }
+
+  function endCaptureSelfStop() {
+    captureSelfStopDepth = Math.max(0, captureSelfStopDepth - 1)
+  }
+
+  function shouldIgnoreEnded() {
+    return captureSelfStopDepth > 0 || deviceRefreshPromise !== null || deviceChangingKind.value !== null
+  }
+
   async function initializeDevices() {
     if (!deviceListenersInstalled) {
       deviceListenersInstalled = true
       ctx.listenDeviceChange(handleDeviceChange)
+      ctx.listenPageFreezeResume(handlePageFreezeResume)
     }
     if (!deviceInitializationPromise) deviceInitializationPromise = requestMicrophonePermission()
     return deviceInitializationPromise
@@ -421,6 +444,8 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
   }
 
   async function notifyDeviceWorldMayHaveChanged(reason: DeviceWorldChangeReason) {
+    // 自停 / 重绑进行中的 ended 是旧轨被停，不是新的设备世界信号；丢掉避免 always-rebind 环
+    if (reason === 'ended' && shouldIgnoreEnded()) return
     if (deviceChangingKind.value !== null) {
       queuedWorldChange = mergeQueuedReason(queuedWorldChange, reason)
       return
@@ -503,6 +528,8 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
     switchOutput: (deviceId) => switchDevice('output', deviceId),
     refreshDevices,
     notifyDeviceWorldMayHaveChanged,
+    beginCaptureSelfStop,
+    endCaptureSelfStop,
     initializeDevices,
     requestMicrophonePermission,
     resolvedPreferredDeviceId,

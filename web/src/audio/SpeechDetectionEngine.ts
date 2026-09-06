@@ -7,6 +7,19 @@ export type SpeechFrameListener = (speaking: boolean, frameDurationMs: number) =
 
 export interface SpeechDetectionEngineCallbacks {
   onError: (error: Error) => void
+  // 浏览器主动结束采集轨（拔出、幽灵设备等）时通知；自停（stop/restart）不得触发
+  onCaptureEnded?: () => void
+}
+
+// 采集轨 ended 适配边界：自停路径通过 isSelfStop 屏蔽，避免 stop/restart 触发全局重绑环
+export function bindCaptureTrackEnded(
+  track: Pick<MediaStreamTrack, 'addEventListener'>,
+  options: { onEnded: () => void; isSelfStop: () => boolean },
+) {
+  track.addEventListener('ended', () => {
+    if (options.isSelfStop()) return
+    options.onEnded()
+  })
 }
 
 // SpeechDetectionEngine 是常开的本地说话检测引擎：一条麦克风采集流、一个
@@ -28,6 +41,8 @@ export class SpeechDetectionEngine {
   private listeners = new Set<SpeechFrameListener>()
   private failureListeners = new Set<() => void>()
   private callbacks: SpeechDetectionEngineCallbacks
+  // stop/restart/release 会 track.stop() 并同步触发 ended；置位期间不通知 onCaptureEnded
+  private selfStopping = false
   // 并发启动守卫：start 在启动完成前重复调用时复用进行中的启动，避免同设备
   // 并发开出多条采集流（生命周期 sync 在异步窗口内可能连续触发）。
   private startPromise: Promise<boolean> | null = null
@@ -123,13 +138,17 @@ export class SpeechDetectionEngine {
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints })
       if (operation !== this.operation) {
-        stopStream(stream)
+        this.stopStreamSelf(stream)
         return false
       }
       this.stream = stream
       const track = stream.getAudioTracks()[0]
       if (!track) throw new Error('未取得麦克风音轨')
       track.contentHint = 'speech'
+      bindCaptureTrackEnded(track, {
+        onEnded: () => this.callbacks.onCaptureEnded?.(),
+        isSelfStop: () => this.selfStopping,
+      })
 
       const context = new AudioContext({ sampleRate: SAMPLE_RATE })
       this.context = context
@@ -195,6 +214,15 @@ export class SpeechDetectionEngine {
     this.callbacks.onError(error)
   }
 
+  private stopStreamSelf(stream: MediaStream | null) {
+    this.selfStopping = true
+    try {
+      stopStream(stream)
+    } finally {
+      this.selfStopping = false
+    }
+  }
+
   private releaseResources() {
     this.source?.disconnect()
     this.source = null
@@ -205,7 +233,7 @@ export class SpeechDetectionEngine {
     this.silence = null
     this.worker?.terminate()
     this.worker = null
-    stopStream(this.stream)
+    this.stopStreamSelf(this.stream)
     this.stream = null
     const context = this.context
     this.context = null

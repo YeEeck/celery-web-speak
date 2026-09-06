@@ -4,6 +4,7 @@ import {
   RoomEvent,
   Track,
   RemoteAudioTrack,
+  type LocalTrackPublication,
   type RemoteParticipant,
   type RemoteTrack,
   type RemoteTrackPublication,
@@ -74,6 +75,8 @@ export interface VoiceCallContext {
   appendAudioElement(element: HTMLAudioElement): void
   removeAudioElements(): void
   applyAudioSink(element: HTMLAudioElement, deviceId: string): void
+  // 本机麦克风发布轨 ended → 语音设备管理全局入口（设备模块自己不抓轨）
+  notifyCaptureTrackEnded(): void
 }
 
 export function useVoiceCall(ctx: VoiceCallContext) {
@@ -330,10 +333,27 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     }
   }
 
+  const watchedCaptureTracks = new WeakSet<MediaStreamTrack>()
+
+  function watchLocalMicCaptureEnded(publication: LocalTrackPublication) {
+    if (publication.source !== Track.Source.Microphone) return
+    const mediaTrack = publication.track?.mediaStreamTrack
+    if (!mediaTrack || watchedCaptureTracks.has(mediaTrack)) return
+    watchedCaptureTracks.add(mediaTrack)
+    mediaTrack.addEventListener('ended', () => {
+      ctx.notifyCaptureTrackEnded()
+    })
+  }
+
   function bindRoom(target: Room) {
+    const existingMic = target.localParticipant.getTrackPublication(Track.Source.Microphone)
+    if (existingMic) watchLocalMicCaptureEnded(existingMic)
     target
       .on(RoomEvent.TrackSubscribed, attachTrack)
       .on(RoomEvent.TrackUnsubscribed, detachTrack)
+      .on(RoomEvent.LocalTrackPublished, (publication) => {
+        watchLocalMicCaptureEnded(publication)
+      })
       .on(RoomEvent.Reconnecting, () => {
         if (room !== target) return
         reconnecting.value = true
