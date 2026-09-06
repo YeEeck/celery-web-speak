@@ -71,6 +71,19 @@ export class SpeechDetectionEngine {
     return this.startPromise
   }
 
+  // restart 强制按给定设备重建采集，即使 deviceId 与当前 activeDeviceId 相同
+  // （系统默认改指后 ID 仍是 default，但路由世代已变）。失败态下返回 false。
+  async restart(deviceId?: string) {
+    const device = deviceId ?? 'default'
+    if (this.failed) return false
+    this.activeDeviceId = null
+    const promise = this.restartCapture(device).finally(() => {
+      if (this.startPromise === promise) this.startPromise = null
+    })
+    this.startPromise = promise
+    return promise
+  }
+
   // stop 无条件释放采集与 VAD 资源，只由生命周期在登录退出或权限丢失时调用。
   stop() {
     this.operation += 1

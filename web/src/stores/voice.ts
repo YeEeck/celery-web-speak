@@ -131,8 +131,10 @@ export const useVoiceStore = defineStore('voice', () => {
     connectionReset: () => muteDeafenRef.current?.connectionReset(),
     transportRecovered: () => muteDeafenRef.current ? muteDeafenRef.current.transportRecovered() : Promise.resolve(),
     notifyPreferenceChange: () => muteDeafenRef.current?.notifyPreferenceChange(),
-    resolvedPreferredInputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('input') ?? '',
+    // 编排器采集跟会话输入（有活动连接时），避免会话中首选重现时跳回首选。
+    resolvedPreferredInputDeviceId: () => devicesRef.current?.followInputDeviceId.value ?? '',
     resolvedPreferredOutputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('output') ?? '',
+    followOutputDeviceId: () => devicesRef.current?.followOutputDeviceId.value ?? '',
     activeOutputDeviceId: () => devicesRef.current?.activeOutputId.value ?? null,
     devicePermissionState: () => devicesRef.current?.devicePermissionState.value ?? 'idle',
     supportsOutputSelection: () => devicesRef.current?.supportsOutputSelection ?? false,
@@ -327,7 +329,8 @@ export const useVoiceStore = defineStore('voice', () => {
     cancelRequest: (callId) => request<void>(`/api/calls/${callId}/cancel`, { method: 'POST' }),
     hangupRequest: (callId) => request<void>(`/api/calls/${callId}/hangup`, { method: 'POST' }),
     fetchCallToken: (callId) => request<VoiceCredentials>(`/api/calls/${callId}/token`, { method: 'POST' }),
-    resolvedPreferredInputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('input') ?? '',
+    // 通话编排器采集同样跟会话输入，与频道侧同一跟随语义。
+    resolvedPreferredInputDeviceId: () => devicesRef.current?.followInputDeviceId.value ?? '',
     resolvedPreferredOutputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('output') ?? '',
     echoCancellation: () => echoCancellation.value,
     microphoneGainInitial: () => microphoneGain.value,
@@ -372,13 +375,14 @@ export const useVoiceStore = defineStore('voice', () => {
   })
 
   // 常开说话检测引擎的应用级生命周期（ADR-0024）：登录且麦克风授权时启动，
-  // 退出登录或权限丢失时停止，首选输入设备变化时重启采集；失败后在标签页
-  // 恢复可见、设备变化或权限重新授予时自动重试。
+  // 退出登录或权限丢失时停止；跟随会话输入设备与路由世代变化时重启采集。
+  // 失败后在标签页恢复可见、设备变化或权限重新授予时自动重试（非设备重绑信号）。
   const detectionLifecycle = new SpeechDetectionLifecycle({
     engine: speechDetection,
     isActive: () => useAppStore().user !== null
       && (devicesRef.current?.devicePermissionState.value ?? 'idle') === 'granted',
-    preferredInputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('input') ?? '',
+    inputDeviceId: () => devicesRef.current?.followInputDeviceId.value ?? '',
+    inputRoutingGeneration: () => devicesRef.current?.inputRoutingGeneration.value ?? 0,
     subscribeRetryEvents: (listener) => {
       window.addEventListener('visibilitychange', listener)
       navigator.mediaDevices?.addEventListener('devicechange', listener)

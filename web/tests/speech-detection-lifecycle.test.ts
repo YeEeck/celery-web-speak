@@ -4,6 +4,7 @@ import { SpeechDetectionLifecycle } from '../src/audio/SpeechDetectionLifecycle.
 
 class FakeEngine {
   startCalls: Array<string | undefined> = []
+  restartCalls: Array<string | undefined> = []
   stopCalls = 0
   resetFailureCalls = 0
   failed = false
@@ -19,6 +20,12 @@ class FakeEngine {
   async start(deviceId?: string) {
     if (this.failed) return false
     this.startCalls.push(deviceId)
+    return true
+  }
+
+  async restart(deviceId?: string) {
+    if (this.failed) return false
+    this.restartCalls.push(deviceId)
     return true
   }
 
@@ -41,6 +48,7 @@ interface Harness {
   engine: FakeEngine
   active: boolean
   deviceId: string
+  routingGeneration: number
   retryListeners: Array<() => void>
   lifecycle: SpeechDetectionLifecycle
   emitRetryEvent(): void
@@ -52,6 +60,7 @@ function makeHarness() {
     engine,
     active: false,
     deviceId: '',
+    routingGeneration: 0,
     retryListeners: [],
     lifecycle: null as unknown as SpeechDetectionLifecycle,
     emitRetryEvent() {
@@ -61,7 +70,8 @@ function makeHarness() {
   harness.lifecycle = new SpeechDetectionLifecycle({
     engine,
     isActive: () => harness.active,
-    preferredInputDeviceId: () => harness.deviceId,
+    inputDeviceId: () => harness.deviceId,
+    inputRoutingGeneration: () => harness.routingGeneration,
     subscribeRetryEvents: (listener) => {
       harness.retryListeners.push(listener)
       return () => {
@@ -99,7 +109,23 @@ test('device change restarts capture with the new device', () => {
   h.deviceId = 'mic-2'
   h.lifecycle.sync()
   assert.deepEqual(h.engine.startCalls, ['mic-1', 'mic-2'])
+  assert.deepEqual(h.engine.restartCalls, [])
   assert.equal(h.engine.stopCalls, 0)
+})
+
+test('routing generation change force-restarts capture on the same device', () => {
+  const h = makeHarness()
+  h.active = true
+  h.deviceId = 'default'
+  h.routingGeneration = 1
+  h.lifecycle.sync()
+  assert.deepEqual(h.engine.startCalls, ['default'])
+  assert.deepEqual(h.engine.restartCalls, [])
+
+  h.routingGeneration = 2
+  h.lifecycle.sync()
+  assert.deepEqual(h.engine.startCalls, ['default'])
+  assert.deepEqual(h.engine.restartCalls, ['default'])
 })
 
 test('a failed engine is revived by a retry event', () => {

@@ -268,6 +268,7 @@ interface HarnessState {
   deafenChanging: Ref<boolean>
   inputDeviceId: string
   outputDeviceId: string
+  followOutputDeviceId: string
   activeOutputDeviceId: string | null
   devicePermissionState: 'idle' | 'requesting' | 'granted' | 'denied'
   reminderAudible: boolean
@@ -322,6 +323,7 @@ function makeHarness(): Harness {
     deafenChanging: ref(false),
     inputDeviceId: 'default',
     outputDeviceId: 'default',
+    followOutputDeviceId: 'default',
     activeOutputDeviceId: null,
     devicePermissionState: 'granted',
     reminderAudible: true,
@@ -389,6 +391,7 @@ function makeHarness(): Harness {
     notifyPreferenceChange: () => { state.notifyPreferenceChangeCalls += 1 },
     resolvedPreferredInputDeviceId: () => state.inputDeviceId,
     resolvedPreferredOutputDeviceId: () => state.outputDeviceId,
+    followOutputDeviceId: () => state.followOutputDeviceId,
     activeOutputDeviceId: () => state.activeOutputDeviceId,
     devicePermissionState: () => state.devicePermissionState,
     supportsOutputSelection: () => true,
@@ -509,6 +512,21 @@ test('leave disconnects, clears state and notifies the guild', async () => {
   assert.equal(h.removeAllCalls, 1)
   assert.ok(h.signals.includes('voice-self-left'))
   assert.ok(h.followPlaybackCalls.some((call) => call.deafened === false))
+})
+
+test('in-session sound playback follows session output, not a reappeared preferred', async () => {
+  const h = makeHarness()
+  h.state.followOutputDeviceId = 'session-out'
+  h.state.outputDeviceId = 'preferred-back'
+  h.state.activeOutputDeviceId = 'session-out'
+  await h.session.join(7)
+  h.followPlaybackCalls.length = 0
+  h.session.syncApplicationSoundPlayback()
+  assert.deepEqual(h.followPlaybackCalls, [{
+    deafened: false,
+    channelDeafened: false,
+    outputDeviceId: 'session-out',
+  }])
 })
 
 test('disconnected event ends the session locally', async () => {

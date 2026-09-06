@@ -84,6 +84,8 @@ export interface VoiceSessionContext {
 
   resolvedPreferredInputDeviceId(): string
   resolvedPreferredOutputDeviceId(): string
+  // 当前应跟随的输出：有活动语音连接时为会话输出，否则为解析后的首选。
+  followOutputDeviceId(): string
   activeOutputDeviceId(): string | null
   devicePermissionState(): 'idle' | 'requesting' | 'granted' | 'denied'
   supportsOutputSelection(): boolean
@@ -460,9 +462,8 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
       // 全局耳机静音偏好单独传递：通话提示音只受它约束，不受频道作用域叠加约束。
       deafened: ctx.deafenedPreference(),
       channelDeafened: ctx.channelDeafened(),
-      outputDeviceId: room !== null && status.value !== 'connecting'
-        ? (ctx.activeOutputDeviceId() ?? '')
-        : ctx.resolvedPreferredOutputDeviceId(),
+      // 跟随会话输出（有活动连接）或解析后的首选；入会中首选重现也不切回。
+      outputDeviceId: ctx.followOutputDeviceId(),
     })
   }
 
