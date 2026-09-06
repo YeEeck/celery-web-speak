@@ -13,6 +13,7 @@ import {
 
 export type DevicePermissionState = 'idle' | 'requesting' | 'granted' | 'denied'
 export type DeviceKind = 'input' | 'output'
+export type DeviceWorldChangeReason = 'devicechange' | 'ended' | 'freeze'
 
 export interface VoiceLiveConnection {
   room: Room
@@ -29,6 +30,7 @@ export interface VoiceDevicesContext {
   listenDeviceChange: (callback: () => void) => void
   supportsOutputSelection: () => boolean
   applyOutputSink: (deviceId: string) => void
+  restartRoomInput: (room: Room, deviceId: string) => Promise<void>
 
   // 跨模块回调
   syncSoundPlayback: () => void
@@ -54,16 +56,39 @@ export interface VoiceDevicesModule {
   readonly inputDeviceOptions: ComputedRef<VoiceDeviceOption[]>
   readonly outputDeviceOptions: ComputedRef<VoiceDeviceOption[]>
   readonly supportsOutputSelection: boolean
+  readonly followInputDeviceId: ComputedRef<string>
+  readonly followOutputDeviceId: ComputedRef<string>
+  readonly inputRoutingGeneration: Ref<number>
+  readonly outputRoutingGeneration: Ref<number>
 
   // 领域入口
   switchInput: (deviceId: string) => Promise<boolean>
   switchOutput: (deviceId: string) => Promise<boolean>
   refreshDevices: (requestPermissions?: boolean) => Promise<void>
+  notifyDeviceWorldMayHaveChanged: (reason: DeviceWorldChangeReason) => Promise<void>
   initializeDevices: () => Promise<boolean>
   requestMicrophonePermission: () => Promise<boolean>
   resolvedPreferredDeviceId: (kind: DeviceKind) => string
   applyPreferredDevicesToRoom: (target: Room, session: number) => Promise<void>
   devicePreference: (kind: DeviceKind) => VoiceDevicePreference
+}
+
+type DefaultIdentitySnapshot = string | null
+
+function readDefaultIdentity(devices: MediaDeviceInfo[]): DefaultIdentitySnapshot {
+  const entry = devices.find((device) => device.deviceId === DEFAULT_DEVICE_ID)
+  if (!entry) return null
+  if (entry.groupId) return `g:${entry.groupId}`
+  if (entry.label) return `l:${entry.label}`
+  return null
+}
+
+function mergeQueuedReason(
+  current: DeviceWorldChangeReason | null,
+  next: DeviceWorldChangeReason,
+): DeviceWorldChangeReason {
+  if (current === 'ended' || next === 'ended') return 'ended'
+  return next
 }
 
 export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
@@ -84,11 +109,16 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
   const deviceChangeErrorKind = ref<DeviceKind | null>(null)
   const deviceChangingKind = ref<DeviceKind | null>(null)
   const deviceChangingId = ref('')
+  const inputRoutingGeneration = ref(0)
+  const outputRoutingGeneration = ref(0)
 
   let deviceListenersInstalled = false
   let deviceInitializationPromise: Promise<boolean> | null = null
   let permissionRequestPromise: Promise<boolean> | null = null
   let deviceRefreshPromise: Promise<void> | null = null
+  let queuedWorldChange: DeviceWorldChangeReason | null = null
+  let inputDefaultIdentity: DefaultIdentitySnapshot | undefined
+  let outputDefaultIdentity: DefaultIdentitySnapshot | undefined
 
   if (!outputDeviceSelectionSupported && savedOutputDevice.deviceId !== DEFAULT_DEVICE_ID) {
     saveDevicePreference(PREFERRED_OUTPUT_DEVICE_KEY, { deviceId: DEFAULT_DEVICE_ID, label: '系统默认' })
@@ -139,6 +169,20 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
     return available ? preference.deviceId : DEFAULT_DEVICE_ID
   }
 
+  const followInputDeviceId = computed(() => {
+    if (ctx.liveConnections().length > 0) {
+      return activeInputId.value || resolvedPreferredDeviceId('input')
+    }
+    return resolvedPreferredDeviceId('input')
+  })
+
+  const followOutputDeviceId = computed(() => {
+    if (ctx.liveConnections().length > 0) {
+      return activeOutputId.value || resolvedPreferredDeviceId('output')
+    }
+    return resolvedPreferredDeviceId('output')
+  })
+
   function setPreferredDevice(kind: DeviceKind, preference: VoiceDevicePreference) {
     if (kind === 'input') {
       preferredInputId.value = preference.deviceId
@@ -182,7 +226,7 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
   }
 
   function handleDeviceChange() {
-    void refreshDevices(false)
+    void notifyDeviceWorldMayHaveChanged('devicechange')
   }
 
   async function initializeDevices() {
@@ -192,6 +236,13 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
     }
     if (!deviceInitializationPromise) deviceInitializationPromise = requestMicrophonePermission()
     return deviceInitializationPromise
+  }
+
+  function flushQueuedWorldChange() {
+    if (queuedWorldChange === null || deviceChangingKind.value !== null) return
+    const reason = queuedWorldChange
+    queuedWorldChange = null
+    void notifyDeviceWorldMayHaveChanged(reason)
   }
 
   async function switchDevice(kind: DeviceKind, deviceId: string) {
@@ -248,21 +299,146 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
         deviceChangingKind.value = null
         deviceChangingId.value = ''
       }
+      flushQueuedWorldChange()
     }
   }
 
-  function settleActiveId(kind: DeviceKind) {
-    const listed = switchableConnections()
-    if (listed.length === 0) return
+  function occupancyFor(kind: DeviceKind) {
+    return kind === 'input' ? activeInputId.value : activeOutputId.value
+  }
+
+  function targetFor(kind: DeviceKind) {
+    const resolved = resolvedPreferredDeviceId(kind)
+    const occupancy = occupancyFor(kind)
+    const preference = devicePreference(kind)
+    // 会话已回退到系统默认时，首选具体设备在本次连接内重新出现也不自动切回
+    if (
+      ctx.liveConnections().length > 0
+      && occupancy === DEFAULT_DEVICE_ID
+      && preference.deviceId !== DEFAULT_DEVICE_ID
+      && resolved === preference.deviceId
+    ) {
+      return DEFAULT_DEVICE_ID
+    }
+    return resolved
+  }
+
+  function defaultIdentityRequiresRebind(
+    target: string,
+    identity: DefaultIdentitySnapshot,
+    snapshot: DefaultIdentitySnapshot | undefined,
+  ) {
+    if (target !== DEFAULT_DEVICE_ID) return false
+    if (identity === null) return true
+    return snapshot !== undefined && snapshot !== identity
+  }
+
+  function shouldRebindKind(
+    kind: DeviceKind,
+    reason: DeviceWorldChangeReason,
+    identity: DefaultIdentitySnapshot,
+    snapshot: DefaultIdentitySnapshot | undefined,
+  ) {
+    const target = targetFor(kind)
+    const occupancy = occupancyFor(kind)
+    if (reason === 'ended') return true
+    if (switchableConnections().length > 0 && occupancy !== target) return true
+    return defaultIdentityRequiresRebind(target, identity, snapshot)
+  }
+
+  function storeIdentitySnapshot(kind: DeviceKind, identity: DefaultIdentitySnapshot) {
+    if (identity === null) return
+    if (kind === 'input') inputDefaultIdentity = identity
+    else outputDefaultIdentity = identity
+  }
+
+  async function rebindKindOnConnections(kind: DeviceKind, targetId: string) {
     const kindId = mediaKind(kind)
-    const enumerated = kind === 'input' ? inputDevices.value : outputDevices.value
-    const current = kind === 'input' ? activeInputId.value : activeOutputId.value
-    const inEnum = (id: string) => id === DEFAULT_DEVICE_ID || enumerated.some((device) => device.deviceId === id)
-    if (current && inEnum(current)) return
-    const fromRoom = listed[0]!.room.getActiveDevice(kindId) || DEFAULT_DEVICE_ID
-    const next = inEnum(fromRoom) ? fromRoom : DEFAULT_DEVICE_ID
-    if (kind === 'input') activeInputId.value = next
-    else activeOutputId.value = next
+    for (const connection of switchableConnections()) {
+      if (!isCurrent(connection.room, connection.session)) continue
+      try {
+        const changed = await connection.room.switchActiveDevice(kindId, targetId, true)
+        if (!changed) {
+          if (kind === 'input') await ctx.restartRoomInput(connection.room, targetId)
+          else ctx.applyOutputSink(targetId)
+        } else if (kind === 'output') {
+          ctx.applyOutputSink(targetId)
+        }
+      } catch {
+        // 自动路径按房间尽力，失败吞掉
+      }
+    }
+  }
+
+  async function applyAutoRebind(kind: DeviceKind, targetId: string) {
+    const ready = switchableConnections()
+    await rebindKindOnConnections(kind, targetId)
+    if (kind === 'input') {
+      if (ready.length > 0) activeInputId.value = targetId
+      inputRoutingGeneration.value += 1
+    } else {
+      if (ready.length > 0) activeOutputId.value = targetId
+      outputRoutingGeneration.value += 1
+      ctx.syncSoundPlayback()
+      if (ready.length === 0) ctx.applyOutputSink(targetId)
+    }
+  }
+
+  async function parseThenRebind(reason: DeviceWorldChangeReason) {
+    const [inputResult, outputResult] = await Promise.allSettled([
+      ctx.getLocalDevices('audioinput'),
+      ctx.getLocalDevices('audiooutput'),
+    ])
+    inputDevices.value = inputResult.status === 'fulfilled' ? inputResult.value : []
+    outputDevices.value = outputResult.status === 'fulfilled' ? outputResult.value : []
+
+    const inputIdentity = readDefaultIdentity(inputDevices.value)
+    const outputIdentity = readDefaultIdentity(outputDevices.value)
+    let reboundOutput = false
+
+    const rebindInput = shouldRebindKind('input', reason, inputIdentity, inputDefaultIdentity)
+    if (rebindInput) {
+      await applyAutoRebind('input', targetFor('input'))
+      storeIdentitySnapshot('input', inputIdentity)
+    } else {
+      storeIdentitySnapshot('input', inputIdentity)
+    }
+
+    if (outputDeviceSelectionSupported) {
+      const rebindOutput = shouldRebindKind('output', reason, outputIdentity, outputDefaultIdentity)
+      if (rebindOutput) {
+        await applyAutoRebind('output', targetFor('output'))
+        storeIdentitySnapshot('output', outputIdentity)
+        reboundOutput = true
+      } else {
+        storeIdentitySnapshot('output', outputIdentity)
+      }
+    } else if (ctx.liveConnections().length > 0) {
+      activeOutputId.value = DEFAULT_DEVICE_ID
+    }
+
+    if (!reboundOutput) ctx.syncSoundPlayback()
+  }
+
+  async function notifyDeviceWorldMayHaveChanged(reason: DeviceWorldChangeReason) {
+    if (deviceChangingKind.value !== null) {
+      queuedWorldChange = mergeQueuedReason(queuedWorldChange, reason)
+      return
+    }
+    if (deviceRefreshPromise) {
+      queuedWorldChange = mergeQueuedReason(queuedWorldChange, reason)
+      await deviceRefreshPromise
+      return
+    }
+    deviceRefreshPromise = parseThenRebind(reason).finally(() => {
+      deviceRefreshPromise = null
+      if (queuedWorldChange !== null && deviceChangingKind.value === null) {
+        const next = queuedWorldChange
+        queuedWorldChange = null
+        void notifyDeviceWorldMayHaveChanged(next)
+      }
+    })
+    return deviceRefreshPromise
   }
 
   async function refreshDevices(requestPermissions = false) {
@@ -270,51 +446,7 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
       await requestMicrophonePermission()
       return
     }
-    if (deviceRefreshPromise) return deviceRefreshPromise
-    deviceRefreshPromise = (async () => {
-      const [inputResult, outputResult] = await Promise.allSettled([
-        ctx.getLocalDevices('audioinput'),
-        ctx.getLocalDevices('audiooutput'),
-      ])
-      inputDevices.value = inputResult.status === 'fulfilled' ? inputResult.value : []
-      outputDevices.value = outputResult.status === 'fulfilled' ? outputResult.value : []
-      const listed = switchableConnections()
-      if (listed.length === 0) {
-        ctx.syncSoundPlayback()
-        return
-      }
-      let outputFellBack = false
-      for (const connection of listed) {
-        await fallbackMissingActiveDevice(connection, 'input')
-        if (await fallbackMissingActiveDevice(connection, 'output')) outputFellBack = true
-      }
-      settleActiveId('input')
-      settleActiveId('output')
-      if (outputFellBack) applyOutputDeviceSelection(DEFAULT_DEVICE_ID)
-    })().finally(() => {
-      deviceRefreshPromise = null
-    })
-    return deviceRefreshPromise
-  }
-
-  async function fallbackMissingActiveDevice(connection: VoiceLiveConnection, kind: DeviceKind): Promise<boolean> {
-    if (!isCurrent(connection.room, connection.session)) return false
-    if (kind === 'output' && !outputDeviceSelectionSupported) {
-      activeOutputId.value = DEFAULT_DEVICE_ID
-      return false
-    }
-    const kindId = mediaKind(kind)
-    const roomActive = connection.room.getActiveDevice(kindId)
-    if (!roomActive || roomActive === DEFAULT_DEVICE_ID) return false
-    const enumerated = kind === 'input' ? inputDevices.value : outputDevices.value
-    if (enumerated.some((device) => device.deviceId === roomActive)) return false
-    try {
-      await connection.room.switchActiveDevice(kindId, DEFAULT_DEVICE_ID, true)
-      return kind === 'output'
-    } catch {
-      // The browser or LiveKit keeps its own fallback when an explicit switch is unavailable.
-      return false
-    }
+    return notifyDeviceWorldMayHaveChanged('devicechange')
   }
 
   async function applyPreferredDevicesToRoom(target: Room, session: number) {
@@ -363,9 +495,14 @@ export function useVoiceDevices(ctx: VoiceDevicesContext): VoiceDevicesModule {
     inputDeviceOptions,
     outputDeviceOptions,
     supportsOutputSelection: outputDeviceSelectionSupported,
+    followInputDeviceId,
+    followOutputDeviceId,
+    inputRoutingGeneration,
+    outputRoutingGeneration,
     switchInput: (deviceId) => switchDevice('input', deviceId),
     switchOutput: (deviceId) => switchDevice('output', deviceId),
     refreshDevices,
+    notifyDeviceWorldMayHaveChanged,
     initializeDevices,
     requestMicrophonePermission,
     resolvedPreferredDeviceId,

@@ -1,6 +1,6 @@
 import { markRaw, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import { Room, supportsAudioOutputSelection } from 'livekit-client'
+import { Room, Track, supportsAudioOutputSelection } from 'livekit-client'
 import { ApiError, request } from '../api.ts'
 import type { VoiceCredentials } from '../types.ts'
 import { useAppStore, setCallSignalHandler } from './app.ts'
@@ -256,7 +256,18 @@ export const useVoiceStore = defineStore('voice', () => {
     supportsOutputSelection: () => supportsAudioOutputSelection(),
     applyOutputSink: (deviceId) => {
       document.querySelectorAll<HTMLAudioElement>('#voice-audio-root audio, #call-audio-root audio').forEach((element) => {
-        void setAudioSink(element, deviceId)
+        void (async () => {
+          await setAudioSink(element, '')
+          await setAudioSink(element, deviceId)
+        })()
+      })
+    },
+    restartRoomInput: async (room, deviceId) => {
+      const publication = room.localParticipant.getTrackPublication(Track.Source.Microphone)
+      const track = publication?.track
+      if (!track || !('restartTrack' in track)) return
+      await (track as { restartTrack: (options?: unknown) => Promise<void> }).restartTrack({
+        deviceId: { exact: deviceId },
       })
     },
     syncSoundPlayback: session.syncApplicationSoundPlayback,
