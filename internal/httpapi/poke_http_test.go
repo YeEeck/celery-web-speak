@@ -235,6 +235,22 @@ func TestPokeWithoutSharedGuildIsUnavailable(t *testing.T) {
 	assertNoPokeEvent(t, outsiderClient)
 }
 
+func TestPokePlatformAdminWithoutSharedGuildIsUnavailable(t *testing.T) {
+	db, admin, server := newGuildHTTPTestServer(t)
+	if !admin.IsPlatformAdmin {
+		t.Fatal("bootstrap admin is not a platform admin")
+	}
+	owner := newCallPeer(t, db, "poke_unjoined_owner", "未共享服所有者")
+	if _, err := db.CreateGuild(context.Background(), admin.ID, "未加入的服务器", owner.Username); err != nil {
+		t.Fatal(err)
+	}
+	ownerClient := registerCallClient(t, server, owner.ID)
+	token := callSessionToken(t, db, admin.ID)
+	recorder := serveGuildHTTPRequest(server, token, http.MethodPost, "/api/pokes", pokeBody(owner.ID))
+	assertPokeUnavailable(t, recorder)
+	assertNoPokeEvent(t, ownerClient)
+}
+
 func TestPokeBannedInOnlySharedGuildIsUnavailable(t *testing.T) {
 	db, admin, server := newGuildHTTPTestServer(t)
 	target := newCallPeer(t, db, "poke_banned_target", "被封禁目标")
