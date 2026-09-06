@@ -823,6 +823,7 @@ function closeChangelog() {
     />
     <ProfileCard
       v-if="profileCard"
+      :key="profileCard.userId"
       :user-id="profileCard.userId"
       :profile="profileCardData"
       :member="profileCardMember"

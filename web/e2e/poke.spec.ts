@@ -60,6 +60,59 @@ test('同服成员卡片戳一下后对端出现提示', async ({ browser, reque
   }
 })
 
+test('戳完一人再打开另一人卡片时按钮仍是戳一下', async ({ browser, request }, testInfo) => {
+  test.skip(testInfo.project.name.startsWith('android'), '本用例只覆盖桌面端布局')
+
+  await request.post('/api/auth/login', { data: { username: adminUsername, password: adminPassword } })
+  const guildID = await firstJoinedGuildID(request)
+  const suffix = `${Date.now().toString(36)}_${testInfo.project.name.startsWith('android') ? 'm' : 'd'}`
+  const accounts = [
+    { username: `poke_sw_a_${suffix}`, displayName: `戳切甲${suffix.slice(-6)}`, password: 'poke-member-password-a' },
+    { username: `poke_sw_b_${suffix}`, displayName: `戳切乙${suffix.slice(-6)}`, password: 'poke-member-password-b' },
+    { username: `poke_sw_c_${suffix}`, displayName: `戳切丙${suffix.slice(-6)}`, password: 'poke-member-password-c' },
+  ]
+  const accountIds = new Map<string, number>()
+  const contexts: Array<{ context: BrowserContext; page: Page }> = []
+
+  try {
+    for (const account of accounts) {
+      accountIds.set(account.username, (await createGuildMember(request, guildID, account)).id)
+    }
+    for (const account of accounts.slice(0, 2)) {
+      const context = await browser.newContext()
+      const page = await context.newPage()
+      contexts.push({ context, page })
+      await loginPokePage(page, account)
+    }
+
+    const initiatorPage = contexts[0].page
+    const firstTargetName = accounts[1].displayName
+    const secondTargetName = accounts[2].displayName
+
+    await expect(initiatorPage.locator('.member-row', { hasText: firstTargetName })).toBeVisible()
+    await expect(initiatorPage.locator('.member-row', { hasText: secondTargetName })).toBeVisible()
+
+    await openProfileCard(initiatorPage, firstTargetName)
+    const firstCard = initiatorPage.getByRole('dialog', { name: `${firstTargetName}的个人信息卡片` })
+    await firstCard.getByRole('button', { name: '戳一下' }).click()
+    await expect(firstCard.getByRole('button', { name: '已戳' })).toBeDisabled()
+
+    // 键盘切到另一人：不走 pointerdown 关卡，才会复用卡片实例。
+    const secondRow = initiatorPage.locator('.member-row', { hasText: secondTargetName })
+    await secondRow.focus()
+    await secondRow.press('Enter')
+    const secondCard = initiatorPage.getByRole('dialog', { name: `${secondTargetName}的个人信息卡片` })
+    await expect(secondCard.getByRole('button', { name: '戳一下' })).toBeEnabled()
+    await expect(secondCard.getByRole('button', { name: '已戳' })).toHaveCount(0)
+  } finally {
+    await Promise.allSettled(contexts.map(({ context }) => context.close()))
+    for (const account of accounts) {
+      const accountID = accountIds.get(account.username)
+      if (accountID) await deletePlatformUser(request, accountID, account.username)
+    }
+  }
+})
+
 async function loginPokePage(page: Page, account: { username: string; password: string }) {
   await page.goto(baseURL)
   await page.getByLabel('登录名').fill(account.username)

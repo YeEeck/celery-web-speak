@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Crown, ShieldCheck, MicOff, MessageSquareOff, Ban, Phone, Hand } from '@lucide/vue'
 import type { PresenceStatus, User, UserProfile } from '../types'
 import { pokeUser } from '../api'
@@ -76,7 +76,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', handlePointerDown, true)
   window.removeEventListener('resize', closeOnViewportChange)
   window.removeEventListener('scroll', closeOnViewportChange, true)
-  if (pokeDoneTimer !== undefined) window.clearTimeout(pokeDoneTimer)
+  pokeAlive = false
+  resetPokeButton()
 })
 
 function formatDuration(seconds: number): string {
@@ -131,12 +132,26 @@ const pokeable = computed(() => props.member !== null && !props.isSelf && !guild
 const pokeBusy = ref(false)
 const pokeDone = ref(false)
 let pokeDoneTimer: number | undefined
+let pokeAlive = true
+
+function resetPokeButton() {
+  if (pokeDoneTimer !== undefined) {
+    window.clearTimeout(pokeDoneTimer)
+    pokeDoneTimer = undefined
+  }
+  pokeBusy.value = false
+  pokeDone.value = false
+}
+
+watch(() => props.userId, resetPokeButton)
 
 async function poke() {
   if (pokeBusy.value || pokeDone.value) return
+  const targetUserId = props.userId
   pokeBusy.value = true
   try {
-    await pokeUser(props.userId)
+    await pokeUser(targetUserId)
+    if (!pokeAlive || props.userId !== targetUserId) return
     pokeDone.value = true
     pokeDoneTimer = window.setTimeout(() => {
       pokeDone.value = false
@@ -144,7 +159,7 @@ async function poke() {
       pokeDoneTimer = undefined
     }, 10_000)
   } catch (error) {
-    pokeBusy.value = false
+    if (pokeAlive && props.userId === targetUserId) pokeBusy.value = false
     toast.showError(error instanceof Error ? error.message : '操作失败')
   }
 }
