@@ -12,6 +12,7 @@ export class BrowserApplicationSoundAudioAdapter implements ApplicationSoundAudi
   private context: AudioContext | null = null
   private listenersInstalled = false
   private outputDeviceId = ''
+  private appliedOutputDeviceId: string | null = null
   private routeRevision = 0
   private appliedRouteRevision = -1
   private queuedRoute: { context: AudioContext; revision: number } | null = null
@@ -64,6 +65,7 @@ export class BrowserApplicationSoundAudioAdapter implements ApplicationSoundAudi
     }
     const context = this.context
     this.context = null
+    this.appliedOutputDeviceId = null
     if (context && context.state !== 'closed') {
       try {
         await context.close()
@@ -85,6 +87,7 @@ export class BrowserApplicationSoundAudioAdapter implements ApplicationSoundAudi
   private getOrCreateContext() {
     if (!this.context || this.context.state === 'closed') {
       this.context = this.dependencies.createContext()
+      this.appliedOutputDeviceId = null
       this.appliedRouteRevision = -1
       this.queuedRoute = null
       this.enqueueOutputRoute(this.context, this.routeRevision)
@@ -118,23 +121,28 @@ export class BrowserApplicationSoundAudioAdapter implements ApplicationSoundAudi
         return
       }
 
+      const targetId = this.outputDeviceId
+      const markApplied = (deviceId: string | null) => {
+        if (context !== this.context || revision !== this.routeRevision) return
+        this.appliedRouteRevision = revision
+        this.appliedOutputDeviceId = deviceId
+      }
       try {
-        await routable.setSinkId(this.outputDeviceId)
-        if (context === this.context && revision === this.routeRevision) {
-          this.appliedRouteRevision = revision
+        // setSinkId 对相同 id 无效果；系统默认改指时必须先离开再绑回。
+        if (this.appliedOutputDeviceId === targetId) {
+          await routable.setSinkId('')
+          if (context !== this.context || revision !== this.routeRevision) return
         }
+        await routable.setSinkId(targetId)
+        markApplied(targetId)
       } catch (error) {
         this.dependencies.diagnose('提示音输出设备切换失败，将回退到系统默认设备', error)
         try {
           await routable.setSinkId('')
-          if (context === this.context && revision === this.routeRevision) {
-            this.appliedRouteRevision = revision
-          }
+          markApplied('')
         } catch (fallbackError) {
           this.dependencies.diagnose('提示音回退到系统默认设备失败', fallbackError)
-          if (context === this.context && revision === this.routeRevision) {
-            this.appliedRouteRevision = revision
-          }
+          markApplied(null)
         }
       }
     }

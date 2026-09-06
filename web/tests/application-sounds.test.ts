@@ -319,6 +319,20 @@ test('falls back to the default output when routing fails', async () => {
   assert.deepEqual(diagnostics, ['提示音输出设备切换失败，将回退到系统默认设备'])
 })
 
+test('re-applies the same output device through an empty sink', async () => {
+  const context = new FakeAudioContext()
+  const adapter = createBrowserAudioAdapter(context)
+
+  adapter.followOutput('default')
+  await adapter.decode(new Blob(['audio']))
+  await adapter.playMutedSpeakingReminder(0.5)
+  assert.deepEqual(context.sinkIds, ['default'])
+
+  adapter.followOutput('default')
+  await adapter.playMutedSpeakingReminder(0.5)
+  assert.deepEqual(context.sinkIds, ['default', '', 'default'])
+})
+
 test('schedules the fixed muted-speaking reminder note pattern', async () => {
   const context = new FakeAudioContext()
   const adapter = createBrowserAudioAdapter(context)
