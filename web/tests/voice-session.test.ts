@@ -269,6 +269,7 @@ interface HarnessState {
   inputDeviceId: string
   outputDeviceId: string
   followOutputDeviceId: string
+  outputRoutingGeneration: number
   activeOutputDeviceId: string | null
   devicePermissionState: 'idle' | 'requesting' | 'granted' | 'denied'
   reminderAudible: boolean
@@ -295,7 +296,7 @@ interface Harness {
   monitor: FakeSpeechDetectionEngine
   signals: string[]
   beacons: string[]
-  followPlaybackCalls: Array<{ deafened: boolean; channelDeafened: boolean; outputDeviceId: string }>
+  followPlaybackCalls: Array<{ deafened: boolean; channelDeafened: boolean; outputDeviceId: string; outputRoutingGeneration: number }>
   pageHideCallbacks: Array<() => void>
   appendedElements: Array<{ userId: string }>
   removeAllCalls: number
@@ -324,6 +325,7 @@ function makeHarness(): Harness {
     inputDeviceId: 'default',
     outputDeviceId: 'default',
     followOutputDeviceId: 'default',
+    outputRoutingGeneration: 0,
     activeOutputDeviceId: null,
     devicePermissionState: 'granted',
     reminderAudible: true,
@@ -392,6 +394,7 @@ function makeHarness(): Harness {
     followInputDeviceId: () => state.inputDeviceId,
     resolvedPreferredOutputDeviceId: () => state.outputDeviceId,
     followOutputDeviceId: () => state.followOutputDeviceId,
+    outputRoutingGeneration: () => state.outputRoutingGeneration,
     activeOutputDeviceId: () => state.activeOutputDeviceId,
     devicePermissionState: () => state.devicePermissionState,
     supportsOutputSelection: () => true,
@@ -522,6 +525,7 @@ test('in-session sound playback follows session output, not a reappeared preferr
   h.state.followOutputDeviceId = 'session-out'
   h.state.outputDeviceId = 'preferred-back'
   h.state.activeOutputDeviceId = 'session-out'
+  h.state.outputRoutingGeneration = 4
   await h.session.join(7)
   h.followPlaybackCalls.length = 0
   h.session.syncApplicationSoundPlayback()
@@ -529,6 +533,7 @@ test('in-session sound playback follows session output, not a reappeared preferr
     deafened: false,
     channelDeafened: false,
     outputDeviceId: 'session-out',
+    outputRoutingGeneration: 4,
   }])
 })
 

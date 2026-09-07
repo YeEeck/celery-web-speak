@@ -17,7 +17,7 @@ import { MutedSpeakingReminderMonitor } from '../audio/MutedSpeakingReminderMoni
 import type { SpeechDetectionEngine, SpeechDetectionEngineCallbacks } from '../audio/SpeechDetectionEngine.ts'
 import { VoiceAudioContextController } from '../audio/VoiceAudioContextController.ts'
 import { VoiceBalanceController } from '../audio/VoiceBalanceController.ts'
-import type { ApplicationSoundOccurrence } from '../application-sounds/core.ts'
+import type { ApplicationSoundOccurrence, ApplicationSoundPlaybackContext } from '../application-sounds/core.ts'
 import type { Channel, User, VoiceCredentials } from '../types.ts'
 import {
   DEFAULT_AUDIO_BITRATE_KBPS,
@@ -88,6 +88,7 @@ export interface VoiceSessionContext {
   resolvedPreferredOutputDeviceId(): string
   // 当前应跟随的输出：有活动语音连接时为会话输出，否则为解析后的首选。
   followOutputDeviceId(): string
+  outputRoutingGeneration(): number
   activeOutputDeviceId(): string | null
   devicePermissionState(): 'idle' | 'requesting' | 'granted' | 'denied'
   supportsOutputSelection(): boolean
@@ -112,7 +113,7 @@ export interface VoiceSessionContext {
   updateVoiceBalanceMarker(userId: number, gainDb: number | null): void
 
   signal(occurrence: ApplicationSoundOccurrence): void
-  followPlayback(options: { deafened: boolean; channelDeafened: boolean; outputDeviceId: string }): void
+  followPlayback(options: ApplicationSoundPlaybackContext): void
   mutedSpeakingReminderAudible(): boolean
 
   microphoneGainInitial(): number
@@ -472,6 +473,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
       channelDeafened: ctx.channelDeafened(),
       // 跟随会话输出（有活动连接）或解析后的首选；入会中首选重现也不切回。
       outputDeviceId: ctx.followOutputDeviceId(),
+      outputRoutingGeneration: ctx.outputRoutingGeneration(),
     })
   }
 

@@ -137,6 +137,7 @@ export const useVoiceStore = defineStore('voice', () => {
     followInputDeviceId: () => devicesRef.current?.followInputDeviceId.value ?? '',
     resolvedPreferredOutputDeviceId: () => devicesRef.current?.resolvedPreferredDeviceId('output') ?? '',
     followOutputDeviceId: () => devicesRef.current?.followOutputDeviceId.value ?? '',
+    outputRoutingGeneration: () => devicesRef.current?.outputRoutingGeneration.value ?? 0,
     activeOutputDeviceId: () => devicesRef.current?.activeOutputId.value ?? null,
     devicePermissionState: () => devicesRef.current?.devicePermissionState.value ?? 'idle',
     supportsOutputSelection: () => devicesRef.current?.supportsOutputSelection ?? false,

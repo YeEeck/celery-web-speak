@@ -32,6 +32,7 @@ export interface ApplicationSoundPlaybackContext {
   deafened: boolean
   channelDeafened: boolean
   outputDeviceId: string
+  outputRoutingGeneration: number
 }
 
 export interface DecodedCustomSound {
@@ -45,7 +46,7 @@ export interface ApplicationSoundAudioAdapter {
   playPreset(preset: SoundPresetId, volume: number): Promise<void>
   playCustom(sound: DecodedCustomSound, volume: number): Promise<void>
   playMutedSpeakingReminder(volume: number): Promise<void>
-  followOutput(deviceId: string): void
+  followOutput(deviceId: string, routingGeneration: number): void
   dispose(): Promise<void> | void
 }
 
@@ -208,7 +209,12 @@ function silencedOnlyByGlobalDeafen(event: OperationSoundEvent) {
 }
 
 export function createApplicationSounds(dependencies: ApplicationSoundDependencies): ApplicationSoundsRuntime {
-  const playback = reactive<ApplicationSoundPlaybackContext>({ deafened: false, channelDeafened: false, outputDeviceId: '' })
+  const playback = reactive<ApplicationSoundPlaybackContext>({
+    deafened: false,
+    channelDeafened: false,
+    outputDeviceId: '',
+    outputRoutingGeneration: 0,
+  })
   const master = createMasterControl(dependencies)
   const slots = new Map<OperationSoundEvent, InternalSlot>()
 
@@ -294,7 +300,8 @@ export function createApplicationSounds(dependencies: ApplicationSoundDependenci
     playback.deafened = context.deafened
     playback.channelDeafened = context.channelDeafened
     playback.outputDeviceId = context.outputDeviceId
-    dependencies.audio.followOutput(context.outputDeviceId)
+    playback.outputRoutingGeneration = context.outputRoutingGeneration
+    dependencies.audio.followOutput(context.outputDeviceId, context.outputRoutingGeneration)
   }
 
   return {

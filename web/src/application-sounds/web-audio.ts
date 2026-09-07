@@ -12,6 +12,7 @@ export class BrowserApplicationSoundAudioAdapter implements ApplicationSoundAudi
   private context: AudioContext | null = null
   private listenersInstalled = false
   private outputDeviceId = ''
+  private outputRoutingGeneration = 0
   private appliedOutputDeviceId: string | null = null
   private routeRevision = 0
   private appliedRouteRevision = -1
@@ -50,8 +51,10 @@ export class BrowserApplicationSoundAudioAdapter implements ApplicationSoundAudi
     scheduleNotes(context, MUTED_SPEAKING_NOTES, volume)
   }
 
-  followOutput(deviceId: string) {
+  followOutput(deviceId: string, routingGeneration: number) {
+    if (this.outputDeviceId === deviceId && this.outputRoutingGeneration === routingGeneration) return
     this.outputDeviceId = deviceId
+    this.outputRoutingGeneration = routingGeneration
     this.routeRevision += 1
     this.appliedRouteRevision = -1
     if (this.context) this.enqueueOutputRoute(this.context, this.routeRevision)
@@ -100,13 +103,6 @@ export class BrowserApplicationSoundAudioAdapter implements ApplicationSoundAudi
     if (!context) throw new Error('浏览器尚未允许播放应用提示音')
     if (context.state !== 'running') await context.resume()
     if (context.state !== 'running') throw new Error('应用提示音 AudioContext 未运行')
-    if (this.appliedRouteRevision !== this.routeRevision) {
-      this.enqueueOutputRoute(context, this.routeRevision)
-    }
-    await this.routeQueue
-    if (context !== this.context || context.state !== 'running') {
-      throw new Error('应用提示音 AudioContext 已失效')
-    }
     return context
   }
 

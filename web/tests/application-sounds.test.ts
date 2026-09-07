@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   createApplicationSounds,
   type ApplicationSoundAudioAdapter,
+  type ApplicationSoundPlaybackContext,
   type DecodedCustomSound,
 } from '../src/application-sounds/core.ts'
 import { MUTED_SPEAKING_NOTES, type OperationSoundEvent, type SoundPresetId } from '../src/application-sounds/patterns.ts'
@@ -89,7 +90,7 @@ class RecordingAudio implements ApplicationSoundAudioAdapter {
     this.plays.push('muted-speaking-reminder')
   }
 
-  followOutput(deviceId: string) {
+  followOutput(deviceId: string, _routingGeneration: number) {
     this.outputs.push(deviceId)
   }
 
@@ -134,6 +135,16 @@ function slot(harness: ReturnType<typeof createHarness>, event: OperationSoundEv
   return harness.sounds.settings.operationSounds.find((item) => item.event === event)!
 }
 
+function playback(overrides: Partial<ApplicationSoundPlaybackContext> = {}): ApplicationSoundPlaybackContext {
+  return {
+    deafened: false,
+    channelDeafened: false,
+    outputDeviceId: '',
+    outputRoutingGeneration: 0,
+    ...overrides,
+  }
+}
+
 function customRecord(event: OperationSoundEvent, name = `${event}.wav`): CustomSoundRecord {
   const blob = new Blob(['audio'], { type: 'audio/wav' })
   return {
@@ -150,6 +161,10 @@ function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((next) => { resolve = next })
   return { promise, resolve }
+}
+
+async function drainMicrotasks(times = 12) {
+  for (let index = 0; index < times; index += 1) await Promise.resolve()
 }
 
 test('repairs a selected custom source when its record is absent', async () => {
@@ -235,7 +250,7 @@ test('applies operation gates and independent accepted-event rate limits', async
   await Promise.resolve()
   assert.deepEqual(harness.audio.plays.slice(-3), ['preset:rise-duo', 'preset:fall-duo', 'preset:fall-duo'])
 
-  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback(playback({ deafened: true, outputDeviceId: 'headphones' }))
   harness.advance(301)
   harness.sounds.signal('text-message-received')
   await Promise.resolve()
@@ -257,11 +272,11 @@ test('preview ignores the slot switch and deafen but obeys master playback polic
 
   await harness.sounds.settings.master.setEnabled(true)
   // 试听豁免耳机静音：全局与频道作用域耳机静音下试听仍播放（术语见 CONTEXT.md）。
-  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: '' })
+  harness.sounds.followPlayback(playback({ deafened: true }))
   assert.equal((await join.preview()).ok, true)
   assert.equal(harness.audio.plays.at(-1), 'preset:rise-duo')
 
-  harness.sounds.followPlayback({ deafened: false, channelDeafened: true, outputDeviceId: '' })
+  harness.sounds.followPlayback(playback({ channelDeafened: true }))
   assert.equal((await join.preview()).ok, true)
   assert.equal(harness.audio.plays.at(-1), 'preset:rise-duo')
 })
@@ -276,7 +291,7 @@ test('projects muted-speaking audibility and keeps reminder outside operation li
   await Promise.resolve()
   assert.deepEqual(harness.audio.plays, ['muted-speaking-reminder', 'muted-speaking-reminder'])
 
-  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: 'device-1' })
+  harness.sounds.followPlayback(playback({ deafened: true, outputDeviceId: 'device-1' }))
   assert.equal(harness.sounds.mutedSpeakingReminderAudible.value, false)
   assert.deepEqual(harness.audio.outputs, ['device-1'])
 
@@ -291,13 +306,13 @@ test('applies the latest output route revision before playback', async () => {
   ))
   const adapter = createBrowserAudioAdapter(context)
 
-  adapter.followOutput('speaker-a')
+  adapter.followOutput('speaker-a', 0)
   const decode = adapter.decode(new Blob(['audio']))
   await Promise.resolve()
-  adapter.followOutput('speaker-b')
+  adapter.followOutput('speaker-b', 0)
   firstRoute.resolve()
   await decode
-  await adapter.playMutedSpeakingReminder(0.5)
+  await drainMicrotasks()
 
   assert.deepEqual(context.sinkIds, ['speaker-a', 'speaker-b'])
 })
@@ -311,9 +326,9 @@ test('falls back to the default output when routing fails', async () => {
   ))
   const adapter = createBrowserAudioAdapter(context, diagnostics)
 
-  adapter.followOutput('missing-speaker')
+  adapter.followOutput('missing-speaker', 0)
   await adapter.decode(new Blob(['audio']))
-  await adapter.playMutedSpeakingReminder(0.5)
+  await drainMicrotasks()
 
   assert.deepEqual(context.sinkIds, ['missing-speaker', ''])
   assert.deepEqual(diagnostics, ['提示音输出设备切换失败，将回退到系统默认设备'])
@@ -323,14 +338,33 @@ test('re-applies the same output device through an empty sink', async () => {
   const context = new FakeAudioContext()
   const adapter = createBrowserAudioAdapter(context)
 
-  adapter.followOutput('default')
+  adapter.followOutput('default', 0)
   await adapter.decode(new Blob(['audio']))
   await adapter.playMutedSpeakingReminder(0.5)
   assert.deepEqual(context.sinkIds, ['default'])
 
-  adapter.followOutput('default')
+  adapter.followOutput('default', 0)
   await adapter.playMutedSpeakingReminder(0.5)
+  assert.deepEqual(context.sinkIds, ['default'])
+
+  adapter.followOutput('default', 1)
+  await drainMicrotasks()
   assert.deepEqual(context.sinkIds, ['default', '', 'default'])
+})
+
+test('playback does not wait for pending output routing', async () => {
+  const firstRoute = deferred<void>()
+  const context = new FakeAudioContext((deviceId) => (
+    deviceId === 'speaker-a' ? firstRoute.promise : Promise.resolve()
+  ))
+  const adapter = createBrowserAudioAdapter(context)
+
+  adapter.followOutput('speaker-a', 0)
+  await adapter.decode(new Blob(['audio']))
+  await adapter.playMutedSpeakingReminder(0.5)
+
+  assert.equal(context.oscillators.length, MUTED_SPEAKING_NOTES.length)
+  firstRoute.resolve()
 })
 
 test('schedules the fixed muted-speaking reminder note pattern', async () => {
@@ -390,12 +424,12 @@ test('global deafen silences poke while channel-scope deafen does not', async ()
   const harness = createHarness()
   await harness.sounds.whenReady()
 
-  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback(playback({ deafened: true, outputDeviceId: 'headphones' }))
   harness.sounds.signal('poke-received')
   await Promise.resolve()
   assert.equal(harness.audio.plays.length, 0, '全局耳机静音应静音戳一下')
 
-  harness.sounds.followPlayback({ deafened: false, channelDeafened: true, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback(playback({ channelDeafened: true, outputDeviceId: 'headphones' }))
   harness.advance(301)
   harness.sounds.signal('poke-received')
   await Promise.resolve()
@@ -460,12 +494,12 @@ test('loop stays silent while deafened and resumes after unmute', async (t) => {
   await Promise.resolve()
   assert.deepEqual(harness.audio.plays, ['preset:rise-duo'])
 
-  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback(playback({ deafened: true, outputDeviceId: 'headphones' }))
   t.mock.timers.tick(1_000)
   await Promise.resolve()
   assert.equal(harness.audio.plays.length, 1)
 
-  harness.sounds.followPlayback({ deafened: false, channelDeafened: false, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback(playback({ outputDeviceId: 'headphones' }))
   t.mock.timers.tick(1_000)
   await Promise.resolve()
   assert.equal(harness.audio.plays.length, 2)
@@ -479,7 +513,7 @@ test('channel deafen silences channel sounds but not call loops', async (t) => {
   const harness = createHarness()
   await harness.sounds.whenReady()
 
-  harness.sounds.followPlayback({ deafened: false, channelDeafened: true, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback(playback({ channelDeafened: true, outputDeviceId: 'headphones' }))
   harness.sounds.loop('call-incoming')
   await Promise.resolve()
   assert.equal(harness.audio.plays.length, 1, '频道作用域耳机静音不应静音来电振铃')
@@ -488,12 +522,12 @@ test('channel deafen silences channel sounds but not call loops', async (t) => {
   await Promise.resolve()
   assert.equal(harness.audio.plays.length, 1, '频道作用域耳机静音应静音频道类提示音')
 
-  harness.sounds.followPlayback({ deafened: true, channelDeafened: false, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback(playback({ deafened: true, outputDeviceId: 'headphones' }))
   t.mock.timers.tick(1_000)
   await Promise.resolve()
   assert.equal(harness.audio.plays.length, 1, '全局耳机静音应静音来电振铃')
 
-  harness.sounds.followPlayback({ deafened: false, channelDeafened: false, outputDeviceId: 'headphones' })
+  harness.sounds.followPlayback(playback({ outputDeviceId: 'headphones' }))
   t.mock.timers.tick(1_000)
   await Promise.resolve()
   assert.equal(harness.audio.plays.length, 2, '解除全局耳机静音后循环应恢复')
