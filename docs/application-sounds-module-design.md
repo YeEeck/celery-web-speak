@@ -32,6 +32,7 @@ type ApplicationSoundOccurrence =
 interface ApplicationSoundPlaybackContext {
   deafened: boolean
   outputDeviceId: string
+  outputRoutingGeneration: number
 }
 
 interface ApplicationSounds {
@@ -141,9 +142,10 @@ interface OperationSoundControl {
 ### 操作提示音
 
 - 加入、退出和消息分别拥有独立的 300ms 时间窗。
-- 事件通过总开关、事件开关、音量与耳机静音检查后立即占用时间窗，再开始异步输出路由与播放调度。
+- 事件通过总开关、事件开关、音量与耳机静音检查后立即占用时间窗，并在当前已经绑上的 destination 上调度播放；输出路由在后台进行，播放不等待 `setSinkId` 队列。
 - 被设置抑制的事件不占用时间窗；已接受但随后播放失败的事件仍占用。
 - 每个真实主动退出事件与匹配的管理员语音断开事件绕过退出提示音时间窗。
+- 真正改指的空 sink 进行中撞上的那一声可以听不见；不补播、不排队。
 
 ### 试听
 
@@ -166,11 +168,13 @@ interface OperationSoundControl {
 
 ## 输出设备
 
-- `followPlayback` 每次调用生成新的播放上下文代次，只有最新代次可以更新有效输出。
-- 指定设备失败时，本代次回退并记住系统默认输出；后续提示音不对同一失败选择反复调用 `setSinkId`。
+- `followPlayback` 携带 `outputDeviceId` 与语音设备管理的 `outputRoutingGeneration`。id 与世代都不变则输出路由空操作，不增加代次、不空 sink。
+- 世代变了（即使 id 仍是系统默认）才先空 sink 再绑回目标，以覆盖 `setSinkId` 对相同 id 无效果（ADR-0043 / ADR-0044）。id 变了直接 `setSinkId`，不必空 sink。
+- 只有最新代次可以更新有效输出。指定设备失败时，本代次回退并记住系统默认输出；后续提示音不对同一失败选择反复调用 `setSinkId`。
 - 首选设备变化、语音 module 主动重新同步播放上下文或 AudioContext 重建时重新尝试。
 - 旧代次的异步完成不得覆盖较新的设备选择。
 - 输出路由失败不穿过 external interface，只记录诊断信息。
+- 播放调度不等待输出路由完成。
 
 ## 错误 seam
 
