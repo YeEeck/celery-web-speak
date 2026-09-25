@@ -73,6 +73,10 @@ class FakeParticipant {
   async publishTrack() {
     this.isMicrophoneEnabled = true
   }
+
+  on(_event: string, _callback: (...args: unknown[]) => void) {
+    return this
+  }
 }
 
 class FakeRemoteParticipant {
@@ -134,6 +138,8 @@ class FakeAudioContext extends EventTarget {
     this.state = 'closed'
     this.dispatchEvent(new Event('statechange'))
   }
+
+  async resume() {}
 }
 
 interface Harness {
@@ -216,6 +222,7 @@ function makeHarness(): Harness {
       harness.audioContext = context
       return context as unknown as AudioContext
     },
+    createCaptureAudioContext: () => new FakeAudioContext() as unknown as AudioContext,
     audioInteractionTarget: () => new EventTarget(),
     loadRnnoiseBinary: async () => null,
     microphoneGainInitial: () => 1,
@@ -260,6 +267,7 @@ function makeHarness(): Harness {
     notifyCaptureTrackEnded: () => undefined,
     beginCaptureSelfStop: () => undefined,
     endCaptureSelfStop: () => undefined,
+    ingestSpeechFrame: () => undefined,
   }
   harness.call = useVoiceCall(harness.ctx)
   return harness

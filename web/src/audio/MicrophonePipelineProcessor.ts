@@ -29,6 +29,7 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
   processedTrack?: MediaStreamTrack
 
   private audioContext?: AudioContext
+  private captureAudioContext?: AudioContext
   private sourceNode?: MediaStreamAudioSourceNode
   private rnnoiseNode?: RnnoiseWorkletNode
   private makeupGainNode?: GainNode
@@ -53,15 +54,21 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     this.rnnoiseCaptureAllowed = options.rnnoiseCaptureAllowed ?? true
   }
 
+  // 采集上下文与 webAudioMix 播放上下文分离（ADR-0045）。LiveKit init 仍会
+  // 传入房间播放上下文，这里优先用采集上下文，避免 RNNoise 把播放锁成 48 kHz。
+  setCaptureAudioContext(context: AudioContext | undefined) {
+    this.captureAudioContext = context
+  }
+
   async init(options: AudioProcessorOptions) {
     this.disconnect()
-    this.audioContext = options.audioContext
+    this.audioContext = this.captureAudioContext ?? options.audioContext
     await this.connect(options.track)
   }
 
   async restart(options: AudioProcessorOptions) {
     this.disconnect()
-    if (options.audioContext) this.audioContext = options.audioContext
+    this.audioContext = this.captureAudioContext ?? options.audioContext ?? this.audioContext
     await this.connect(options.track)
   }
 

@@ -198,6 +198,8 @@ class FakeSpeechDetectionEngine {
   emitSpeech(speaking: boolean, frameDurationMs = 20) {
     for (const listener of this.listeners) listener(speaking, frameDurationMs)
   }
+
+  ingestFrame(_speaking: boolean, _frameDurationMs: number) {}
 }
 
 function fakeElement() {
@@ -218,6 +220,8 @@ class FakeAudioContext extends EventTarget {
     this.closeCalls += 1
     this.setState('closed')
   }
+
+  async resume() {}
 
   setState(state: AudioContextState) {
     this.state = state
@@ -434,6 +438,7 @@ function makeHarness(): Harness {
       audioContexts.push(context)
       return context as unknown as AudioContext
     },
+    createCaptureAudioContext: () => new FakeAudioContext() as unknown as AudioContext,
     audioInteractionTarget: () => new EventTarget(),
     createSpeechDetectionEngine: () => monitor as never,
     appendAudioElement: (element) => { appendedElements.push({ userId: element.dataset.userId }) },

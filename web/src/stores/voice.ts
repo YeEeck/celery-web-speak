@@ -8,6 +8,11 @@ import { useApplicationSoundStore } from './application-sounds.ts'
 import { SpeechDetectionEngine } from '../audio/SpeechDetectionEngine.ts'
 import { SpeechDetectionLifecycle } from '../audio/SpeechDetectionLifecycle.ts'
 import { preloadRnnoiseWasm } from '../audio/rnnoise.ts'
+import {
+  createCaptureAudioContext,
+  createPlaybackAudioContext,
+  isCaptureContextRnnoiseReady,
+} from '../audio/voiceAudioContexts.ts'
 import { useVoiceDevices, type VoiceLiveConnection } from './voice-devices.ts'
 import { getSavedAutoVoiceBalance, saveAutoVoiceBalance } from './voice-auto-balance-state.ts'
 import { useParticipantVolume } from './voice-participant-volume.ts'
@@ -44,23 +49,6 @@ import {
   type VoiceTransmissionMode,
 } from './voice-utils.ts'
 
-function createInteractiveAudioContext(): AudioContext | null {
-  const AudioContextConstructor = window.AudioContext
-    || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-  if (!AudioContextConstructor) return null
-  try {
-    return new AudioContextConstructor({ latencyHint: 'interactive', sampleRate: 48_000 })
-  } catch {
-    // Some browsers reject an explicit rate; retain the WebRTC fallback
-    // path with their default context instead of failing voice join.
-    try {
-      return new AudioContextConstructor({ latencyHint: 'interactive' })
-    } catch {
-      return null
-    }
-  }
-}
-
 export type { VoiceParticipant, VoiceTransmissionMode } from './voice-utils.ts'
 
 export const useVoiceStore = defineStore('voice', () => {
@@ -75,8 +63,8 @@ export const useVoiceStore = defineStore('voice', () => {
   // 永久锁死为系统降噪；节点创建失败由当前会话回退并在下一会话重试。
   const rnnoiseBinaryPromise = preloadRnnoiseWasm()
   void rnnoiseBinaryPromise
-  // 语音音频上下文引用：约束合成需要知道实际采样率（RNNoise 仅支持 48kHz）。
-  const voiceContextRef: { current: AudioContext | null } = { current: null }
+  // 采集音频上下文引用：约束合成需要知道实际采样率（RNNoise 仅支持 48kHz）。
+  const captureContextRef: { current: AudioContext | null } = { current: null }
 
   // 跨模块组合的延迟解析位：session 模块的 ctx 需要 mute/deafen、设备、应用音频
   // 模块的输出，而这些模块的 ctx 又需要 session 的输出，创建顺序由本层化解。
@@ -169,10 +157,9 @@ export const useVoiceStore = defineStore('voice', () => {
     microphoneGainInitial: () => microphoneGain.value,
     echoCancellation: () => echoCancellation.value,
     noiseSuppression: () => {
-      const context = voiceContextRef.current
       return resolveNoiseSuppression(
         noiseSuppressionOption.value,
-        context !== null && context.state !== 'closed' && context.sampleRate === 48_000,
+        isCaptureContextRnnoiseReady(captureContextRef.current),
       )
     },
     noiseSuppressionOption: () => noiseSuppressionOption.value,
@@ -183,9 +170,10 @@ export const useVoiceStore = defineStore('voice', () => {
     }),
     postVoiceLeave: (guildId) => request<void>(`/api/guilds/${guildId}/voice/leave`, { method: 'POST' }),
     createRoom: (options) => markRaw(new Room(options)),
-    createAudioContext: () => {
-      const context = createInteractiveAudioContext()
-      voiceContextRef.current = context
+    createAudioContext: () => createPlaybackAudioContext(),
+    createCaptureAudioContext: () => {
+      const context = createCaptureAudioContext()
+      captureContextRef.current = context
       return context
     },
     audioInteractionTarget: () => document,
@@ -365,7 +353,8 @@ export const useVoiceStore = defineStore('voice', () => {
     transmissionMode: () => session.transmissionMode.value,
     noiseSuppressionOption: () => noiseSuppressionOption.value,
     loadRnnoiseBinary: () => preloadRnnoiseWasm(),
-    createAudioContext: createInteractiveAudioContext,
+    createAudioContext: () => createPlaybackAudioContext(),
+    createCaptureAudioContext,
     audioInteractionTarget: () => document,
     microphoneEnabledPreference: () => muteDeafenRef.current?.microphoneEnabledPreference.value ?? false,
     toggleMicrophonePreference: () => muteDeafenRef.current ? muteDeafenRef.current.userToggledMute() : Promise.resolve(),
@@ -383,6 +372,7 @@ export const useVoiceStore = defineStore('voice', () => {
     },
     beginCaptureSelfStop: () => devicesRef.current?.beginCaptureSelfStop(),
     endCaptureSelfStop: () => devicesRef.current?.endCaptureSelfStop(),
+    ingestSpeechFrame: (speaking, ms) => speechDetection.ingestFrame(speaking, ms),
   })
   callRef.current = call
 
@@ -414,6 +404,15 @@ export const useVoiceStore = defineStore('voice', () => {
     engine: speechDetection,
     isActive: () => useAppStore().user !== null
       && (devicesRef.current?.devicePermissionState.value ?? 'idle') === 'granted',
+    ownsCapture: () => {
+      const wantMic = (muteDeafenRef.current?.microphoneEnabledPreference.value ?? false)
+        && !(muteDeafenRef.current?.deafened.value ?? false)
+      const sessionWantsMic = (
+        session.status.value === 'connected' || session.status.value === 'connecting'
+      ) && wantMic && !(muteDeafenRef.current?.channelDeafened.value ?? false)
+      const callWantsMic = call.status.value === 'active' && wantMic
+      return !sessionWantsMic && !callWantsMic
+    },
     inputDeviceId: () => devicesRef.current?.followInputDeviceId.value ?? '',
     inputRoutingGeneration: () => devicesRef.current?.inputRoutingGeneration.value ?? 0,
     subscribeRetryEvents: (listener) => {

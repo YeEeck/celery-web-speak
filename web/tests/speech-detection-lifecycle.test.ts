@@ -47,6 +47,7 @@ class FakeEngine {
 interface Harness {
   engine: FakeEngine
   active: boolean
+  ownsCapture: boolean
   deviceId: string
   routingGeneration: number
   retryListeners: Array<() => void>
@@ -59,6 +60,7 @@ function makeHarness() {
   const harness: Harness = {
     engine,
     active: false,
+    ownsCapture: true,
     deviceId: '',
     routingGeneration: 0,
     retryListeners: [],
@@ -70,6 +72,7 @@ function makeHarness() {
   harness.lifecycle = new SpeechDetectionLifecycle({
     engine,
     isActive: () => harness.active,
+    ownsCapture: () => harness.ownsCapture,
     inputDeviceId: () => harness.deviceId,
     inputRoutingGeneration: () => harness.routingGeneration,
     subscribeRetryEvents: (listener) => {
@@ -154,6 +157,29 @@ test('retry event is ignored while inactive or while not failed', () => {
   h.emitRetryEvent()
   assert.equal(h.engine.resetFailureCalls, 0)
   assert.equal(h.engine.startCalls.length, startsAfterFirstSync)
+})
+
+test('active sync without capture ownership stops the engine', () => {
+  const h = makeHarness()
+  h.active = true
+  h.lifecycle.sync()
+  assert.equal(h.engine.startCalls.length, 1)
+  h.ownsCapture = false
+  h.lifecycle.sync()
+  assert.equal(h.engine.stopCalls, 1)
+  h.ownsCapture = true
+  h.lifecycle.sync()
+  assert.equal(h.engine.startCalls.length, 2)
+})
+
+test('retry event is ignored while capture is yielded to a voice session', () => {
+  const h = makeHarness()
+  h.active = true
+  h.lifecycle.sync()
+  h.engine.fail()
+  h.ownsCapture = false
+  h.emitRetryEvent()
+  assert.equal(h.engine.resetFailureCalls, 0)
 })
 
 test('sync after permission re-grant retries a failed engine', () => {

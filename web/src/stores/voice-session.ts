@@ -126,6 +126,7 @@ export interface VoiceSessionContext {
   postVoiceLeave(guildId: number): Promise<void>
   createRoom(options: RoomOptions): Room
   createAudioContext(): AudioContext | null
+  createCaptureAudioContext(): AudioContext | null
   audioInteractionTarget(): EventTarget
   createSpeechDetectionEngine(callbacks: SpeechDetectionEngineCallbacks): SpeechDetectionEngine
   appendAudioElement(element: HTMLAudioElement): void
@@ -149,6 +150,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   const transmissionMode = ref<VoiceTransmissionMode>(getSavedTransmissionMode())
   const transmissionModeChanging = ref(false)
   const transmissionModeError = ref('')
+  let captureAudioContext: AudioContext | null = null
   // 麦克风发布链编排器：启用/重发布/降噪切换/回退的单一入口，会话守卫与
   // 竞态防护内化（见 MicrophonePublishOrchestrator）。join/leave 经
   // invalidate/beginSession/endSession 声明会话边界。
@@ -161,7 +163,7 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
     endCaptureSelfStop: () => ctx.endCaptureSelfStop(),
     echoCancellation: () => ctx.echoCancellation(),
     publishSettings: () => connectedPublishSettings.value,
-    isAudioContextAvailable: () => voiceAudioContextController !== null && voiceAudioContextController.context.state !== 'closed',
+    isAudioContextAvailable: () => captureAudioContext !== null && captureAudioContext.state !== 'closed',
     transmissionMode: () => transmissionMode.value,
     isSessionLive: () => status.value === 'connected' || status.value === 'connecting',
     loadRnnoiseBinary: () => ctx.loadRnnoiseBinary(),
@@ -207,6 +209,9 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   ))
   const speechDetection = ctx.createSpeechDetectionEngine({
     onError: (error) => console.warn('静音说话检测已停用', error),
+  })
+  microphoneActivity.setFrameListener((identity, active, intervalMs) => {
+    if (identity === room?.localParticipant.identity) speechDetection.ingestFrame(active, intervalMs)
   })
   const mutedSpeakingReminder = new MutedSpeakingReminderMonitor(speechDetection, {
     onReminder: showMutedSpeakingReminder,
@@ -263,9 +268,12 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
 
   async function destroyVoiceAudioContext() {
     const controller = voiceAudioContextController
-    if (!controller) return
+    const capture = captureAudioContext
     voiceAudioContextController = null
-    await controller.destroy()
+    captureAudioContext = null
+    microphoneOrchestrator.setCaptureAudioContext(null)
+    if (controller) await controller.destroy()
+    if (capture && capture.state !== 'closed') await capture.close().catch(() => undefined)
   }
 
   async function join(channelId: number) {
@@ -301,6 +309,9 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
       const credentials = await ctx.fetchVoiceToken(guildId, channelId, tokenDeafened)
       if (session !== voiceSession) return
       const audioContext = ctx.createAudioContext()
+      captureAudioContext = ctx.createCaptureAudioContext()
+      if (captureAudioContext?.state === 'suspended') void captureAudioContext.resume()
+      microphoneOrchestrator.setCaptureAudioContext(captureAudioContext)
       const nextRoom = markRaw(ctx.createRoom({
         adaptiveStream: true,
         dynacast: true,

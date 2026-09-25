@@ -116,6 +116,16 @@ async function flushPromises() {
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
+test('init 优先使用采集上下文而非房间播放上下文', async () => {
+  const { processor } = makeHarness({ noiseSuppression: 'off' })
+  const capture = new FakeAudioContext(48_000)
+  const playback = new FakeAudioContext(44_100)
+  processor.setCaptureAudioContext(capture as unknown as AudioContext)
+  await processor.init({ audioContext: playback as unknown as AudioContext, track: fakeTrack } as never)
+  assert.equal(capture.source.connectCalls.length, 1)
+  assert.equal(playback.source.connectCalls.length, 0)
+})
+
 test('init 建立 source→gain→destination 直通图并产出处理轨', async () => {
   const { context, processor } = makeHarness({ noiseSuppression: 'webrtc' })
   await processor.init({ audioContext: context as unknown as AudioContext, track: fakeTrack } as never)

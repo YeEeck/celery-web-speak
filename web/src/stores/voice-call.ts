@@ -2,6 +2,7 @@ import { computed, markRaw, ref, watch } from 'vue'
 import {
   Room,
   RoomEvent,
+  ParticipantEvent,
   Track,
   RemoteAudioTrack,
   type LocalTrackPublication,
@@ -12,6 +13,7 @@ import {
 } from 'livekit-client'
 import { ApiError } from '../api.ts'
 import { MicrophonePublishOrchestrator } from '../audio/MicrophonePublishOrchestrator.ts'
+import { SpeechFrameIngest } from '../audio/speechFrameIngest.ts'
 import { VoiceAudioContextController } from '../audio/VoiceAudioContextController.ts'
 import type { VoiceCredentials } from '../types.ts'
 import {
@@ -21,6 +23,7 @@ import {
   type CallStatus,
   normalizeCallEndReason,
 } from './call-signal.ts'
+import { isCaptureContextRnnoiseReady } from '../audio/voiceAudioContexts.ts'
 import {
   DEFAULT_AUDIO_BITRATE_KBPS,
   participantUserId,
@@ -44,6 +47,7 @@ export interface VoiceCallContext {
   currentUser(): { id: number } | null
   createRoom(options: RoomOptions): Room
   createAudioContext(): AudioContext | null
+  createCaptureAudioContext(): AudioContext | null
   audioInteractionTarget(): EventTarget
   loadRnnoiseBinary(): Promise<ArrayBuffer | null>
   microphoneGainInitial(): number
@@ -80,6 +84,8 @@ export interface VoiceCallContext {
   notifyCaptureTrackEnded(): void
   beginCaptureSelfStop(): void
   endCaptureSelfStop(): void
+  // 通话本机说话帧：VAD 让出采集后注入常开引擎（ADR-0045）。
+  ingestSpeechFrame(speaking: boolean, frameDurationMs: number): void
 }
 
 export function useVoiceCall(ctx: VoiceCallContext) {
@@ -94,25 +100,27 @@ export function useVoiceCall(ctx: VoiceCallContext) {
   let room: Room | null = null
   let callSession = 0
   let callAudioContext: AudioContext | null = null
+  let callCaptureAudioContext: AudioContext | null = null
   let callAudioContextController: VoiceAudioContextController | null = null
   // 发起 HTTP 请求尚未返回期间，WS 信令（对方秒接/秒拒等）可能先到；先缓存，
   // 拿到 callId 后再按序回放（HTTP 与 WS 是两条连接，无到达顺序保证）。
   let startCallInFlight = false
   const pendingSignals: CallSignal[] = []
+  const speechIngest = new SpeechFrameIngest((speaking, ms) => ctx.ingestSpeechFrame(speaking, ms))
 
   const microphoneOrchestrator = new MicrophonePublishOrchestrator({
     gain: ctx.microphoneGainInitial(),
     noiseSuppressionOption: () => ctx.noiseSuppressionOption(),
     webRtcNoiseSuppression: () => resolveNoiseSuppression(
       ctx.noiseSuppressionOption(),
-      callAudioContext !== null && callAudioContext.state !== 'closed' && callAudioContext.sampleRate === 48_000,
+      isCaptureContextRnnoiseReady(callCaptureAudioContext),
     ),
     inputDeviceId: () => ctx.followInputDeviceId(),
     beginCaptureSelfStop: () => ctx.beginCaptureSelfStop(),
     endCaptureSelfStop: () => ctx.endCaptureSelfStop(),
     echoCancellation: () => ctx.echoCancellation(),
     publishSettings: () => ({ audioBitrateKbps: DEFAULT_AUDIO_BITRATE_KBPS, audioRedEnabled: true }),
-    isAudioContextAvailable: () => callAudioContext !== null && callAudioContext.state !== 'closed',
+    isAudioContextAvailable: () => callCaptureAudioContext !== null && callCaptureAudioContext.state !== 'closed',
     transmissionMode: () => ctx.transmissionMode(),
     isSessionLive: () => status.value === 'active',
     loadRnnoiseBinary: () => ctx.loadRnnoiseBinary(),
@@ -143,9 +151,13 @@ export function useVoiceCall(ctx: VoiceCallContext) {
 
   async function destroyCallAudioContext() {
     const controller = callAudioContextController
+    const capture = callCaptureAudioContext
     callAudioContextController = null
     callAudioContext = null
+    callCaptureAudioContext = null
+    microphoneOrchestrator.setCaptureAudioContext(null)
     if (controller) await controller.destroy()
+    if (capture && capture.state !== 'closed') await capture.close().catch(() => undefined)
   }
 
   // 全局耳机静音联动通话远端音频（spec 07：通话中主动耳机静音会静音通话）。
@@ -176,6 +188,7 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     callSession += 1
     endedReason.value = reason
     microphoneOrchestrator.endSession()
+    speechIngest.stop()
     const target = room
     if (target) {
       target.disconnect()
@@ -285,11 +298,14 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     callSession += 1
     const session = callSession
     microphoneOrchestrator.invalidate()
-    if (callAudioContextController || callAudioContext) await destroyCallAudioContext()
+    if (callAudioContextController || callAudioContext || callCaptureAudioContext) await destroyCallAudioContext()
     try {
       const credentials = await ctx.fetchCallToken(id)
       if (session !== callSession || status.value !== 'active') return
       callAudioContext = ctx.createAudioContext()
+      callCaptureAudioContext = ctx.createCaptureAudioContext()
+      if (callCaptureAudioContext?.state === 'suspended') void callCaptureAudioContext.resume()
+      microphoneOrchestrator.setCaptureAudioContext(callCaptureAudioContext)
       const nextRoom = markRaw(ctx.createRoom({
         adaptiveStream: true,
         dynacast: true,
@@ -354,6 +370,10 @@ export function useVoiceCall(ctx: VoiceCallContext) {
   function bindRoom(target: Room) {
     const existingMic = target.localParticipant.getTrackPublication(Track.Source.Microphone)
     if (existingMic) watchLocalMicCaptureEnded(existingMic, target)
+    target.localParticipant.on(ParticipantEvent.IsSpeakingChanged, (speaking: boolean) => {
+      if (room !== target) return
+      speechIngest.setSpeaking(speaking)
+    })
     target
       .on(RoomEvent.TrackSubscribed, attachTrack)
       .on(RoomEvent.TrackUnsubscribed, detachTrack)

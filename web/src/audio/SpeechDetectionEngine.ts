@@ -1,3 +1,5 @@
+import { connectWithoutPlayback, disconnectSilentTap } from './silentAudioGraph.ts'
+
 const SAMPLE_RATE = 16_000
 const FRAME_DURATION_MS = 20
 
@@ -36,7 +38,7 @@ export class SpeechDetectionEngine {
   private context: AudioContext | null = null
   private source: MediaStreamAudioSourceNode | null = null
   private worklet: AudioWorkletNode | null = null
-  private silence: GainNode | null = null
+  private tap: MediaStreamAudioDestinationNode | null = null
   private worker: Worker | null = null
   private listeners = new Set<SpeechFrameListener>()
   private failureListeners = new Set<() => void>()
@@ -99,11 +101,19 @@ export class SpeechDetectionEngine {
     return promise
   }
 
-  // stop 无条件释放采集与 VAD 资源，只由生命周期在登录退出或权限丢失时调用。
+  // stop 无条件释放采集与 VAD 资源，只由生命周期在登录退出、权限丢失，
+  // 或让出采集给语音发布链时调用（ADR-0045）。监听方保留，仍可 ingestFrame。
   stop() {
     this.operation += 1
     this.activeDeviceId = null
     this.releaseResources()
+  }
+
+  // 外部说话帧：仅在引擎未自持采集时转发。语音发布链已占麦克风时由
+  // TrackActivityMonitor / LiveKit isSpeaking 注入，避免第二条 getUserMedia。
+  ingestFrame(speaking: boolean, frameDurationMs: number) {
+    if (this.stream || this.failed) return
+    for (const listener of this.listeners) listener(speaking, frameDurationMs)
   }
 
   resetFailure() {
@@ -173,13 +183,11 @@ export class SpeechDetectionEngine {
         numberOfOutputs: 1,
         outputChannelCount: [1],
       })
-      const silence = context.createGain()
-      silence.gain.value = 0
       worklet.port.postMessage({ type: 'connect', port: channel.port1 }, [channel.port1])
-      source.connect(worklet).connect(silence).connect(context.destination)
+      source.connect(worklet)
       this.source = source
       this.worklet = worklet
-      this.silence = silence
+      this.tap = connectWithoutPlayback(context, worklet)
       worker.onmessage = (event: MessageEvent<WorkerMessage>) => this.handleWorkerMessage(event.data)
       worker.onerror = (event) => this.fail(new Error(event.message || 'VAD Worker failed'))
 
@@ -226,11 +234,10 @@ export class SpeechDetectionEngine {
   private releaseResources() {
     this.source?.disconnect()
     this.source = null
-    this.worklet?.disconnect()
+    disconnectSilentTap(this.worklet, this.tap)
     this.worklet?.port.close()
     this.worklet = null
-    this.silence?.disconnect()
-    this.silence = null
+    this.tap = null
     this.worker?.terminate()
     this.worker = null
     this.stopStreamSelf(this.stream)

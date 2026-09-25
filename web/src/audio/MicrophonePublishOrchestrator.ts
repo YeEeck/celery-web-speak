@@ -109,6 +109,10 @@ export class MicrophonePublishOrchestrator {
     this.processor.setGain(gain)
   }
 
+  setCaptureAudioContext(context: AudioContext | null) {
+    this.processor.setCaptureAudioContext(context ?? undefined)
+  }
+
   private async restartCaptureTrack(track: MicrophoneTrackPort, options?: unknown) {
     this.options.beginCaptureSelfStop?.()
     try {
