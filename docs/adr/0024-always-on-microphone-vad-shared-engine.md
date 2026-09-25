@@ -9,3 +9,7 @@
 ## 修订（2026-08-03）：采集设备约束一律 `{exact}`，并发启动加守卫
 
 Chromium 在部分平台（Linux/PulseAudio）上存在设备解析怪癖：省略 `deviceId` 或以字符串（ideal 约束）传 `'default'` 时，`getUserMedia` 会解析到浏览器自身的默认输入（实测落到枚举首位的静音设备——Pico 扬声器麦阵列），只有 `{exact: 'default'}` 才解析到操作系统默认输入。引擎采集因此长期在浏览器端吃到静音源，而发布链靠 LiveKit 连接后的 `switchActiveDevice({exact})` 路径偶然绕开。引擎采集约束与发布链统一为 `deviceId: { exact: ... }`（含 `'default'`）。另发现生命周期 `sync()` 在引擎异步启动窗口内连续触发可开出多条并发采集流，`start()` 增加进行中启动复用守卫。VAD 采集的 AGC 设置变更见 ADR-0012 修订。
+
+## 修订（ADR-0045）：语音发布占用麦克风时让出采集
+
+常开不意味着永远自持 `getUserMedia`。频道或通话已经发布麦克风时，引擎释放自身采集，由发布链侧的说话帧注入继续供给在线状态检测；静音或未进语音时仍自采，静音说话提醒不变。分析图不再接到 `context.destination`。详见 ADR-0045。
