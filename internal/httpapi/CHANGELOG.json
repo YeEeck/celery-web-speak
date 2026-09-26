@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.42",
+    "date": "2026-09-27",
+    "changes": [
+      "fix(web): 安卓采集用 balanced 延迟，RNNoise 节点构造时声明单声道——针对安卓壳增强降噪发送端欠载断续（ADR-0045）",
+      "docs: 安卓采集上下文也用 balanced，给 RNNoise 留出 audio thread 预算（ADR-0045）"
+    ]
+  },
+  {
     "version": "0.4.41",
     "date": "2026-09-26",
     "changes": [
