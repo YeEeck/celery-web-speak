@@ -21,8 +21,15 @@ test('playback context uses balanced latency on Android and interactive elsewher
   assert.deepEqual(playbackAudioContextOptions(false), { latencyHint: 'interactive' })
 })
 
-test('capture context requests 48 kHz and does not set a playback latency hint', () => {
-  assert.deepEqual(captureAudioContextOptions(), { sampleRate: CAPTURE_SAMPLE_RATE })
+test('capture context requests 48 kHz and matches playback latency policy', () => {
+  assert.deepEqual(captureAudioContextOptions(true), {
+    sampleRate: CAPTURE_SAMPLE_RATE,
+    latencyHint: 'balanced',
+  })
+  assert.deepEqual(captureAudioContextOptions(false), {
+    sampleRate: CAPTURE_SAMPLE_RATE,
+    latencyHint: 'interactive',
+  })
 })
 
 test('createPlaybackAudioContext does not force 48 kHz', () => {
@@ -37,15 +44,31 @@ test('createPlaybackAudioContext does not force 48 kHz', () => {
   assert.equal(constructed[0].latencyHint, 'interactive')
 })
 
-test('createCaptureAudioContext requests 48 kHz', () => {
+test('createCaptureAudioContext requests 48 kHz interactive on desktop', () => {
   const constructed: AudioContextOptions[] = []
   class FakeAudioContext {
     constructor(options?: AudioContextOptions) {
       constructed.push(options ?? {})
     }
   }
-  createCaptureAudioContext(FakeAudioContext as unknown as typeof AudioContext)
+  createCaptureAudioContext(FakeAudioContext as unknown as typeof AudioContext, { userAgent: 'Mozilla/5.0' })
   assert.equal(constructed[0].sampleRate, CAPTURE_SAMPLE_RATE)
+  assert.equal(constructed[0].latencyHint, 'interactive')
+})
+
+test('createCaptureAudioContext uses balanced latency on Android shell', () => {
+  const constructed: AudioContextOptions[] = []
+  class FakeAudioContext {
+    constructor(options?: AudioContextOptions) {
+      constructed.push(options ?? {})
+    }
+  }
+  createCaptureAudioContext(
+    FakeAudioContext as unknown as typeof AudioContext,
+    { celeryShell: {}, userAgent: 'Mozilla/5.0' },
+  )
+  assert.equal(constructed[0].sampleRate, CAPTURE_SAMPLE_RATE)
+  assert.equal(constructed[0].latencyHint, 'balanced')
 })
 
 test('RNNoise readiness requires a live 48 kHz capture context', () => {

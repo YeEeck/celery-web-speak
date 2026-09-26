@@ -3,7 +3,11 @@
 // 动态的——该包在模块加载期引用 AudioWorkletNode，node 测试环境不可静态导入，
 // 也避免在未使用降噪时把包打进主包。
 
-import type { RnnoiseWorkletNode } from '@sapphi-red/web-noise-suppressor'
+export const RNNOISE_WORKLET_PROCESSOR_ID = '@sapphi-red/web-noise-suppressor/rnnoise'
+
+export interface RnnoiseDenoiseNode extends AudioWorkletNode {
+  destroy(): void
+}
 
 let wasmBinaryPromise: Promise<ArrayBuffer | null> | null = null
 
@@ -33,9 +37,22 @@ export function preloadRnnoiseWasm(): Promise<ArrayBuffer | null> {
 // 上下文内节点重建（选项切换）不应依赖 addModule 幂等性。
 const workletRegistrations = new WeakMap<AudioContext, Promise<void>>()
 
+// outputChannelCount 只能在构造时声明；库的 RnnoiseWorkletNode 不传 channel
+// 选项。构造后再改 channelCount 在部分 WebView 上不够。
+export function rnnoiseWorkletNodeOptions(wasmBinary: ArrayBuffer): AudioWorkletNodeOptions {
+  return {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    outputChannelCount: [1],
+    channelCount: 1,
+    channelCountMode: 'explicit',
+    processorOptions: { maxChannels: 1, wasmBinary },
+  }
+}
+
 // 在指定音频上下文创建 RNNoise 降噪节点；注册 worklet 失败或环境不支持时返回
 // null。RNNoise 内部固定 48kHz，仅支持 48kHz 上下文。
-export async function createRnnoiseNode(context: AudioContext, wasmBinary: ArrayBuffer): Promise<RnnoiseWorkletNode | null> {
+export async function createRnnoiseNode(context: AudioContext, wasmBinary: ArrayBuffer): Promise<RnnoiseDenoiseNode | null> {
   if (context.sampleRate !== 48_000) return null
   try {
     let registration = workletRegistrations.get(context)
@@ -49,8 +66,11 @@ export async function createRnnoiseNode(context: AudioContext, wasmBinary: Array
       workletRegistrations.set(context, registration)
     }
     await registration
-    const { RnnoiseWorkletNode } = await import('@sapphi-red/web-noise-suppressor')
-    return new RnnoiseWorkletNode(context, { maxChannels: 1, wasmBinary })
+    const node = new AudioWorkletNode(context, RNNOISE_WORKLET_PROCESSOR_ID, rnnoiseWorkletNodeOptions(wasmBinary))
+    const destroy = () => {
+      node.port.postMessage('destroy')
+    }
+    return Object.assign(node, { destroy })
   } catch {
     return null
   }

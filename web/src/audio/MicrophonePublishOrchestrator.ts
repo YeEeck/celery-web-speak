@@ -1,5 +1,5 @@
-import type { RnnoiseWorkletNode } from '@sapphi-red/web-noise-suppressor'
 import type { NoiseSuppressionOption, VoiceTransmissionMode } from '../stores/voice-utils.ts'
+import type { RnnoiseDenoiseNode } from './rnnoise.ts'
 import { buildMicrophoneCaptureOptions } from './microphoneCaptureOptions.ts'
 import { MicrophonePipelineProcessor } from './MicrophonePipelineProcessor.ts'
 
@@ -58,7 +58,7 @@ export interface MicrophonePublishOrchestratorOptions {
   /** 会话处于可重发布状态（connected / connecting）。 */
   isSessionLive(): boolean
   loadRnnoiseBinary(): Promise<ArrayBuffer | null>
-  createRnnoiseNode?: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
+  createRnnoiseNode?: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseDenoiseNode | null>
   onError?(message: string, error?: unknown): void
   // 重建采集会停掉旧 MediaStreamTrack；通知语音设备管理忽略随后的 ended，避免当成设备世界变了。
   beginCaptureSelfStop?: () => void

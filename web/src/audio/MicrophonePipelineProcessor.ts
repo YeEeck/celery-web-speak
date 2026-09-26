@@ -3,9 +3,8 @@ import {
   type AudioProcessorOptions,
   type TrackProcessor,
 } from 'livekit-client'
-import type { RnnoiseWorkletNode } from '@sapphi-red/web-noise-suppressor'
 import type { NoiseSuppressionOption } from '../stores/voice-utils.ts'
-import { createRnnoiseNode } from './rnnoise.ts'
+import { createRnnoiseNode, type RnnoiseDenoiseNode } from './rnnoise.ts'
 
 // RNNoise 时频掩码在真实使用中压低发送电平：输出无内部补益，采集端 AGC 在
 // 抑制器上游无法补偿。增强降噪分支内置固定补益（+3 dB 起步，×1.41），
@@ -16,7 +15,7 @@ export interface MicrophonePipelineOptions {
   gain: number
   noiseSuppression: NoiseSuppressionOption
   loadRnnoiseBinary: () => Promise<ArrayBuffer | null>
-  createRnnoiseNode?: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
+  createRnnoiseNode?: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseDenoiseNode | null>
   onRnnoiseUnavailable?: (isGenerationCurrent: () => boolean) => void | Promise<void>
   rnnoiseCaptureAllowed?: boolean
 }
@@ -31,14 +30,14 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
   private audioContext?: AudioContext
   private captureAudioContext?: AudioContext
   private sourceNode?: MediaStreamAudioSourceNode
-  private rnnoiseNode?: RnnoiseWorkletNode
+  private rnnoiseNode?: RnnoiseDenoiseNode
   private makeupGainNode?: GainNode
   private gainNode?: GainNode
   private destinationNode?: MediaStreamAudioDestinationNode
   private gain: number
   private noiseSuppression: NoiseSuppressionOption
   private readonly loadRnnoiseBinary: () => Promise<ArrayBuffer | null>
-  private readonly createRnnoiseNode: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseWorkletNode | null>
+  private readonly createRnnoiseNode: (context: AudioContext, binary: ArrayBuffer) => Promise<RnnoiseDenoiseNode | null>
   private readonly onRnnoiseUnavailable?: (isGenerationCurrent: () => boolean) => void | Promise<void>
   private rnnoiseCaptureAllowed: boolean
   private pipelineGeneration = 0
@@ -144,7 +143,7 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
         return
       }
 
-      let node: RnnoiseWorkletNode | null
+      let node: RnnoiseDenoiseNode | null
       try {
         node = await this.createRnnoiseNode(this.audioContext, binary)
       } catch {
@@ -154,8 +153,8 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
         await this.handleRnnoiseUnavailable(generation)
         return
       }
-      // RNNoise 为单声道语音增强：强制 worklet 输入单声道（输出随之单声道），
-      // 否则立体声麦克风下输出右声道保持静音，对端仅听到左声道。
+      // 构造时已声明单声道（outputChannelCount 只能在构造时设）；此处幂等
+      // 再写一次，避免注入的节点工厂漏掉 channelCount。
       node.channelCount = 1
       node.channelCountMode = 'explicit'
       if (!this.isCurrentGeneration(generation)

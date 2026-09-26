@@ -1,6 +1,8 @@
 // 播放与采集拆开的 AudioContext 工厂（ADR-0045）。
 // 播放走设备原生采样率；安卓用更大缓冲，避免 interactive + 强制 48 kHz 欠载。
 // 采集/RNNoise 单独 48 kHz，只接到 MediaStreamDestination，永不进扬声器。
+// 安卓采集同样用 balanced：RNNoise WASM 在 audio thread 上超出 interactive
+// 预算时，对端会听到掉字和炸音。
 
 export const CAPTURE_SAMPLE_RATE = 48_000
 
@@ -17,8 +19,11 @@ export function playbackAudioContextOptions(android: boolean): AudioContextOptio
   return { latencyHint: android ? 'balanced' : 'interactive' }
 }
 
-export function captureAudioContextOptions(): AudioContextOptions {
-  return { sampleRate: CAPTURE_SAMPLE_RATE }
+export function captureAudioContextOptions(android: boolean): AudioContextOptions {
+  return {
+    sampleRate: CAPTURE_SAMPLE_RATE,
+    latencyHint: android ? 'balanced' : 'interactive',
+  }
 }
 
 export function browserVoiceAudioEnvironment(): VoiceAudioEnvironment {
@@ -51,10 +56,11 @@ export function createPlaybackAudioContext(
 
 export function createCaptureAudioContext(
   ctor: typeof AudioContext | undefined = audioContextConstructor(),
+  env: VoiceAudioEnvironment = browserVoiceAudioEnvironment(),
 ): AudioContext | null {
   if (!ctor) return null
   try {
-    return new ctor(captureAudioContextOptions())
+    return new ctor(captureAudioContextOptions(isAndroidVoiceClient(env)))
   } catch {
     try {
       return new ctor()
