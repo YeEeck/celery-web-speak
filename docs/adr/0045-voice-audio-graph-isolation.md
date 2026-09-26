@@ -6,7 +6,7 @@
 
 1. **分析图禁止占用扬声器。** 说话检测引擎（16 kHz）和 `TrackActivityMonitor`（设备默认采样率）原先以 `gain=0` 接到 `context.destination`，在安卓上仍会打开独立播放流，与 48 kHz `webAudioMix` 在 AudioFlinger 里混音、重采样，欠载即顿卡+爆音。改为接到 `MediaStreamAudioDestinationNode`：图继续被调度，不打开扬声器。
 2. **已有发布麦克风时 VAD 不再自持采集。** 登录常开（ADR-0024）保留；但频道或通话已经 `getUserMedia` 时，引擎释放自己的采集，消费方改吃注入的说话帧（会话侧活动监测、通话侧 `isSpeaking`）。静音或未进语音时引擎仍自采，静音说话提醒不受影响。禁止两条带 AEC 的采集同时打开。
-3. **采集与播放拆成两个 `AudioContext`。** RNNoise 需要 48 kHz，但不应为此把 `webAudioMix` 播放也锁成 48 kHz + `interactive`。播放上下文用设备原生采样率；安卓用 `latencyHint: 'balanced'`，桌面保持 `interactive`。采集/RNNoise 用单独的 48 kHz 上下文，只接到 `MediaStreamDestination`，永不进扬声器。LiveKit `TrackProcessor.init` 传入的房间上下文被采集上下文覆盖。
+3. **采集与播放拆成两个 `AudioContext`。** RNNoise 需要 48 kHz，但不应为此把 `webAudioMix` 播放也锁成 48 kHz + `interactive`。播放上下文用设备原生采样率；安卓用 `latencyHint: 'balanced'`，桌面保持 `interactive`。采集/RNNoise 用单独的 48 kHz 上下文，只接到 `MediaStreamDestination`，永不进扬声器。LiveKit `TrackProcessor.init` 传入的房间上下文被采集上下文覆盖。安卓采集上下文同样用 `balanced`：RNNoise WASM 跑在 audio thread 上，默认 `interactive`（约 128 帧 / ~2.7ms）不够用，`MediaStreamDestination` 欠载，对端听到掉字和炸音；系统降噪不进 worklet，所以不受影响。桌面采集保持 `interactive`。略增发送延迟（数十毫秒）可接受。
 
 ## 考虑过的备选
 
@@ -17,4 +17,6 @@
 
 ## 修订
 
-无。
+### 安卓采集上下文也用 balanced（发送端 RNNoise 欠载）
+
+播放侧 `balanced` 修好了安卓听别人。残留只在发送端：安卓壳开启增强降噪时对端听到短暂掉字/炸音，系统降噪正常。三种降噪档共用 48 kHz 采集图，差别只有 RNNoise AudioWorklet。采集侧此前只设 `sampleRate: 48000`，`latencyHint` 仍是默认 `interactive`。改为与播放对称：安卓采集 `balanced`，桌面采集 `interactive`。不把安卓默认降噪改成系统降噪。
