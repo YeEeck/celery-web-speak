@@ -1,4 +1,4 @@
-const SAMPLE_RATE = 48_000
+import { captureAudioContextOptions } from './voiceAudioContexts.ts'
 
 export class ApplicationAudioPipeline {
   private context: AudioContext | null = null
@@ -10,7 +10,8 @@ export class ApplicationAudioPipeline {
 
   async initialize(volume: number) {
     if (this.track) return this.track
-    const context = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: 'interactive' })
+    // 背景音与采集图同为 48 kHz 长驻图，共用 balanced 延迟（ADR-0045）。
+    const context = new AudioContext(captureAudioContextOptions())
     try {
       await context.audioWorklet.addModule(new URL('./application-audio-worklet.js', import.meta.url))
       const processor = new AudioWorkletNode(context, 'cws-application-audio', {

@@ -1,4 +1,5 @@
 import { connectWithoutPlayback, disconnectSilentTap } from './silentAudioGraph.ts'
+import { VOICE_GRAPH_LATENCY } from './voiceAudioContexts.ts'
 
 const SAMPLE_RATE = 16_000
 const FRAME_DURATION_MS = 20
@@ -160,7 +161,7 @@ export class SpeechDetectionEngine {
         isSelfStop: () => this.selfStopping,
       })
 
-      const context = new AudioContext({ sampleRate: SAMPLE_RATE })
+      const context = new AudioContext({ sampleRate: SAMPLE_RATE, latencyHint: VOICE_GRAPH_LATENCY })
       this.context = context
       if (context.sampleRate !== SAMPLE_RATE) throw new Error(`浏览器不支持 ${SAMPLE_RATE} Hz 音频上下文`)
       await context.audioWorklet.addModule(new URL('./muted-speaking-worklet.js', import.meta.url))

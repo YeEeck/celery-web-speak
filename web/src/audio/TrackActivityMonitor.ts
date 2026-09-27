@@ -1,4 +1,5 @@
 import { disconnectSilentTap } from './silentAudioGraph.ts'
+import { VOICE_GRAPH_LATENCY } from './voiceAudioContexts.ts'
 
 const DEFAULT_ACTIVITY_THRESHOLD = 0.015
 const DEFAULT_ACTIVE_HOLD_MS = 250
@@ -28,7 +29,7 @@ export class TrackActivityMonitor {
   constructor(
     onChange: (identity: string, active: boolean) => void,
     holdMs = DEFAULT_ACTIVE_HOLD_MS,
-    createContext: () => AudioContext = () => new AudioContext(),
+    createContext: () => AudioContext = () => new AudioContext({ latencyHint: VOICE_GRAPH_LATENCY }),
   ) {
     this.onChange = onChange
     this.holdMs = holdMs
