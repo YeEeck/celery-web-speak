@@ -3,8 +3,8 @@
     "version": "0.4.44",
     "date": "2026-09-27",
     "changes": [
-      "fix(web): 桌面混音与 RNNoise 共用 48 kHz interactive 图——0.4.43 balanced 被听感证伪（ADR-0045）",
-      "docs: 桌面语音改回单条 48 kHz interactive 图（ADR-0045）"
+      "fix(web): 语音图按实际采样率分支——能 48 kHz 则混音与 RNNoise 共用 interactive 图，否则拆 48 kHz balanced 采集；不再按安卓/桌面适配（ADR-0045）",
+      "docs: 语音 AudioContext 改为按采样率能力分支，取消 OS 延迟分叉（ADR-0045）"
     ]
   },
   {

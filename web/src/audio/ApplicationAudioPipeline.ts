@@ -1,8 +1,4 @@
-import {
-  browserVoiceAudioEnvironment,
-  captureAudioContextOptions,
-  isAndroidVoiceClient,
-} from './voiceAudioContexts.ts'
+import { captureAudioContextOptions } from './voiceAudioContexts.ts'
 
 export class ApplicationAudioPipeline {
   private context: AudioContext | null = null
@@ -14,9 +10,7 @@ export class ApplicationAudioPipeline {
 
   async initialize(volume: number) {
     if (this.track) return this.track
-    const context = new AudioContext(
-      captureAudioContextOptions(isAndroidVoiceClient(browserVoiceAudioEnvironment())),
-    )
+    const context = new AudioContext(captureAudioContextOptions())
     try {
       await context.audioWorklet.addModule(new URL('./application-audio-worklet.js', import.meta.url))
       const processor = new AudioWorkletNode(context, 'cws-application-audio', {
