@@ -6,7 +6,7 @@
 
 1. **分析图禁止占用扬声器。** 说话检测引擎（16 kHz）和 `TrackActivityMonitor`（设备默认采样率）原先以 `gain=0` 接到 `context.destination`，在安卓上仍会打开独立播放流，与 48 kHz `webAudioMix` 在 AudioFlinger 里混音、重采样，欠载即顿卡+爆音。改为接到 `MediaStreamAudioDestinationNode`：图继续被调度，不打开扬声器。
 2. **已有发布麦克风时 VAD 不再自持采集。** 登录常开（ADR-0024）保留；但频道或通话已经 `getUserMedia` 时，引擎释放自己的采集，消费方改吃注入的说话帧（会话侧活动监测、通话侧 `isSpeaking`）。静音或未进语音时引擎仍自采，静音说话提醒不受影响。禁止两条带 AEC 的采集同时打开。
-3. **采集与播放的 AudioContext 按平台分拓扑。** RNNoise 需要 48 kHz。安卓：播放用设备原生采样率 + `balanced`，采集/RNNoise 用单独的 48 kHz + `balanced`，只接到 `MediaStreamDestination`，永不进扬声器。桌面：混音与 RNNoise 共用一条 48 kHz `interactive` 图（0.4.41 之前的拓扑）。LiveKit `TrackProcessor.init` 传入的房间上下文被采集上下文覆盖；桌面两者是同一对象。
+3. **采集与播放按实际采样率分支，不按 OS。** 媒体时钟是 48 kHz（Opus、RNNoise、自动音量平衡标定）。播放先请求 48 kHz `interactive`；浏览器真给了 48 kHz 则采集复用同一对象（混音、RNNoise、测声同一时钟）。给不出则播放保持该原生混音图，RNNoise 另开 48 kHz `balanced` 图，只接到 `MediaStreamDestination`，永不进扬声器。LiveKit `TrackProcessor.init` 传入的房间上下文被采集上下文覆盖。不读 UA、不读 `celeryShell`。
 
 ## 考虑过的备选
 
@@ -28,3 +28,7 @@
 ### 桌面回到单条 48 kHz interactive 图（0.4.43 被听感证伪）
 
 0.4.43 把桌面播放/采集/背景音/分析图一律改成 `balanced`，安卓政策不变。HITL：断续仍在，整体听感更不稳，接收端自动音量平衡忽大忽小。`balanced` 加大播放缓冲，测声与 0.4.41 之前的 48 kHz interactive 混音图不再对齐。改回：桌面混音与 RNNoise 共用一条 48 kHz `interactive` 图；安卓仍拆分 + `balanced`。应用提示音不在此列。
+
+### 按采样率能力分支，取消 OS 适配（0.4.44）
+
+按「安卓 / 桌面」选拓扑是用壳标记和 UA 记住两次 HITL，不能覆盖 44.1 kHz 安卓、锁不住 48 kHz 的桌面、或 iOS。改为只看浏览器真正给出的 `sampleRate`：能 48 kHz 就共用 interactive 混音图；不能就拆一条 48 kHz balanced 采集图。第 1、2 层（分析图不进扬声器、语音中不双采集）对所有端仍成立。应用提示音不在此列。

@@ -26,4 +26,4 @@ RNNoise 的时频掩码会压低发送电平：输出是掩码（谱增益 ≤ 1
 
 ## 修订（ADR-0045）：48 kHz 只约束采集上下文
 
-RNNoise 仍要求 48 kHz。安卓：采集/RNNoise 使用独立的 48 kHz `balanced` 上下文，播放使用设备原生采样率 + `balanced`。桌面：混音与 RNNoise 共用一条 48 kHz `interactive` 图，不再为拆分而把桌面播放解锁成设备原生采样率。见 ADR-0045。
+RNNoise 仍要求 48 kHz。播放先请求 48 kHz `interactive`；浏览器真给了 48 kHz 则 RNNoise 与混音共用该图。否则 RNNoise 走独立的 48 kHz `balanced` 采集图，不进扬声器。不按 OS 分支。见 ADR-0045。
