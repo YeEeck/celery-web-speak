@@ -433,12 +433,14 @@ function makeHarness(): Harness {
     },
     postVoiceLeave: async () => { harness.voiceLeaveCalls += 1 },
     createRoom: () => room as unknown as ReturnType<VoiceSessionContext['createRoom']>,
-    createAudioContext: () => {
+    createVoiceAudioContexts: () => {
       const context = new FakeAudioContext()
       audioContexts.push(context)
-      return context as unknown as AudioContext
+      return {
+        playback: context as unknown as AudioContext,
+        capture: new FakeAudioContext() as unknown as AudioContext,
+      }
     },
-    createCaptureAudioContext: () => new FakeAudioContext() as unknown as AudioContext,
     audioInteractionTarget: () => new EventTarget(),
     createSpeechDetectionEngine: () => monitor as never,
     appendAudioElement: (element) => { appendedElements.push({ userId: element.dataset.userId }) },
@@ -711,7 +713,7 @@ test('startAudioIfNeeded calls SDK startAudio while the custom context is suspen
 
 test('startAudioIfNeeded falls back to SDK startAudio without a custom context', async () => {
   const h = makeHarness()
-  h.ctx.createAudioContext = () => null
+  h.ctx.createVoiceAudioContexts = () => ({ playback: null, capture: null })
   await h.session.join(7)
   assert.equal(h.audioContexts.length, 0)
   await h.session.startAudioIfNeeded()

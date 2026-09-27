@@ -46,8 +46,7 @@ export interface StartCallResult {
 export interface VoiceCallContext {
   currentUser(): { id: number } | null
   createRoom(options: RoomOptions): Room
-  createAudioContext(): AudioContext | null
-  createCaptureAudioContext(): AudioContext | null
+  createVoiceAudioContexts(): { playback: AudioContext | null, capture: AudioContext | null }
   audioInteractionTarget(): EventTarget
   loadRnnoiseBinary(): Promise<ArrayBuffer | null>
   microphoneGainInitial(): number
@@ -302,8 +301,9 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     try {
       const credentials = await ctx.fetchCallToken(id)
       if (session !== callSession || status.value !== 'active') return
-      callAudioContext = ctx.createAudioContext()
-      callCaptureAudioContext = ctx.createCaptureAudioContext()
+      const { playback, capture } = ctx.createVoiceAudioContexts()
+      callAudioContext = playback
+      callCaptureAudioContext = capture
       if (callCaptureAudioContext?.state === 'suspended') void callCaptureAudioContext.resume()
       microphoneOrchestrator.setCaptureAudioContext(callCaptureAudioContext)
       const nextRoom = markRaw(ctx.createRoom({

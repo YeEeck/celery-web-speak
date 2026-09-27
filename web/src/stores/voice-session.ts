@@ -125,8 +125,7 @@ export interface VoiceSessionContext {
   fetchVoiceToken(guildId: number, channelId: number, deafened: boolean): Promise<VoiceCredentials>
   postVoiceLeave(guildId: number): Promise<void>
   createRoom(options: RoomOptions): Room
-  createAudioContext(): AudioContext | null
-  createCaptureAudioContext(): AudioContext | null
+  createVoiceAudioContexts(): { playback: AudioContext | null, capture: AudioContext | null }
   audioInteractionTarget(): EventTarget
   createSpeechDetectionEngine(callbacks: SpeechDetectionEngineCallbacks): SpeechDetectionEngine
   appendAudioElement(element: HTMLAudioElement): void
@@ -308,8 +307,8 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
       const tokenDeafened = ctx.deafenedPreference()
       const credentials = await ctx.fetchVoiceToken(guildId, channelId, tokenDeafened)
       if (session !== voiceSession) return
-      const audioContext = ctx.createAudioContext()
-      captureAudioContext = ctx.createCaptureAudioContext()
+      const { playback: audioContext, capture } = ctx.createVoiceAudioContexts()
+      captureAudioContext = capture
       if (captureAudioContext?.state === 'suspended') void captureAudioContext.resume()
       microphoneOrchestrator.setCaptureAudioContext(captureAudioContext)
       const nextRoom = markRaw(ctx.createRoom({

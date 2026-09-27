@@ -9,8 +9,7 @@ import { SpeechDetectionEngine } from '../audio/SpeechDetectionEngine.ts'
 import { SpeechDetectionLifecycle } from '../audio/SpeechDetectionLifecycle.ts'
 import { preloadRnnoiseWasm } from '../audio/rnnoise.ts'
 import {
-  createCaptureAudioContext,
-  createPlaybackAudioContext,
+  createVoiceAudioContextPair,
   isCaptureContextRnnoiseReady,
 } from '../audio/voiceAudioContexts.ts'
 import { useVoiceDevices, type VoiceLiveConnection } from './voice-devices.ts'
@@ -170,11 +169,10 @@ export const useVoiceStore = defineStore('voice', () => {
     }),
     postVoiceLeave: (guildId) => request<void>(`/api/guilds/${guildId}/voice/leave`, { method: 'POST' }),
     createRoom: (options) => markRaw(new Room(options)),
-    createAudioContext: () => createPlaybackAudioContext(),
-    createCaptureAudioContext: () => {
-      const context = createCaptureAudioContext()
-      captureContextRef.current = context
-      return context
+    createVoiceAudioContexts: () => {
+      const pair = createVoiceAudioContextPair()
+      captureContextRef.current = pair.capture
+      return pair
     },
     audioInteractionTarget: () => document,
     appendAudioElement: (element) => void document.querySelector('#voice-audio-root')?.appendChild(element),
@@ -353,8 +351,7 @@ export const useVoiceStore = defineStore('voice', () => {
     transmissionMode: () => session.transmissionMode.value,
     noiseSuppressionOption: () => noiseSuppressionOption.value,
     loadRnnoiseBinary: () => preloadRnnoiseWasm(),
-    createAudioContext: () => createPlaybackAudioContext(),
-    createCaptureAudioContext,
+    createVoiceAudioContexts: () => createVoiceAudioContextPair(),
     audioInteractionTarget: () => document,
     microphoneEnabledPreference: () => muteDeafenRef.current?.microphoneEnabledPreference.value ?? false,
     toggleMicrophonePreference: () => muteDeafenRef.current ? muteDeafenRef.current.userToggledMute() : Promise.resolve(),

@@ -1,4 +1,8 @@
-import { captureAudioContextOptions } from './voiceAudioContexts.ts'
+import {
+  browserVoiceAudioEnvironment,
+  captureAudioContextOptions,
+  isAndroidVoiceClient,
+} from './voiceAudioContexts.ts'
 
 export class ApplicationAudioPipeline {
   private context: AudioContext | null = null
@@ -10,8 +14,9 @@ export class ApplicationAudioPipeline {
 
   async initialize(volume: number) {
     if (this.track) return this.track
-    // 背景音与采集图同为 48 kHz 长驻图，共用 balanced 延迟（ADR-0045）。
-    const context = new AudioContext(captureAudioContextOptions())
+    const context = new AudioContext(
+      captureAudioContextOptions(isAndroidVoiceClient(browserVoiceAudioEnvironment())),
+    )
     try {
       await context.audioWorklet.addModule(new URL('./application-audio-worklet.js', import.meta.url))
       const processor = new AudioWorkletNode(context, 'cws-application-audio', {

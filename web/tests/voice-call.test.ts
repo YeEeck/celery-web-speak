@@ -217,12 +217,14 @@ function makeHarness(): Harness {
       harness.roomOptions = options
       return room as never
     },
-    createAudioContext: () => {
+    createVoiceAudioContexts: () => {
       const context = new FakeAudioContext()
       harness.audioContext = context
-      return context as unknown as AudioContext
+      return {
+        playback: context as unknown as AudioContext,
+        capture: new FakeAudioContext() as unknown as AudioContext,
+      }
     },
-    createCaptureAudioContext: () => new FakeAudioContext() as unknown as AudioContext,
     audioInteractionTarget: () => new EventTarget(),
     loadRnnoiseBinary: async () => null,
     microphoneGainInitial: () => 1,
