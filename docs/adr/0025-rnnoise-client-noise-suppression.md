@@ -26,4 +26,4 @@ RNNoise 的时频掩码会压低发送电平：输出是掩码（谱增益 ≤ 1
 
 ## 修订（ADR-0045）：48 kHz 只约束采集上下文
 
-RNNoise 仍要求 48 kHz，但不再把 `webAudioMix` 播放上下文锁成 48 kHz。采集/RNNoise 使用独立的 48 kHz 上下文，播放使用设备原生采样率。长驻语音图（含采集）的 `latencyHint` 一律 `balanced`，给 WASM 留出 audio thread 预算，不再按平台分支。见 ADR-0045。
+RNNoise 仍要求 48 kHz。安卓：采集/RNNoise 使用独立的 48 kHz `balanced` 上下文，播放使用设备原生采样率 + `balanced`。桌面：混音与 RNNoise 共用一条 48 kHz `interactive` 图，不再为拆分而把桌面播放解锁成设备原生采样率。见 ADR-0045。
