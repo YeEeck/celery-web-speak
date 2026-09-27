@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.43",
+    "date": "2026-09-27",
+    "changes": [
+      "fix(web): 长驻语音图改用 balanced 延迟——针对 0.4.41 后 Electron 桌面双向欠载断续（ADR-0045）",
+      "docs: 长驻语音图一律 balanced，作废桌面 interactive 延迟策略（ADR-0045）"
+    ]
+  },
+  {
     "version": "0.4.42",
     "date": "2026-09-27",
     "changes": [
