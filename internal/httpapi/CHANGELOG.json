@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.44",
+    "date": "2026-09-27",
+    "changes": [
+      "fix(web): 桌面混音与 RNNoise 共用 48 kHz interactive 图——0.4.43 balanced 被听感证伪（ADR-0045）",
+      "docs: 桌面语音改回单条 48 kHz interactive 图（ADR-0045）"
+    ]
+  },
+  {
     "version": "0.4.43",
     "date": "2026-09-27",
     "changes": [
