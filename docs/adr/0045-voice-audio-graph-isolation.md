@@ -1,13 +1,8 @@
-# 语音分析图不进扬声器，语音中不双采集；混音时钟保持 48 kHz interactive
+# 语音混音时钟保持 48 kHz interactive；分析图隔离因音质撤回
 
-安卓 Chrome / WebView 上出现双向语音顿卡并伴随「嘣嘣」爆音：自己听别人卡、别人听自己也卡；关掉增强降噪只有微小改善，麦克风静音后只听仍然卡。根因不是 RNNoise 算法本身，而是多条 `AudioContext` 同时接到扬声器、以及语音发布与常开 VAD 叠两条带 AEC 的 `getUserMedia`。
+安卓 Chrome / WebView 上出现双向语音顿卡并伴随「嘣嘣」爆音。0.4.41 曾用三层隔离（分析图不进扬声器、语音中不双采集、采集/播放分上下文）去修。v0.4.40 听感正常，0.4.41 起音质劣化；0.4.45 只把混音时钟改回 0.4.40 仍无改善。
 
-决策分两层，互不替代：
-
-1. **分析图禁止占用扬声器。** 说话检测引擎（16 kHz）和 `TrackActivityMonitor`（设备默认采样率）原先以 `gain=0` 接到 `context.destination`，在安卓上仍会打开独立播放流，与 48 kHz `webAudioMix` 在 AudioFlinger 里混音、重采样，欠载即顿卡+爆音。改为接到 `MediaStreamAudioDestinationNode`：图继续被调度，不打开扬声器。
-2. **已有发布麦克风时 VAD 不再自持采集。** 登录常开（ADR-0024）保留；但频道或通话已经 `getUserMedia` 时，引擎释放自己的采集，消费方改吃注入的说话帧（会话侧活动监测、通话侧 `isSpeaking`）。静音或未进语音时引擎仍自采，静音说话提醒不受影响。禁止两条带 AEC 的采集同时打开。
-
-**混音时钟不在这两层里改。** 语音 `AudioContext` 保持 v0.4.40：`{ latencyHint: 'interactive', sampleRate: 48000 }`（失败则去掉 `sampleRate`），`webAudioMix`、RNNoise、自动音量平衡测声共用同一对象。第 1、2 层与 0.4.41 同一提交上线，尚未用音质 HITL 证明无害；若回到 0.4.40 混音时钟后听感仍差，下一刀撤这两层，而不是再改采样率。
+**现行决策：** 语音图与 v0.4.40 对齐。唯一 `{ latencyHint: 'interactive', sampleRate: 48000 }` 上下文给 `webAudioMix`、RNNoise、自动音量平衡测声。分析图（说话检测、TrackActivityMonitor）仍以 `gain=0` 接到 `destination`。说话检测登录后持续自持采集。安卓顿卡另开一轮，不以音质为代价。
 
 ## 考虑过的备选
 
@@ -39,3 +34,12 @@
 v0.4.40 听感正常。v0.4.41 把播放改成设备原生采样率并另开 48 kHz 采集图，音质劣化；0.4.42–0.4.44 的 `balanced`、手搓 RNNoise 节点、按采样率再共用，都在这条坏基线上。对照物是 **v0.4.40 标签**，不是 0.4.43。
 
 作废第 3 层（分上下文 / 播放跟设备 / 按采样率共用）以及其后所有 latencyHint / 采样率分叉。唯一语音图恢复 `{ latencyHint: 'interactive', sampleRate: 48000 }`，采集与播放是同一对象。RNNoise 回到库的 `RnnoiseWorkletNode`。背景音恢复 48 kHz `interactive`。第 1、2 层暂留。应用提示音不在此列。
+
+### 第 1、2 层因音质撤回（0.4.46）
+
+v0.4.45 HITL：混音时钟已回到 0.4.40，音质仍劣化。第 1 层（分析图接 `MediaStreamDestination`）和第 2 层（发布时 VAD 让出采集）与 0.4.41 同一提交，现一并撤回：
+
+- 说话检测与 `TrackActivityMonitor` 再以 `gain=0` 接到 `context.destination`（v0.4.40）。
+- 引擎登录后持续自持 `getUserMedia`，进语音不再让出采集。
+
+混音时钟仍是单条 48 kHz `interactive`。安卓顿卡/爆音可能回来；音质是硬约束，断续另开一轮。
