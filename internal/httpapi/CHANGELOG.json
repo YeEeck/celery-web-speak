@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.45",
+    "date": "2026-09-28",
+    "changes": [
+      "fix(web): 恢复单条 48 kHz interactive 混音图——撤回 0.4.41 起拆采集/改播放采样率导致的音质劣化，RNNoise 与 webAudioMix 共用同一对象（ADR-0045）",
+      "docs: 混音时钟回到 v0.4.40；作废按采样率拆图与手搓 RNNoise 节点（ADR-0045）"
+    ]
+  },
+  {
     "version": "0.4.44",
     "date": "2026-09-27",
     "changes": [
