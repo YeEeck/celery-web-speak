@@ -1,4 +1,4 @@
-import { captureAudioContextOptions } from './voiceAudioContexts.ts'
+import { voiceAudioContextOptions } from './voiceAudioContexts.ts'
 
 export class ApplicationAudioPipeline {
   private context: AudioContext | null = null
@@ -10,7 +10,7 @@ export class ApplicationAudioPipeline {
 
   async initialize(volume: number) {
     if (this.track) return this.track
-    const context = new AudioContext(captureAudioContextOptions())
+    const context = new AudioContext(voiceAudioContextOptions())
     try {
       await context.audioWorklet.addModule(new URL('./application-audio-worklet.js', import.meta.url))
       const processor = new AudioWorkletNode(context, 'cws-application-audio', {

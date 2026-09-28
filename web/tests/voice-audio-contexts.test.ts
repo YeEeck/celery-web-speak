@@ -2,25 +2,21 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   CAPTURE_SAMPLE_RATE,
-  captureAudioContextOptions,
   createCaptureAudioContext,
   createPlaybackAudioContext,
   createVoiceAudioContextPair,
   isCaptureContextRnnoiseReady,
-  playbackAudioContextOptions,
+  voiceAudioContextFallbackOptions,
+  voiceAudioContextOptions,
 } from '../src/audio/voiceAudioContexts.ts'
 
-test('playback requests 48 kHz interactive so mix matches the media clock', () => {
-  assert.deepEqual(playbackAudioContextOptions(), {
+test('voice mix requests 48 kHz interactive', () => {
+  assert.deepEqual(voiceAudioContextOptions(), {
     latencyHint: 'interactive',
     sampleRate: CAPTURE_SAMPLE_RATE,
   })
-})
-
-test('capture-only graph requests 48 kHz balanced for RNNoise', () => {
-  assert.deepEqual(captureAudioContextOptions(), {
-    sampleRate: CAPTURE_SAMPLE_RATE,
-    latencyHint: 'balanced',
+  assert.deepEqual(voiceAudioContextFallbackOptions(), {
+    latencyHint: 'interactive',
   })
 })
 
@@ -32,11 +28,12 @@ test('createPlaybackAudioContext requests 48 kHz interactive', () => {
     }
   }
   createPlaybackAudioContext(FakeAudioContext as unknown as typeof AudioContext)
+  assert.equal(constructed.length, 1)
   assert.equal(constructed[0].sampleRate, CAPTURE_SAMPLE_RATE)
   assert.equal(constructed[0].latencyHint, 'interactive')
 })
 
-test('createCaptureAudioContext requests 48 kHz balanced', () => {
+test('createCaptureAudioContext uses the same 48 kHz interactive mix options', () => {
   const constructed: AudioContextOptions[] = []
   class FakeAudioContext {
     constructor(options?: AudioContextOptions) {
@@ -44,11 +41,11 @@ test('createCaptureAudioContext requests 48 kHz balanced', () => {
     }
   }
   createCaptureAudioContext(FakeAudioContext as unknown as typeof AudioContext)
-  assert.equal(constructed[0].sampleRate, CAPTURE_SAMPLE_RATE)
-  assert.equal(constructed[0].latencyHint, 'balanced')
+  assert.equal(constructed.length, 1)
+  assert.deepEqual(constructed[0], voiceAudioContextOptions())
 })
 
-test('voice pair reuses playback when the browser actually gives 48 kHz', () => {
+test('voice pair always reuses one context for playback and capture', () => {
   class FakeAudioContext {
     sampleRate: number
     constructor(options?: AudioContextOptions) {
@@ -60,19 +57,29 @@ test('voice pair reuses playback when the browser actually gives 48 kHz', () => 
   assert.equal(pair.playback?.sampleRate, CAPTURE_SAMPLE_RATE)
 })
 
-test('voice pair splits capture when playback cannot lock 48 kHz', () => {
-  const constructed: AudioContextOptions[] = []
+test('voice pair still shares when the constructor ignores sampleRate', () => {
   class FakeAudioContext {
     sampleRate = 44_100
-    constructor(options?: AudioContextOptions) {
-      constructed.push(options ?? {})
-    }
+    constructor(_options?: AudioContextOptions) {}
   }
   const pair = createVoiceAudioContextPair(FakeAudioContext as unknown as typeof AudioContext)
-  assert.notEqual(pair.playback, pair.capture)
-  assert.equal(constructed[0].latencyHint, 'interactive')
-  assert.equal(constructed[1].sampleRate, CAPTURE_SAMPLE_RATE)
-  assert.equal(constructed[1].latencyHint, 'balanced')
+  assert.equal(pair.playback, pair.capture)
+  assert.equal(pair.playback?.sampleRate, 44_100)
+})
+
+test('constructor falls back to interactive without sampleRate when 48 kHz is rejected', () => {
+  const constructed: AudioContextOptions[] = []
+  class FakeAudioContext {
+    constructor(options?: AudioContextOptions) {
+      constructed.push(options ?? {})
+      if (options?.sampleRate !== undefined) throw new Error('sampleRate rejected')
+    }
+  }
+  const context = createPlaybackAudioContext(FakeAudioContext as unknown as typeof AudioContext)
+  assert.ok(context)
+  assert.equal(constructed.length, 2)
+  assert.deepEqual(constructed[0], voiceAudioContextOptions())
+  assert.deepEqual(constructed[1], voiceAudioContextFallbackOptions())
 })
 
 test('RNNoise readiness requires a live 48 kHz capture context', () => {

@@ -1,9 +1,6 @@
-// 语音 AudioContext 按能力分支，不按 OS（ADR-0045）。
-// 媒体时钟是 48 kHz（Opus / RNNoise / 自动音量平衡标定）。
-// 播放先请求 48 kHz + interactive（混音与 AGC 同图、低延迟）。
-// 浏览器真给了 48 kHz：采集复用同一对象，RNNoise 与测声同一时钟。
-// 给不出：播放保持这条原生混音图，RNNoise 另开 48 kHz balanced 图，
-// 只接到 MediaStreamDestination，永不进扬声器。
+// 语音混音时钟保持 v0.4.40（ADR-0045）：一条 48 kHz interactive 图，
+// webAudioMix、RNNoise、自动音量平衡测声共用。浏览器拒绝显式采样率时
+// 退回 interactive、不锁 sampleRate。不按 OS 拆图，不为断续改这条时钟。
 
 export const CAPTURE_SAMPLE_RATE = 48_000
 
@@ -12,12 +9,12 @@ export interface VoiceAudioContextPair {
   capture: AudioContext | null
 }
 
-export function playbackAudioContextOptions(): AudioContextOptions {
+export function voiceAudioContextOptions(): AudioContextOptions {
   return { latencyHint: 'interactive', sampleRate: CAPTURE_SAMPLE_RATE }
 }
 
-export function captureAudioContextOptions(): AudioContextOptions {
-  return { sampleRate: CAPTURE_SAMPLE_RATE, latencyHint: 'balanced' }
+export function voiceAudioContextFallbackOptions(): AudioContextOptions {
+  return { latencyHint: 'interactive' }
 }
 
 export function audioContextConstructor(): typeof AudioContext | undefined {
@@ -27,14 +24,13 @@ export function audioContextConstructor(): typeof AudioContext | undefined {
 
 function createAudioContextWithOptions(
   ctor: typeof AudioContext | undefined,
-  options: AudioContextOptions,
 ): AudioContext | null {
   if (!ctor) return null
   try {
-    return new ctor(options)
+    return new ctor(voiceAudioContextOptions())
   } catch {
     try {
-      return new ctor()
+      return new ctor(voiceAudioContextFallbackOptions())
     } catch {
       return null
     }
@@ -44,26 +40,20 @@ function createAudioContextWithOptions(
 export function createPlaybackAudioContext(
   ctor: typeof AudioContext | undefined = audioContextConstructor(),
 ): AudioContext | null {
-  return createAudioContextWithOptions(ctor, playbackAudioContextOptions())
+  return createAudioContextWithOptions(ctor)
 }
 
 export function createCaptureAudioContext(
   ctor: typeof AudioContext | undefined = audioContextConstructor(),
 ): AudioContext | null {
-  return createAudioContextWithOptions(ctor, captureAudioContextOptions())
+  return createAudioContextWithOptions(ctor)
 }
 
 export function createVoiceAudioContextPair(
   ctor: typeof AudioContext | undefined = audioContextConstructor(),
 ): VoiceAudioContextPair {
-  const playback = createAudioContextWithOptions(ctor, playbackAudioContextOptions())
-  if (playback && playback.sampleRate === CAPTURE_SAMPLE_RATE) {
-    return { playback, capture: playback }
-  }
-  return {
-    playback,
-    capture: createAudioContextWithOptions(ctor, captureAudioContextOptions()),
-  }
+  const context = createAudioContextWithOptions(ctor)
+  return { playback: context, capture: context }
 }
 
 export function isCaptureContextRnnoiseReady(context: AudioContext | null | undefined): boolean {

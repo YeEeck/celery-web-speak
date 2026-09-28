@@ -53,8 +53,8 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
     this.rnnoiseCaptureAllowed = options.rnnoiseCaptureAllowed ?? true
   }
 
-  // 采集上下文与 webAudioMix 播放上下文分离（ADR-0045）。LiveKit init 仍会
-  // 传入房间播放上下文，这里优先用采集上下文，避免 RNNoise 把播放锁成 48 kHz。
+  // 会话注入的混音图（ADR-0045：与 webAudioMix 同一条 48 kHz interactive）。
+  // LiveKit init 仍会传入房间上下文；优先用会话注入的对象，二者按策略是同一引用。
   setCaptureAudioContext(context: AudioContext | undefined) {
     this.captureAudioContext = context
   }
@@ -153,8 +153,8 @@ export class MicrophonePipelineProcessor implements TrackProcessor<Track.Kind.Au
         await this.handleRnnoiseUnavailable(generation)
         return
       }
-      // 构造时已声明单声道（outputChannelCount 只能在构造时设）；此处幂等
-      // 再写一次，避免注入的节点工厂漏掉 channelCount。
+      // RNNoise 为单声道语音增强：强制 worklet 输入单声道（输出随之单声道），
+      // 否则立体声麦克风下输出右声道保持静音，对端仅听到左声道。
       node.channelCount = 1
       node.channelCountMode = 'explicit'
       if (!this.isCurrentGeneration(generation)
