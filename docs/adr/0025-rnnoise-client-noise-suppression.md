@@ -24,6 +24,6 @@ RNNoise 的时频掩码会压低发送电平：输出是掩码（谱增益 ≤ 1
 
 补益按真实场景听感标定起步（命名常量，后续实测可调）。客观测量门禁随之调整：噪声削减指标被补益系统性压低约 3 dB（噪声段一并抬高），门禁按新基线重标；新增"语音不过冲"上限门禁，防止未来补益调大导致语音过响。
 
-## 修订（ADR-0045）：48 kHz 只约束采集上下文
+## 修订（ADR-0045）：RNNoise 与混音共用 48 kHz interactive 图
 
-RNNoise 仍要求 48 kHz。播放先请求 48 kHz `interactive`；浏览器真给了 48 kHz 则 RNNoise 与混音共用该图。否则 RNNoise 走独立的 48 kHz `balanced` 采集图，不进扬声器。不按 OS 分支。见 ADR-0045。
+RNNoise 仍要求 48 kHz。语音混音时钟保持 v0.4.40：一条 `{ latencyHint: 'interactive', sampleRate: 48000 }` 图，`webAudioMix` 与 RNNoise 共用。0.4.41–0.4.44 把采集拆开、改播放采样率或手搓 `AudioWorkletNode` 已作废。节点仍用库的 `RnnoiseWorkletNode`，事后强制单声道。见 ADR-0045。
