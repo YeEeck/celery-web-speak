@@ -209,9 +209,6 @@ export function useVoiceSession(ctx: VoiceSessionContext) {
   const speechDetection = ctx.createSpeechDetectionEngine({
     onError: (error) => console.warn('静音说话检测已停用', error),
   })
-  microphoneActivity.setFrameListener((identity, active, intervalMs) => {
-    if (identity === room?.localParticipant.identity) speechDetection.ingestFrame(active, intervalMs)
-  })
   const mutedSpeakingReminder = new MutedSpeakingReminderMonitor(speechDetection, {
     onReminder: showMutedSpeakingReminder,
   })

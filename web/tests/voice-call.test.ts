@@ -269,7 +269,6 @@ function makeHarness(): Harness {
     notifyCaptureTrackEnded: () => undefined,
     beginCaptureSelfStop: () => undefined,
     endCaptureSelfStop: () => undefined,
-    ingestSpeechFrame: () => undefined,
   }
   harness.call = useVoiceCall(harness.ctx)
   return harness

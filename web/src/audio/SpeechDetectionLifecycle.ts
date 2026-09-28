@@ -8,8 +8,6 @@ export interface SpeechDetectionLifecycleOptions {
   inputDeviceId: () => string
   // 输入路由世代：真正重绑（含系统默认强制重建）时递增；名单刷新不递增。
   inputRoutingGeneration: () => number
-  // 引擎是否自持 getUserMedia。频道/通话已发布麦克风时为 false，避免双采集（ADR-0045）。
-  ownsCapture?: () => boolean
   // 订阅环境事件（标签页可见、设备变化），返回退订函数。
   subscribeRetryEvents: (listener: () => void) => () => void
 }
@@ -34,23 +32,18 @@ export class SpeechDetectionLifecycle {
     this.unsubscribeRetryEvents = options.subscribeRetryEvents(() => this.onRetryEvent())
   }
 
-  private ownsCapture() {
-    return this.options.ownsCapture?.() ?? true
-  }
-
-  // state 供装配方 watch：活跃性、是否自持采集、跟随设备与路由世代任一变化即触发。
+  // state 供装配方 watch：活跃性、跟随设备与路由世代任一变化即触发。
   state() {
     return {
       active: this.options.isActive(),
-      ownsCapture: this.ownsCapture(),
       deviceId: this.options.inputDeviceId(),
       routingGeneration: this.options.inputRoutingGeneration(),
     }
   }
 
-  // sync 由装配方在登录、权限、采集归属与设备跟随变化时调用：按当前状态启停或强制重建。
+  // sync 由装配方在登录、权限与设备跟随变化时调用：按当前状态启停或强制重建。
   sync() {
-    if (!this.options.isActive() || !this.ownsCapture()) {
+    if (!this.options.isActive()) {
       this.engine.stop()
       this.lastSyncedGeneration = null
       return
@@ -71,7 +64,7 @@ export class SpeechDetectionLifecycle {
   }
 
   private onRetryEvent() {
-    if (!this.options.isActive() || !this.ownsCapture()) return
+    if (!this.options.isActive()) return
     if (!this.failed) return
     this.retry()
   }

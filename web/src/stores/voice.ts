@@ -369,7 +369,6 @@ export const useVoiceStore = defineStore('voice', () => {
     },
     beginCaptureSelfStop: () => devicesRef.current?.beginCaptureSelfStop(),
     endCaptureSelfStop: () => devicesRef.current?.endCaptureSelfStop(),
-    ingestSpeechFrame: (speaking, ms) => speechDetection.ingestFrame(speaking, ms),
   })
   callRef.current = call
 
@@ -401,15 +400,6 @@ export const useVoiceStore = defineStore('voice', () => {
     engine: speechDetection,
     isActive: () => useAppStore().user !== null
       && (devicesRef.current?.devicePermissionState.value ?? 'idle') === 'granted',
-    ownsCapture: () => {
-      const wantMic = (muteDeafenRef.current?.microphoneEnabledPreference.value ?? false)
-        && !(muteDeafenRef.current?.deafened.value ?? false)
-      const sessionWantsMic = (
-        session.status.value === 'connected' || session.status.value === 'connecting'
-      ) && wantMic && !(muteDeafenRef.current?.channelDeafened.value ?? false)
-      const callWantsMic = call.status.value === 'active' && wantMic
-      return !sessionWantsMic && !callWantsMic
-    },
     inputDeviceId: () => devicesRef.current?.followInputDeviceId.value ?? '',
     inputRoutingGeneration: () => devicesRef.current?.inputRoutingGeneration.value ?? 0,
     subscribeRetryEvents: (listener) => {

@@ -198,8 +198,6 @@ class FakeSpeechDetectionEngine {
   emitSpeech(speaking: boolean, frameDurationMs = 20) {
     for (const listener of this.listeners) listener(speaking, frameDurationMs)
   }
-
-  ingestFrame(_speaking: boolean, _frameDurationMs: number) {}
 }
 
 function fakeElement() {

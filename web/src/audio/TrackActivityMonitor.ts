@@ -1,5 +1,3 @@
-import { disconnectSilentTap } from './silentAudioGraph.ts'
-
 const DEFAULT_ACTIVITY_THRESHOLD = 0.015
 const DEFAULT_ACTIVE_HOLD_MS = 250
 const DEFAULT_POLL_INTERVAL_MS = 100
@@ -16,28 +14,16 @@ interface MonitoredTrack {
 
 export class TrackActivityMonitor {
   private readonly holdMs: number
-  private readonly createContext: () => AudioContext
   private context: AudioContext | null = null
-  private tap: MediaStreamAudioDestinationNode | null = null
+  private silence: GainNode | null = null
   private tracks = new Map<string, MonitoredTrack>()
   private timer: number | null = null
-  private frameListener: ((identity: string, active: boolean, intervalMs: number) => void) | null = null
 
   private onChange: (identity: string, active: boolean) => void
 
-  constructor(
-    onChange: (identity: string, active: boolean) => void,
-    holdMs = DEFAULT_ACTIVE_HOLD_MS,
-    createContext: () => AudioContext = () => new AudioContext(),
-  ) {
+  constructor(onChange: (identity: string, active: boolean) => void, holdMs = DEFAULT_ACTIVE_HOLD_MS) {
     this.onChange = onChange
     this.holdMs = holdMs
-    this.createContext = createContext
-  }
-
-  // 逐轮能量结果，供说话检测引擎在让出采集时注入帧（ADR-0045）。
-  setFrameListener(listener: ((identity: string, active: boolean, intervalMs: number) => void) | null) {
-    this.frameListener = listener
   }
 
   sync(sources: Array<{ identity: string; mediaTrack: MediaStreamTrack; muted: boolean }>) {
@@ -71,8 +57,8 @@ export class TrackActivityMonitor {
     if (this.timer !== null) globalThis.clearInterval(this.timer)
     this.timer = null
     for (const identity of [...this.tracks.keys()]) this.remove(identity)
-    disconnectSilentTap(undefined, this.tap)
-    this.tap = null
+    this.silence?.disconnect()
+    this.silence = null
     const context = this.context
     this.context = null
     if (context && context.state !== 'closed') void context.close()
@@ -85,8 +71,7 @@ export class TrackActivityMonitor {
       const analyser = context.createAnalyser()
       analyser.fftSize = 256
       analyser.smoothingTimeConstant = 0.3
-      source.connect(analyser)
-      analyser.connect(this.tap!)
+      source.connect(analyser).connect(this.silence!)
       this.tracks.set(identity, {
         mediaTrack,
         source,
@@ -114,9 +99,12 @@ export class TrackActivityMonitor {
 
   private ensureContext() {
     if (this.context) return this.context
-    const context = this.createContext()
+    const context = new AudioContext()
+    const silence = context.createGain()
+    silence.gain.value = 0
+    silence.connect(context.destination)
     this.context = context
-    this.tap = context.createMediaStreamDestination()
+    this.silence = silence
     void context.resume()
     return context
   }
@@ -132,9 +120,7 @@ export class TrackActivityMonitor {
         active = Math.sqrt(energy / track.samples.length) >= DEFAULT_ACTIVITY_THRESHOLD
       }
       if (active) track.lastActiveAt = now
-      const held = active || now - track.lastActiveAt < this.holdMs
-      this.updateActive(identity, track, held)
-      this.frameListener?.(identity, held, DEFAULT_POLL_INTERVAL_MS)
+      this.updateActive(identity, track, active || now - track.lastActiveAt < this.holdMs)
     }
   }
 

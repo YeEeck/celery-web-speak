@@ -2,7 +2,6 @@ import { computed, markRaw, ref, watch } from 'vue'
 import {
   Room,
   RoomEvent,
-  ParticipantEvent,
   Track,
   RemoteAudioTrack,
   type LocalTrackPublication,
@@ -13,7 +12,6 @@ import {
 } from 'livekit-client'
 import { ApiError } from '../api.ts'
 import { MicrophonePublishOrchestrator } from '../audio/MicrophonePublishOrchestrator.ts'
-import { SpeechFrameIngest } from '../audio/speechFrameIngest.ts'
 import { VoiceAudioContextController } from '../audio/VoiceAudioContextController.ts'
 import type { VoiceCredentials } from '../types.ts'
 import {
@@ -83,8 +81,6 @@ export interface VoiceCallContext {
   notifyCaptureTrackEnded(): void
   beginCaptureSelfStop(): void
   endCaptureSelfStop(): void
-  // 通话本机说话帧：VAD 让出采集后注入常开引擎（ADR-0045）。
-  ingestSpeechFrame(speaking: boolean, frameDurationMs: number): void
 }
 
 export function useVoiceCall(ctx: VoiceCallContext) {
@@ -105,7 +101,6 @@ export function useVoiceCall(ctx: VoiceCallContext) {
   // 拿到 callId 后再按序回放（HTTP 与 WS 是两条连接，无到达顺序保证）。
   let startCallInFlight = false
   const pendingSignals: CallSignal[] = []
-  const speechIngest = new SpeechFrameIngest((speaking, ms) => ctx.ingestSpeechFrame(speaking, ms))
 
   const microphoneOrchestrator = new MicrophonePublishOrchestrator({
     gain: ctx.microphoneGainInitial(),
@@ -187,7 +182,6 @@ export function useVoiceCall(ctx: VoiceCallContext) {
     callSession += 1
     endedReason.value = reason
     microphoneOrchestrator.endSession()
-    speechIngest.stop()
     const target = room
     if (target) {
       target.disconnect()
@@ -370,10 +364,6 @@ export function useVoiceCall(ctx: VoiceCallContext) {
   function bindRoom(target: Room) {
     const existingMic = target.localParticipant.getTrackPublication(Track.Source.Microphone)
     if (existingMic) watchLocalMicCaptureEnded(existingMic, target)
-    target.localParticipant.on(ParticipantEvent.IsSpeakingChanged, (speaking: boolean) => {
-      if (room !== target) return
-      speechIngest.setSpeaking(speaking)
-    })
     target
       .on(RoomEvent.TrackSubscribed, attachTrack)
       .on(RoomEvent.TrackUnsubscribed, detachTrack)

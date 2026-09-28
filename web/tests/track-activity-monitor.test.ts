@@ -16,6 +16,7 @@ class FakeNode {
   connectCalls: unknown[] = []
   fftSize = 256
   smoothingTimeConstant = 0
+  gain = { value: 1 }
 
   connect(target: unknown) {
     this.connectCalls.push(target)
@@ -33,13 +34,7 @@ class FakeAudioContext {
   destination = { kind: 'speakers' }
   source = new FakeNode()
   analyser = new FakeNode()
-  tap = {
-    disconnectCalls: 0,
-    stream: { getTracks: () => [{ stop() {} }] },
-    disconnect() {
-      this.disconnectCalls += 1
-    },
-  }
+  silence = new FakeNode()
   state: AudioContextState = 'running'
   closeCalls = 0
 
@@ -51,8 +46,8 @@ class FakeAudioContext {
     return this.analyser
   }
 
-  createMediaStreamDestination() {
-    return this.tap
+  createGain() {
+    return this.silence
   }
 
   async resume() {}
@@ -63,18 +58,24 @@ class FakeAudioContext {
   }
 }
 
-test('activity monitor routes analysers to a silent tap, not speakers', () => {
+test('activity monitor routes analysers through a muted gain to speakers', () => {
+  const OriginalAudioContext = globalThis.AudioContext
   const context = new FakeAudioContext()
-  const monitor = new TrackActivityMonitor(
-    () => undefined,
-    250,
-    () => context as unknown as AudioContext,
-  )
-  monitor.sync([{ identity: 'user-1', mediaTrack: { readyState: 'live' } as MediaStreamTrack, muted: false }])
-  assert.deepEqual(context.source.connectCalls, [context.analyser])
-  assert.deepEqual(context.analyser.connectCalls, [context.tap])
-  assert.equal(context.analyser.connectCalls.includes(context.destination), false)
-  monitor.destroy()
-  assert.equal(context.tap.disconnectCalls, 1)
-  assert.equal(context.closeCalls, 1)
+  globalThis.AudioContext = class {
+    constructor() {
+      return context
+    }
+  } as unknown as typeof AudioContext
+  try {
+    const monitor = new TrackActivityMonitor(() => undefined)
+    monitor.sync([{ identity: 'user-1', mediaTrack: { readyState: 'live' } as MediaStreamTrack, muted: false }])
+    assert.equal(context.silence.gain.value, 0)
+    assert.deepEqual(context.silence.connectCalls, [context.destination])
+    assert.deepEqual(context.source.connectCalls, [context.analyser])
+    assert.deepEqual(context.analyser.connectCalls, [context.silence])
+    monitor.destroy()
+    assert.equal(context.closeCalls, 1)
+  } finally {
+    globalThis.AudioContext = OriginalAudioContext
+  }
 })
