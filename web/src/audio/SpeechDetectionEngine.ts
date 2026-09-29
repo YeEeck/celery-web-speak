@@ -193,6 +193,7 @@ export class SpeechDetectionEngine {
       // （独立线程），主线程 performance 与网络事件看不到它；e2e 与排障依赖
       // 此标记确认引擎（含 muted-speaking worklet）真正就绪。
       document.documentElement.dataset.speechDetectionReady = 'true'
+      document.documentElement.dataset.speechDetectionSink = noneSinkApplied(context) ? 'none' : 'speakers'
       return true
     } catch (error) {
       if (operation === this.operation) this.fail(asError(error))
@@ -241,6 +242,7 @@ export class SpeechDetectionEngine {
     const context = this.context
     this.context = null
     if (context && context.state !== 'closed') void context.close()
+    delete document.documentElement.dataset.speechDetectionSink
   }
 }
 
@@ -260,4 +262,9 @@ function stopStream(stream: MediaStream | null) {
 
 function asError(error: unknown) {
   return error instanceof Error ? error : new Error('说话检测启动失败')
+}
+
+function noneSinkApplied(context: AudioContext) {
+  const sink = (context as AudioContext & { sinkId?: string | { type?: string } }).sinkId
+  return typeof sink === 'object' && sink?.type === 'none'
 }
