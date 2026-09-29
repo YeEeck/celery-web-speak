@@ -1,4 +1,4 @@
-import { applyNoneSink, createAnalysisAudioContext, noneSinkApplied } from './analysisAudioContext.ts'
+import { analysisSinkStatus, applyNoneSink, createAnalysisAudioContext } from './analysisAudioContext.ts'
 
 const SAMPLE_RATE = 16_000
 const FRAME_DURATION_MS = 20
@@ -195,7 +195,11 @@ export class SpeechDetectionEngine {
       // （独立线程），主线程 performance 与网络事件看不到它；e2e 与排障依赖
       // 此标记确认引擎（含 muted-speaking worklet）真正就绪。
       document.documentElement.dataset.speechDetectionReady = 'true'
-      document.documentElement.dataset.speechDetectionSink = noneSinkApplied(context) ? 'none' : 'speakers'
+      const sinkStatus = analysisSinkStatus(context)
+      document.documentElement.dataset.speechDetectionSink = sinkStatus
+      if (sinkStatus !== 'none') {
+        console.warn('说话检测分析图未能使用 none sink', sinkStatus, window.isSecureContext ? 'secure' : 'insecure')
+      }
       return true
     } catch (error) {
       if (operation === this.operation) this.fail(asError(error))

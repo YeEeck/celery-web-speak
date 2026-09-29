@@ -37,6 +37,14 @@ export function noneSinkApplied(context: AudioContext): boolean {
   return typeof sink === 'object' && sink?.type === 'none'
 }
 
+export type AnalysisSinkStatus = 'none' | 'speakers' | 'unsupported'
+
+export function analysisSinkStatus(context: AudioContext): AnalysisSinkStatus {
+  if (noneSinkApplied(context)) return 'none'
+  if (typeof (context as SinkRoutable).setSinkId !== 'function') return 'unsupported'
+  return 'speakers'
+}
+
 // 构造选项可能被忽略或抛掉；在 resume / 接 destination 之前再试 setSinkId，
 // 避免 16 kHz 分析图先打开扬声器再切走。
 export async function applyNoneSink(context: AudioContext): Promise<boolean> {

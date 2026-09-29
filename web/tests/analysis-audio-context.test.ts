@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   analysisAudioContextFallbackOptions,
   analysisAudioContextOptions,
+  analysisSinkStatus,
   applyNoneSink,
   createAnalysisAudioContext,
   noneSinkApplied,
@@ -94,4 +95,13 @@ test('applyNoneSink returns false when setSinkId is missing or rejected', async 
     },
   }
   assert.equal(await applyNoneSink(context as unknown as AudioContext), false)
+})
+
+test('analysisSinkStatus distinguishes none, speakers, and missing API', () => {
+  assert.equal(analysisSinkStatus({ sinkId: { type: 'none' } } as AudioContext), 'none')
+  assert.equal(
+    analysisSinkStatus({ sinkId: '', setSinkId: async () => undefined } as unknown as AudioContext),
+    'speakers',
+  )
+  assert.equal(analysisSinkStatus({ sinkId: '' } as AudioContext), 'unsupported')
 })
