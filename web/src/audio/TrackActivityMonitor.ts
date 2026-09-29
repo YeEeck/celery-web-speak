@@ -1,3 +1,5 @@
+import { createAnalysisAudioContext } from './analysisAudioContext.ts'
+
 const DEFAULT_ACTIVITY_THRESHOLD = 0.015
 const DEFAULT_ACTIVE_HOLD_MS = 250
 const DEFAULT_POLL_INTERVAL_MS = 100
@@ -99,7 +101,8 @@ export class TrackActivityMonitor {
 
   private ensureContext() {
     if (this.context) return this.context
-    const context = new AudioContext()
+    const context = createAnalysisAudioContext()
+    if (!context) throw new Error('无法创建活动监测音频上下文')
     const silence = context.createGain()
     silence.gain.value = 0
     silence.connect(context.destination)

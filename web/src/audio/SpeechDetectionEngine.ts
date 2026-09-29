@@ -1,3 +1,5 @@
+import { createAnalysisAudioContext } from './analysisAudioContext.ts'
+
 const SAMPLE_RATE = 16_000
 const FRAME_DURATION_MS = 20
 
@@ -150,7 +152,8 @@ export class SpeechDetectionEngine {
         isSelfStop: () => this.selfStopping,
       })
 
-      const context = new AudioContext({ sampleRate: SAMPLE_RATE })
+      const context = createAnalysisAudioContext(SAMPLE_RATE)
+      if (!context) throw new Error('无法创建 VAD 音频上下文')
       this.context = context
       if (context.sampleRate !== SAMPLE_RATE) throw new Error(`浏览器不支持 ${SAMPLE_RATE} Hz 音频上下文`)
       await context.audioWorklet.addModule(new URL('./muted-speaking-worklet.js', import.meta.url))
