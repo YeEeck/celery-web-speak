@@ -1,4 +1,4 @@
-import { createAnalysisAudioContext } from './analysisAudioContext.ts'
+import { applyNoneSink, createAnalysisAudioContext, noneSinkApplied } from './analysisAudioContext.ts'
 
 const SAMPLE_RATE = 16_000
 const FRAME_DURATION_MS = 20
@@ -156,6 +156,8 @@ export class SpeechDetectionEngine {
       if (!context) throw new Error('无法创建 VAD 音频上下文')
       this.context = context
       if (context.sampleRate !== SAMPLE_RATE) throw new Error(`浏览器不支持 ${SAMPLE_RATE} Hz 音频上下文`)
+      await applyNoneSink(context)
+      if (operation !== this.operation) return false
       await context.audioWorklet.addModule(new URL('./muted-speaking-worklet.js', import.meta.url))
       if (operation !== this.operation) return false
 
@@ -262,9 +264,4 @@ function stopStream(stream: MediaStream | null) {
 
 function asError(error: unknown) {
   return error instanceof Error ? error : new Error('说话检测启动失败')
-}
-
-function noneSinkApplied(context: AudioContext) {
-  const sink = (context as AudioContext & { sinkId?: string | { type?: string } }).sinkId
-  return typeof sink === 'object' && sink?.type === 'none'
 }

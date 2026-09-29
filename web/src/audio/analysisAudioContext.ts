@@ -27,6 +27,30 @@ function defaultAudioContextConstructor(): typeof AudioContext | undefined {
   return global.AudioContext ?? global.webkitAudioContext
 }
 
+type SinkRoutable = AudioContext & {
+  sinkId?: string | { type?: string }
+  setSinkId?: (sinkId: string | { type: 'none' }) => Promise<void>
+}
+
+export function noneSinkApplied(context: AudioContext): boolean {
+  const sink = (context as SinkRoutable).sinkId
+  return typeof sink === 'object' && sink?.type === 'none'
+}
+
+// 构造选项可能被忽略或抛掉；在 resume / 接 destination 之前再试 setSinkId，
+// 避免 16 kHz 分析图先打开扬声器再切走。
+export async function applyNoneSink(context: AudioContext): Promise<boolean> {
+  if (noneSinkApplied(context)) return true
+  const setSinkId = (context as SinkRoutable).setSinkId
+  if (!setSinkId) return false
+  try {
+    await setSinkId.call(context, NONE_SINK)
+    return noneSinkApplied(context)
+  } catch {
+    return false
+  }
+}
+
 export function createAnalysisAudioContext(
   sampleRate?: number,
   ctor: typeof AudioContext | undefined = defaultAudioContextConstructor(),

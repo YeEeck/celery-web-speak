@@ -1,4 +1,4 @@
-import { createAnalysisAudioContext } from './analysisAudioContext.ts'
+import { applyNoneSink, createAnalysisAudioContext } from './analysisAudioContext.ts'
 
 const DEFAULT_ACTIVITY_THRESHOLD = 0.015
 const DEFAULT_ACTIVE_HOLD_MS = 250
@@ -108,7 +108,9 @@ export class TrackActivityMonitor {
     silence.connect(context.destination)
     this.context = context
     this.silence = silence
-    void context.resume()
+    void applyNoneSink(context).finally(() => {
+      if (this.context === context && context.state !== 'closed') void context.resume()
+    })
     return context
   }
 
