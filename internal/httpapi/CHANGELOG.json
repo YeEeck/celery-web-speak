@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.47",
+    "date": "2026-09-29",
+    "changes": [
+      "fix(web): 说话检测与活动监测的 AudioContext 使用 none sink——不打开扬声器，避免 16 kHz 分析图与 48 kHz 混音抢 HAL；混音时钟与双采集不变（ADR-0045）",
+      "docs: 分析图改用 { sinkId: { type: 'none' } }，作废 MediaStreamDestination 隔离（ADR-0024/0045）"
+    ]
+  },
+  {
     "version": "0.4.46",
     "date": "2026-09-28",
     "changes": [
