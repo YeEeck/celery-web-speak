@@ -55,4 +55,4 @@ v0.4.46 HITL：音质回到 0.4.40，安卓顿卡/嘣嘣回来。0.4.41 第 1 �
 - 构造选项被忽略或抛掉时，在 `resume` 之前再调 `setSinkId({ type: 'none' })`。两条路都失败才退回旧扬声器绑定（VAD 仍要 16 kHz），不改混音图。
 - 不恢复进语音停 VAD 采集。原文「静音只听仍卡」说明双采集不是充分条件。
 
-对照：音质须与 v0.4.46 / v0.4.40 同级；顿卡看安卓双向与静音只听。
+对照：音质须与 v0.4.46 / v0.4.40 同级；顿卡看安卓双向与静音只听。HITL 必须在安全上下文（HTTPS 或 localhost）；`http://局域网IP` 没有 `setSinkId`，实验会打空。`document.documentElement.dataset.speechDetectionSink` 为 `none` / `speakers` / `unsupported`。
