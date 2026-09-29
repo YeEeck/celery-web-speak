@@ -1,14 +1,15 @@
-# 语音混音时钟保持 48 kHz interactive；分析图隔离因音质撤回
+# 语音混音时钟保持 48 kHz interactive；分析图用 none sink 不打开扬声器
 
-安卓 Chrome / WebView 上出现双向语音顿卡并伴随「嘣嘣」爆音。0.4.41 曾用三层隔离（分析图不进扬声器、语音中不双采集、采集/播放分上下文）去修。v0.4.40 听感正常，0.4.41 起音质劣化；0.4.45 只把混音时钟改回 0.4.40 仍无改善。
+安卓 Chrome / WebView 上出现双向语音顿卡并伴随「嘣嘣」爆音。0.4.41 曾用三层隔离（分析图不进扬声器、语音中不双采集、采集/播放分上下文）去修。v0.4.40 听感正常，0.4.41 起音质劣化；0.4.45 只把混音时钟改回 0.4.40 仍无改善；0.4.46 撤回第 1、2 层后音质恢复，顿卡回来。
 
-**现行决策：** 语音图与 v0.4.40 对齐。唯一 `{ latencyHint: 'interactive', sampleRate: 48000 }` 上下文给 `webAudioMix`、RNNoise、自动音量平衡测声。分析图（说话检测、TrackActivityMonitor）仍以 `gain=0` 接到 `destination`。说话检测登录后持续自持采集。安卓顿卡另开一轮，不以音质为代价。
+**现行决策：** 混音图与 v0.4.40 对齐。唯一 `{ latencyHint: 'interactive', sampleRate: 48000 }` 上下文给 `webAudioMix`、RNNoise、自动音量平衡测声。说话检测登录后持续自持采集，进语音不让出麦克风。分析图（说话检测 16 kHz、TrackActivityMonitor）仍以 `gain=0` 接到各自 `destination` 以便调度，但 AudioContext 使用 `{ sinkId: { type: 'none' } }`，不打开输出设备。不拆采集/播放，不为断续改混音时钟。
 
 ## 考虑过的备选
 
 - **只关 RNNoise / 安卓默认系统降噪：** 实机对照只有微小改善，静音只听仍卡，不能当根治；可作为后续策略兜底，本次不做默认值切换。
 - **进语音后无条件停掉 VAD：** 静音说话提醒和静音期间的采集边界会回退到 ADR-0024 之前，拒绝。只在「发布链已经占着麦克风」时让出采集。
 - **分析图继续接 destination 但统一采样率：** 16 kHz VAD 改 48 kHz 仍会多开一条扬声器流；欠载和 HAL 争用还在。
+- **MediaStreamDestination（0.4.41 第 1 层）：** 图里的样本不到扬声器，但 AudioContext 仍绑默认输出，16 kHz 分析图照样打开设备。0.4.45 与让出采集捆在一起，音质劣化，无法单独证伪；0.4.47 改用 none sink，不再走这条。
 - **壳里设 `MODE_IN_COMMUNICATION`：** 管不到移动 Chrome，且 AEC 采集已经把设备推进通话模式，不能当主修复。
 
 ## 修订
@@ -43,3 +44,15 @@ v0.4.45 HITL：混音时钟已回到 0.4.40，音质仍劣化。第 1 层（分�
 - 引擎登录后持续自持 `getUserMedia`，进语音不再让出采集。
 
 混音时钟仍是单条 48 kHz `interactive`。安卓顿卡/爆音可能回来；音质是硬约束，断续另开一轮。
+
+### 分析图用 none sink，不打开输出设备（0.4.47）
+
+v0.4.46 HITL：音质回到 0.4.40，安卓顿卡/嘣嘣回来。0.4.41 第 1 层用 `MediaStreamDestination` 避免把分析样本送进扬声器，但 AudioContext 仍绑默认输出；16 kHz VAD 图会把 HAL 拉到与 48 kHz 混音不同的时钟。第 1、2 层在 0.4.46 捆在一起撤回，无法单独证伪哪一层伤了音质。
+
+本轮只动分析图的输出设备，不动混音、不让出采集、不拆上下文：
+
+- 说话检测与 `TrackActivityMonitor` 的 AudioContext 构造传入 `{ sinkId: { type: 'none' } }`（VAD 仍锁 16 kHz）。图仍 `gain=0` 接到该上下文的 dummy `destination`，worklet / analyser 继续跑。
+- 浏览器拒绝 none sink 时退回旧选项（VAD 仍要 16 kHz），不改混音图。
+- 不恢复进语音停 VAD 采集。原文「静音只听仍卡」说明双采集不是充分条件。
+
+对照：音质须与 v0.4.46 / v0.4.40 同级；顿卡看安卓双向与静音只听。

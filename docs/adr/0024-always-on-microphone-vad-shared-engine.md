@@ -17,3 +17,7 @@ Chromium 在部分平台（Linux/PulseAudio）上存在设备解析怪癖：省�
 ## 修订（0.4.46）：让出采集与分析图静音因音质撤回
 
 v0.4.45 把混音时钟改回 0.4.40 后听感仍劣化。0.4.41 剩余的「进语音后停 VAD 采集」和「分析图不进 destination」一并撤回，说话检测恢复为登录后持续自持采集，分析图再以 `gain=0` 接到 `destination`。安卓顿卡问题仍在，但不以音质为代价。见 ADR-0045。
+
+## 修订（0.4.47）：分析图 AudioContext 使用 none sink
+
+持续自持采集不变。VAD 的 16 kHz AudioContext 改为 `{ sinkId: { type: 'none' } }`，图仍接到该上下文的 dummy destination，但不打开扬声器设备。见 ADR-0045。
