@@ -1,8 +1,8 @@
-# 语音混音时钟保持 48 kHz interactive；分析图隔离因音质与顿卡均撤回
+# 语音混音保持单条 48 kHz 图；安卓用 balanced 延迟
 
 安卓 Chrome / WebView 上出现双向语音顿卡并伴随「嘣嘣」爆音。0.4.41 曾用三层隔离（分析图不进扬声器、语音中不双采集、采集/播放分上下文）去修。v0.4.40 听感正常，0.4.41 起音质劣化；0.4.45 只把混音时钟改回 0.4.40 仍无改善；0.4.46 撤回第 1、2 层后音质恢复，顿卡回来。0.4.47 给分析图加 none sink：安卓顿卡无改善，桌面出现低概率断续。
 
-**现行决策：** 语音图与 v0.4.40 / v0.4.46 对齐。唯一 `{ latencyHint: 'interactive', sampleRate: 48000 }` 上下文给 `webAudioMix`、RNNoise、自动音量平衡测声。分析图（说话检测、TrackActivityMonitor）以 `gain=0` 接到 `destination`。说话检测登录后持续自持采集。不拆采集/播放，不为断续改混音时钟，不再给分析图换输出设备。
+**现行决策：** 采集与播放仍是同一条 48 kHz 图，给 `webAudioMix`、RNNoise、自动音量平衡测声。桌面 `latencyHint: 'interactive'`（v0.4.40）；安卓（壳或 UA）改为 `balanced`，不拆图、不改采样率。分析图以 `gain=0` 接到 `destination`。说话检测登录后持续自持采集。不再给分析图换输出设备。
 
 ## 考虑过的备选
 
@@ -61,3 +61,13 @@ v0.4.46 HITL：音质回到 0.4.40，安卓顿卡/嘣嘣回来。0.4.41 第 1 �
 ### none sink 被听感证伪（0.4.48）
 
 v0.4.47 HITL：安卓双向顿卡/嘣嘣没有改善；桌面出现概率很低的断续。分析图改输出设备既治不好安卓，又引入桌面回归。撤回 none sink 与 `setSinkId` 补救，说话检测与 `TrackActivityMonitor` 回到 v0.4.46：`gain=0` 接到 `destination`，构造不再传 `sinkId`。混音时钟仍是单条 48 kHz `interactive`。不在本轮恢复让出采集——0.4.41 的让出只在真正发布麦克风时停 VAD，静音只听仍自持采集，解释不了「静音只听仍卡」。
+
+### 安卓混音图改 balanced（0.4.49）
+
+none sink 证伪后，顿卡更像是 48 kHz `interactive` 混音在安卓上欠载，而不是分析图占扬声器。0.4.43 的一律 `balanced` 叠在拆图上，桌面听感变差；本轮只动延迟、不拆图：
+
+- 仍是一条 `{ sampleRate: 48000 }` 图，采集与播放同一对象。
+- 安卓（`celeryShell` 或 UA 含 Android）`latencyHint: 'balanced'`；桌面仍 `interactive`。
+- 分析图、双采集、RNNoise 节点、播放采样率都不动。
+
+对照：桌面音质与断续须仍像 0.4.46；安卓先听音质，再听双向与静音只听。`document.documentElement.dataset.voiceMixLatency` 为 `balanced` 或 `interactive`。

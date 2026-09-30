@@ -27,3 +27,7 @@ RNNoise 的时频掩码会压低发送电平：输出是掩码（谱增益 ≤ 1
 ## 修订（ADR-0045）：RNNoise 与混音共用 48 kHz interactive 图
 
 RNNoise 仍要求 48 kHz。语音混音时钟保持 v0.4.40：一条 `{ latencyHint: 'interactive', sampleRate: 48000 }` 图，`webAudioMix` 与 RNNoise 共用。0.4.41–0.4.44 把采集拆开、改播放采样率或手搓 `AudioWorkletNode` 已作废。节点仍用库的 `RnnoiseWorkletNode`，事后强制单声道。见 ADR-0045。
+
+## 修订（0.4.49）：安卓混音图改 balanced
+
+仍与 `webAudioMix` 共用一条 48 kHz 图、仍用库节点。安卓 `latencyHint` 改为 `balanced`，桌面保持 `interactive`。见 ADR-0045。
