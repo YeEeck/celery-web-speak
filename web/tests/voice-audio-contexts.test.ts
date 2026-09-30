@@ -2,77 +2,48 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   CAPTURE_SAMPLE_RATE,
+  VOICE_MIX_LATENCY_HINT,
   createCaptureAudioContext,
   createPlaybackAudioContext,
   createVoiceAudioContextPair,
-  isAndroidVoiceClient,
   isCaptureContextRnnoiseReady,
   voiceAudioContextFallbackOptions,
   voiceAudioContextOptions,
 } from '../src/audio/voiceAudioContexts.ts'
 
-test('desktop mix requests 48 kHz interactive', () => {
-  assert.deepEqual(voiceAudioContextOptions(false), {
-    latencyHint: 'interactive',
-    sampleRate: CAPTURE_SAMPLE_RATE,
-  })
-  assert.deepEqual(voiceAudioContextFallbackOptions(false), {
-    latencyHint: 'interactive',
-  })
-})
-
-test('android mix keeps 48 kHz but uses balanced latency', () => {
-  assert.deepEqual(voiceAudioContextOptions(true), {
+test('voice mix requests 48 kHz balanced on every client', () => {
+  assert.equal(VOICE_MIX_LATENCY_HINT, 'balanced')
+  assert.deepEqual(voiceAudioContextOptions(), {
     latencyHint: 'balanced',
     sampleRate: CAPTURE_SAMPLE_RATE,
   })
-  assert.deepEqual(voiceAudioContextFallbackOptions(true), {
+  assert.deepEqual(voiceAudioContextFallbackOptions(), {
     latencyHint: 'balanced',
   })
 })
 
-test('android voice client is the shell or an Android UA, not desktop Electron', () => {
-  assert.equal(isAndroidVoiceClient({ celeryShell: { platform: () => 'android' } }), true)
-  assert.equal(isAndroidVoiceClient({ userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 7) Chrome/120.0.0.0' }), true)
-  assert.equal(isAndroidVoiceClient({ userAgent: 'Mozilla/5.0 (X11; Linux x86_64) Electron/28.0.0' }), false)
-  assert.equal(isAndroidVoiceClient({ userAgent: '' }), false)
-})
-
-test('createPlaybackAudioContext requests 48 kHz interactive', () => {
+test('createPlaybackAudioContext requests 48 kHz balanced', () => {
   const constructed: AudioContextOptions[] = []
   class FakeAudioContext {
     constructor(options?: AudioContextOptions) {
       constructed.push(options ?? {})
     }
   }
-  createPlaybackAudioContext(FakeAudioContext as unknown as typeof AudioContext, false)
+  createPlaybackAudioContext(FakeAudioContext as unknown as typeof AudioContext)
   assert.equal(constructed.length, 1)
-  assert.equal(constructed[0].sampleRate, CAPTURE_SAMPLE_RATE)
-  assert.equal(constructed[0].latencyHint, 'interactive')
+  assert.deepEqual(constructed[0], voiceAudioContextOptions())
 })
 
-test('createPlaybackAudioContext requests 48 kHz balanced on Android', () => {
+test('createCaptureAudioContext uses the same 48 kHz balanced mix options', () => {
   const constructed: AudioContextOptions[] = []
   class FakeAudioContext {
     constructor(options?: AudioContextOptions) {
       constructed.push(options ?? {})
     }
   }
-  createPlaybackAudioContext(FakeAudioContext as unknown as typeof AudioContext, true)
+  createCaptureAudioContext(FakeAudioContext as unknown as typeof AudioContext)
   assert.equal(constructed.length, 1)
-  assert.deepEqual(constructed[0], voiceAudioContextOptions(true))
-})
-
-test('createCaptureAudioContext uses the same 48 kHz interactive mix options', () => {
-  const constructed: AudioContextOptions[] = []
-  class FakeAudioContext {
-    constructor(options?: AudioContextOptions) {
-      constructed.push(options ?? {})
-    }
-  }
-  createCaptureAudioContext(FakeAudioContext as unknown as typeof AudioContext, false)
-  assert.equal(constructed.length, 1)
-  assert.deepEqual(constructed[0], voiceAudioContextOptions(false))
+  assert.deepEqual(constructed[0], voiceAudioContextOptions())
 })
 
 test('voice pair always reuses one context for playback and capture', () => {
@@ -82,7 +53,7 @@ test('voice pair always reuses one context for playback and capture', () => {
       this.sampleRate = options?.sampleRate ?? 44_100
     }
   }
-  const pair = createVoiceAudioContextPair(FakeAudioContext as unknown as typeof AudioContext, true)
+  const pair = createVoiceAudioContextPair(FakeAudioContext as unknown as typeof AudioContext)
   assert.equal(pair.playback, pair.capture)
   assert.equal(pair.playback?.sampleRate, CAPTURE_SAMPLE_RATE)
 })
@@ -97,7 +68,7 @@ test('voice pair still shares when the constructor ignores sampleRate', () => {
   assert.equal(pair.playback?.sampleRate, 44_100)
 })
 
-test('constructor falls back to balanced without sampleRate when Android 48 kHz is rejected', () => {
+test('constructor falls back to balanced without sampleRate when 48 kHz is rejected', () => {
   const constructed: AudioContextOptions[] = []
   class FakeAudioContext {
     constructor(options?: AudioContextOptions) {
@@ -105,11 +76,11 @@ test('constructor falls back to balanced without sampleRate when Android 48 kHz 
       if (options?.sampleRate !== undefined) throw new Error('sampleRate rejected')
     }
   }
-  const context = createPlaybackAudioContext(FakeAudioContext as unknown as typeof AudioContext, true)
+  const context = createPlaybackAudioContext(FakeAudioContext as unknown as typeof AudioContext)
   assert.ok(context)
   assert.equal(constructed.length, 2)
-  assert.deepEqual(constructed[0], voiceAudioContextOptions(true))
-  assert.deepEqual(constructed[1], voiceAudioContextFallbackOptions(true))
+  assert.deepEqual(constructed[0], voiceAudioContextOptions())
+  assert.deepEqual(constructed[1], voiceAudioContextFallbackOptions())
 })
 
 test('RNNoise readiness requires a live 48 kHz capture context', () => {

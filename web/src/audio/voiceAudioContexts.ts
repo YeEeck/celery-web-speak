@@ -1,39 +1,21 @@
-// 语音混音保持一条 48 kHz 图（ADR-0045）：webAudioMix、RNNoise、自动音量
-// 平衡测声共用同一对象。桌面 latencyHint 仍是 interactive（v0.4.40）。
-// 安卓改为 balanced，给欠载留缓冲；不拆采集/播放，不为断续改采样率。
+// 语音混音保持一条 48 kHz balanced 图（ADR-0045）：webAudioMix、RNNoise、
+// 自动音量平衡测声共用同一对象。低延迟不是产品需求；interactive 在安卓上
+// 欠载顿卡。不按 OS 分支，不拆采集/播放，不为断续改采样率。
 
 export const CAPTURE_SAMPLE_RATE = 48_000
+export const VOICE_MIX_LATENCY_HINT: AudioContextLatencyCategory = 'balanced'
 
 export interface VoiceAudioContextPair {
   playback: AudioContext | null
   capture: AudioContext | null
 }
 
-export interface AndroidVoiceClientHint {
-  celeryShell?: unknown
-  userAgent?: string
+export function voiceAudioContextOptions(): AudioContextOptions {
+  return { latencyHint: VOICE_MIX_LATENCY_HINT, sampleRate: CAPTURE_SAMPLE_RATE }
 }
 
-export function isAndroidVoiceClient(
-  hint: AndroidVoiceClientHint = {
-    celeryShell: typeof window !== 'undefined' ? window.celeryShell : undefined,
-    userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : '',
-  },
-): boolean {
-  if (hint.celeryShell !== undefined) return true
-  return /Android/i.test(hint.userAgent ?? '')
-}
-
-export function voiceMixLatencyHint(android = isAndroidVoiceClient()): AudioContextLatencyCategory {
-  return android ? 'balanced' : 'interactive'
-}
-
-export function voiceAudioContextOptions(android = isAndroidVoiceClient()): AudioContextOptions {
-  return { latencyHint: voiceMixLatencyHint(android), sampleRate: CAPTURE_SAMPLE_RATE }
-}
-
-export function voiceAudioContextFallbackOptions(android = isAndroidVoiceClient()): AudioContextOptions {
-  return { latencyHint: voiceMixLatencyHint(android) }
+export function voiceAudioContextFallbackOptions(): AudioContextOptions {
+  return { latencyHint: VOICE_MIX_LATENCY_HINT }
 }
 
 export function audioContextConstructor(): typeof AudioContext | undefined {
@@ -41,24 +23,23 @@ export function audioContextConstructor(): typeof AudioContext | undefined {
     || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
 }
 
-function publishMixLatency(android: boolean) {
+function publishMixLatency() {
   if (typeof document === 'undefined') return
-  document.documentElement.dataset.voiceMixLatency = voiceMixLatencyHint(android)
+  document.documentElement.dataset.voiceMixLatency = VOICE_MIX_LATENCY_HINT
 }
 
 function createAudioContextWithOptions(
   ctor: typeof AudioContext | undefined,
-  android = isAndroidVoiceClient(),
 ): AudioContext | null {
   if (!ctor) return null
   try {
-    const context = new ctor(voiceAudioContextOptions(android))
-    publishMixLatency(android)
+    const context = new ctor(voiceAudioContextOptions())
+    publishMixLatency()
     return context
   } catch {
     try {
-      const context = new ctor(voiceAudioContextFallbackOptions(android))
-      publishMixLatency(android)
+      const context = new ctor(voiceAudioContextFallbackOptions())
+      publishMixLatency()
       return context
     } catch {
       return null
@@ -68,23 +49,20 @@ function createAudioContextWithOptions(
 
 export function createPlaybackAudioContext(
   ctor: typeof AudioContext | undefined = audioContextConstructor(),
-  android = isAndroidVoiceClient(),
 ): AudioContext | null {
-  return createAudioContextWithOptions(ctor, android)
+  return createAudioContextWithOptions(ctor)
 }
 
 export function createCaptureAudioContext(
   ctor: typeof AudioContext | undefined = audioContextConstructor(),
-  android = isAndroidVoiceClient(),
 ): AudioContext | null {
-  return createAudioContextWithOptions(ctor, android)
+  return createAudioContextWithOptions(ctor)
 }
 
 export function createVoiceAudioContextPair(
   ctor: typeof AudioContext | undefined = audioContextConstructor(),
-  android = isAndroidVoiceClient(),
 ): VoiceAudioContextPair {
-  const context = createAudioContextWithOptions(ctor, android)
+  const context = createAudioContextWithOptions(ctor)
   return { playback: context, capture: context }
 }
 
