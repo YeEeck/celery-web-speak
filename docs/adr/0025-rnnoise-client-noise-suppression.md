@@ -31,3 +31,7 @@ RNNoise 仍要求 48 kHz。语音混音时钟保持 v0.4.40：一条 `{ latencyH
 ## 修订（0.4.49）：安卓混音图改 balanced
 
 仍与 `webAudioMix` 共用一条 48 kHz 图、仍用库节点。安卓 `latencyHint` 改为 `balanced`，桌面保持 `interactive`。见 ADR-0045。
+
+## 修订（0.4.50）：全端混音图统一 balanced
+
+低延迟不是产品需求。RNNoise 仍与混音共用一条 48 kHz 图、仍用库节点，`latencyHint` 全端 `balanced`。见 ADR-0045。

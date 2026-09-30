@@ -1,8 +1,8 @@
-# 语音混音保持单条 48 kHz 图；安卓用 balanced 延迟
+# 语音混音保持单条 48 kHz balanced 图
 
 安卓 Chrome / WebView 上出现双向语音顿卡并伴随「嘣嘣」爆音。0.4.41 曾用三层隔离（分析图不进扬声器、语音中不双采集、采集/播放分上下文）去修。v0.4.40 听感正常，0.4.41 起音质劣化；0.4.45 只把混音时钟改回 0.4.40 仍无改善；0.4.46 撤回第 1、2 层后音质恢复，顿卡回来。0.4.47 给分析图加 none sink：安卓顿卡无改善，桌面出现低概率断续。
 
-**现行决策：** 采集与播放仍是同一条 48 kHz 图，给 `webAudioMix`、RNNoise、自动音量平衡测声。桌面 `latencyHint: 'interactive'`（v0.4.40）；安卓（壳或 UA）改为 `balanced`，不拆图、不改采样率。分析图以 `gain=0` 接到 `destination`。说话检测登录后持续自持采集。不再给分析图换输出设备。
+**现行决策：** 采集与播放是同一条 `{ latencyHint: 'balanced', sampleRate: 48000 }` 图，给 `webAudioMix`、RNNoise、自动音量平衡测声。不按 OS 分支。低延迟不是产品需求；`interactive` 在安卓上欠载顿卡。分析图以 `gain=0` 接到 `destination`。说话检测登录后持续自持采集。不拆采集/播放，不再给分析图换输出设备。
 
 ## 考虑过的备选
 
@@ -73,3 +73,9 @@ none sink 证伪后，顿卡更像是 48 kHz `interactive` 混音在安卓上欠
 对照：桌面音质与断续须仍像 0.4.46；安卓先听音质，再听双向与静音只听。`document.documentElement.dataset.voiceMixLatency` 为 `balanced` 或 `interactive`。
 
 HITL：安卓顿卡/嘣嘣消除。根因是同一条 48 kHz 图上 `webAudioMix` + RNNoise worklet 填不满 `interactive` 的回调窗口，欠载爆音；`balanced` 加大缓冲，图与采样率不变。0.4.41–0.4.42 里真正止住顿卡的是安卓 `balanced`，隔离层是音质毒药。UA/壳只作「这台 HAL 撑不住 interactive」的代理，不是拓扑分支（ADR-0044 作废的是按 OS 拆图）。
+
+### 全端混音图统一 balanced（0.4.50）
+
+0.4.41–0.4.45 的音质劣化不是 `balanced` 造成的：0.4.45 已把混音改回 `interactive` 仍差，0.4.46 撤回隔离后音质才恢复；0.4.49 安卓单图 `balanced` 听感可接受。0.4.43 桌面「听感不稳、音量平衡忽大忽小」叠在拆图上，测声与混音不在同一时钟，不能用来否定单图 `balanced`。低延迟不是产品需求。取消 UA/壳分支，所有端同一条 48 kHz `balanced` 图。
+
+对照：安卓顿卡须仍像 0.4.49；桌面音质对 0.4.46 / 0.4.49 的 interactive。`dataset.voiceMixLatency` 一律 `balanced`。
