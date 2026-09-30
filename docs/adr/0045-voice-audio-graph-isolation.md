@@ -1,15 +1,16 @@
-# 语音混音时钟保持 48 kHz interactive；分析图用 none sink 不打开扬声器
+# 语音混音时钟保持 48 kHz interactive；分析图隔离因音质与顿卡均撤回
 
-安卓 Chrome / WebView 上出现双向语音顿卡并伴随「嘣嘣」爆音。0.4.41 曾用三层隔离（分析图不进扬声器、语音中不双采集、采集/播放分上下文）去修。v0.4.40 听感正常，0.4.41 起音质劣化；0.4.45 只把混音时钟改回 0.4.40 仍无改善；0.4.46 撤回第 1、2 层后音质恢复，顿卡回来。
+安卓 Chrome / WebView 上出现双向语音顿卡并伴随「嘣嘣」爆音。0.4.41 曾用三层隔离（分析图不进扬声器、语音中不双采集、采集/播放分上下文）去修。v0.4.40 听感正常，0.4.41 起音质劣化；0.4.45 只把混音时钟改回 0.4.40 仍无改善；0.4.46 撤回第 1、2 层后音质恢复，顿卡回来。0.4.47 给分析图加 none sink：安卓顿卡无改善，桌面出现低概率断续。
 
-**现行决策：** 混音图与 v0.4.40 对齐。唯一 `{ latencyHint: 'interactive', sampleRate: 48000 }` 上下文给 `webAudioMix`、RNNoise、自动音量平衡测声。说话检测登录后持续自持采集，进语音不让出麦克风。分析图（说话检测 16 kHz、TrackActivityMonitor）仍以 `gain=0` 接到各自 `destination` 以便调度，但 AudioContext 使用 `{ sinkId: { type: 'none' } }`，不打开输出设备。不拆采集/播放，不为断续改混音时钟。
+**现行决策：** 语音图与 v0.4.40 / v0.4.46 对齐。唯一 `{ latencyHint: 'interactive', sampleRate: 48000 }` 上下文给 `webAudioMix`、RNNoise、自动音量平衡测声。分析图（说话检测、TrackActivityMonitor）以 `gain=0` 接到 `destination`。说话检测登录后持续自持采集。不拆采集/播放，不为断续改混音时钟，不再给分析图换输出设备。
 
 ## 考虑过的备选
 
 - **只关 RNNoise / 安卓默认系统降噪：** 实机对照只有微小改善，静音只听仍卡，不能当根治；可作为后续策略兜底，本次不做默认值切换。
 - **进语音后无条件停掉 VAD：** 静音说话提醒和静音期间的采集边界会回退到 ADR-0024 之前，拒绝。只在「发布链已经占着麦克风」时让出采集。
 - **分析图继续接 destination 但统一采样率：** 16 kHz VAD 改 48 kHz 仍会多开一条扬声器流；欠载和 HAL 争用还在。
-- **MediaStreamDestination（0.4.41 第 1 层）：** 图里的样本不到扬声器，但 AudioContext 仍绑默认输出，16 kHz 分析图照样打开设备。0.4.45 与让出采集捆在一起，音质劣化，无法单独证伪；0.4.47 改用 none sink，不再走这条。
+- **MediaStreamDestination（0.4.41 第 1 层）：** 图里的样本不到扬声器，但 AudioContext 仍绑默认输出。0.4.45 与让出采集捆在一起，音质劣化。
+- **`{ sinkId: { type: 'none' } }`（0.4.47）：** 分析图不打开输出设备。HITL：安卓顿卡无改善，桌面出现低概率断续。0.4.48 撤回。
 - **壳里设 `MODE_IN_COMMUNICATION`：** 管不到移动 Chrome，且 AEC 采集已经把设备推进通话模式，不能当主修复。
 
 ## 修订
@@ -56,3 +57,7 @@ v0.4.46 HITL：音质回到 0.4.40，安卓顿卡/嘣嘣回来。0.4.41 第 1 �
 - 不恢复进语音停 VAD 采集。原文「静音只听仍卡」说明双采集不是充分条件。
 
 对照：音质须与 v0.4.46 / v0.4.40 同级；顿卡看安卓双向与静音只听。HITL 必须在安全上下文（HTTPS 或 localhost）；`http://局域网IP` 没有 `setSinkId`，实验会打空。`document.documentElement.dataset.speechDetectionSink` 为 `none` / `speakers` / `unsupported`。
+
+### none sink 被听感证伪（0.4.48）
+
+v0.4.47 HITL：安卓双向顿卡/嘣嘣没有改善；桌面出现概率很低的断续。分析图改输出设备既治不好安卓，又引入桌面回归。撤回 none sink 与 `setSinkId` 补救，说话检测与 `TrackActivityMonitor` 回到 v0.4.46：`gain=0` 接到 `destination`，构造不再传 `sinkId`。混音时钟仍是单条 48 kHz `interactive`。不在本轮恢复让出采集——0.4.41 的让出只在真正发布麦克风时停 VAD，静音只听仍自持采集，解释不了「静音只听仍卡」。

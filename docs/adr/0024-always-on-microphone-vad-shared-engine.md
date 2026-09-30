@@ -21,3 +21,7 @@ v0.4.45 把混音时钟改回 0.4.40 后听感仍劣化。0.4.41 剩余的「进
 ## 修订（0.4.47）：分析图 AudioContext 使用 none sink
 
 持续自持采集不变。VAD 的 16 kHz AudioContext 改为 `{ sinkId: { type: 'none' } }`，图仍接到该上下文的 dummy destination，但不打开扬声器设备。见 ADR-0045。
+
+## 修订（0.4.48）：none sink 撤回
+
+v0.4.47 HITL 安卓无改善、桌面低概率断续。分析图回到 `gain=0` 接 `destination`，持续自持采集不变。见 ADR-0045。
