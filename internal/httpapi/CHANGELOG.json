@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.49",
+    "date": "2026-09-30",
+    "changes": [
+      "fix(web): 安卓语音混音改用 balanced 延迟——仍是一条 48 kHz 图，桌面保持 interactive（ADR-0045）",
+      "docs: 安卓混音图改 balanced，不拆图、不改采样率（ADR-0025/0045）"
+    ]
+  },
+  {
     "version": "0.4.48",
     "date": "2026-09-30",
     "changes": [
