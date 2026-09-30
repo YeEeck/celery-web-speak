@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.50",
+    "date": "2026-10-01",
+    "changes": [
+      "fix(web): 语音混音全端改用 48 kHz balanced——低延迟不是需求，取消安卓/桌面延迟分支（ADR-0045）",
+      "docs: 音质劣化不是 balanced；单图统一 balanced（ADR-0025/0045）"
+    ]
+  },
+  {
     "version": "0.4.49",
     "date": "2026-09-30",
     "changes": [
