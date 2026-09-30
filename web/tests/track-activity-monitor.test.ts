@@ -37,7 +37,6 @@ class FakeAudioContext {
   silence = new FakeNode()
   state: AudioContextState = 'running'
   closeCalls = 0
-  ctorOptions: AudioContextOptions | undefined
 
   createMediaStreamSource() {
     return this.source
@@ -59,19 +58,17 @@ class FakeAudioContext {
   }
 }
 
-test('activity monitor uses a none-sink context and routes analysers through muted gain', () => {
+test('activity monitor routes analysers through a muted gain to speakers', () => {
   const OriginalAudioContext = globalThis.AudioContext
   const context = new FakeAudioContext()
   globalThis.AudioContext = class {
-    constructor(options?: AudioContextOptions) {
-      context.ctorOptions = options
+    constructor() {
       return context
     }
   } as unknown as typeof AudioContext
   try {
     const monitor = new TrackActivityMonitor(() => undefined)
     monitor.sync([{ identity: 'user-1', mediaTrack: { readyState: 'live' } as MediaStreamTrack, muted: false }])
-    assert.deepEqual(context.ctorOptions, { sinkId: { type: 'none' } })
     assert.equal(context.silence.gain.value, 0)
     assert.deepEqual(context.silence.connectCalls, [context.destination])
     assert.deepEqual(context.source.connectCalls, [context.analyser])

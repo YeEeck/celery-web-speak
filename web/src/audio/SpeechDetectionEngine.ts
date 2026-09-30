@@ -1,5 +1,3 @@
-import { analysisSinkStatus, applyNoneSink, createAnalysisAudioContext } from './analysisAudioContext.ts'
-
 const SAMPLE_RATE = 16_000
 const FRAME_DURATION_MS = 20
 
@@ -152,12 +150,9 @@ export class SpeechDetectionEngine {
         isSelfStop: () => this.selfStopping,
       })
 
-      const context = createAnalysisAudioContext(SAMPLE_RATE)
-      if (!context) throw new Error('无法创建 VAD 音频上下文')
+      const context = new AudioContext({ sampleRate: SAMPLE_RATE })
       this.context = context
       if (context.sampleRate !== SAMPLE_RATE) throw new Error(`浏览器不支持 ${SAMPLE_RATE} Hz 音频上下文`)
-      await applyNoneSink(context)
-      if (operation !== this.operation) return false
       await context.audioWorklet.addModule(new URL('./muted-speaking-worklet.js', import.meta.url))
       if (operation !== this.operation) return false
 
@@ -195,11 +190,6 @@ export class SpeechDetectionEngine {
       // （独立线程），主线程 performance 与网络事件看不到它；e2e 与排障依赖
       // 此标记确认引擎（含 muted-speaking worklet）真正就绪。
       document.documentElement.dataset.speechDetectionReady = 'true'
-      const sinkStatus = analysisSinkStatus(context)
-      document.documentElement.dataset.speechDetectionSink = sinkStatus
-      if (sinkStatus !== 'none') {
-        console.warn('说话检测分析图未能使用 none sink', sinkStatus, window.isSecureContext ? 'secure' : 'insecure')
-      }
       return true
     } catch (error) {
       if (operation === this.operation) this.fail(asError(error))
@@ -248,7 +238,6 @@ export class SpeechDetectionEngine {
     const context = this.context
     this.context = null
     if (context && context.state !== 'closed') void context.close()
-    delete document.documentElement.dataset.speechDetectionSink
   }
 }
 

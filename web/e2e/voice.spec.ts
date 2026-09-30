@@ -283,7 +283,6 @@ test('DTX 模式在线重发布并在静音期间延迟应用', async ({ browser
     // fetch 发生在 AudioWorkletGlobalScope（独立线程），主线程 performance 与
     // 网络事件不可见，只能观察引擎在 worklet 加载完成后设置的 DOM 标记。
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.speechDetectionReady === 'true')).toBe(true)
-    await expect.poll(() => page.evaluate(() => document.documentElement.dataset.speechDetectionSink)).toBe('none')
     await modeButton.click()
     modeButton = page.locator('.transmission-mode-button')
     await expect(modeButton).toHaveAccessibleName('当前模式：持续传输；切换为语音感应')
