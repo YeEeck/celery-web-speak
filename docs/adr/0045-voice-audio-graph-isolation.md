@@ -71,3 +71,5 @@ none sink 证伪后，顿卡更像是 48 kHz `interactive` 混音在安卓上欠
 - 分析图、双采集、RNNoise 节点、播放采样率都不动。
 
 对照：桌面音质与断续须仍像 0.4.46；安卓先听音质，再听双向与静音只听。`document.documentElement.dataset.voiceMixLatency` 为 `balanced` 或 `interactive`。
+
+HITL：安卓顿卡/嘣嘣消除。根因是同一条 48 kHz 图上 `webAudioMix` + RNNoise worklet 填不满 `interactive` 的回调窗口，欠载爆音；`balanced` 加大缓冲，图与采样率不变。0.4.41–0.4.42 里真正止住顿卡的是安卓 `balanced`，隔离层是音质毒药。UA/壳只作「这台 HAL 撑不住 interactive」的代理，不是拓扑分支（ADR-0044 作废的是按 OS 拆图）。
