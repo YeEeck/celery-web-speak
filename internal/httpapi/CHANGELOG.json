@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.4.48",
+    "date": "2026-09-30",
+    "changes": [
+      "fix(web): 撤回分析图 none sink——0.4.47 安卓顿卡无改善，桌面出现低概率断续，分析图回到 gain=0 接 destination（ADR-0045）",
+      "docs: none sink 被听感证伪；不恢复让出采集（ADR-0024/0045）"
+    ]
+  },
+  {
     "version": "0.4.47",
     "date": "2026-09-29",
     "changes": [
